@@ -5,6 +5,10 @@
 
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
+#include <zephyr/net/net_if.h>
+#include <zephyr/net/net_mgmt.h>
+#include <zephyr/net/net_event.h>
+#include <zephyr/net/net_ip.h>
 #include <snmp/snmp.h>
 #include <snmp/snmp_mib.h>
 #include <snmp/snmp_trap.h>
@@ -98,11 +102,88 @@ static struct snmp_mib_table g_sensor_table = {
     .set_cbs = NULL,
 };
 
+static struct net_mgmt_event_callback mgmt_cb;
+
+static void print_network_status(struct net_if *iface)
+{
+	if (!iface) {
+		LOG_WRN("No default network interface found.");
+		return;
+	}
+
+	const struct device *dev = net_if_get_device(iface);
+	LOG_INF("Network Interface : %s (index %d)",
+		dev ? dev->name : "eth", net_if_get_by_iface(iface));
+
+	struct net_linkaddr *link = net_if_get_link_addr(iface);
+	if (link && link->addr && link->len == 6) {
+		LOG_INF("Ethernet MAC      : %02X:%02X:%02X:%02X:%02X:%02X",
+			link->addr[0], link->addr[1], link->addr[2],
+			link->addr[3], link->addr[4], link->addr[5]);
+	}
+
+	LOG_INF("Ethernet Carrier  : %s",
+		net_if_is_carrier_ok(iface) ? "LINK UP" : "LINK DOWN (check Ethernet cable)");
+
+	if (iface->config.ip.ipv4) {
+		char buf[NET_IPV4_ADDR_LEN];
+		for (int i = 0; i < NET_IF_MAX_IPV4_ADDR; i++) {
+			struct net_if_addr_ipv4 *uni = &iface->config.ip.ipv4->unicast[i];
+			if (!uni->ipv4.is_used) {
+				continue;
+			}
+			net_addr_ntop(AF_INET, &uni->ipv4.address.in_addr, buf, sizeof(buf));
+			LOG_INF("IPv4 Address [%d]  : %s (%s)", i + 1, buf,
+				uni->ipv4.addr_type == NET_ADDR_DHCP ? "DHCP" :
+				(uni->ipv4.addr_type == NET_ADDR_OVERRIDABLE ? "Static (overridable)" : "Static"));
+			net_addr_ntop(AF_INET, &uni->netmask, buf, sizeof(buf));
+			LOG_INF("Netmask      [%d]  : %s", i + 1, buf);
+		}
+		if (iface->config.ip.ipv4->gw.s_addr != 0) {
+			net_addr_ntop(AF_INET, &iface->config.ip.ipv4->gw, buf, sizeof(buf));
+			LOG_INF("Default Gateway   : %s", buf);
+		}
+	}
+}
+
+static void net_event_handler(struct net_mgmt_event_callback *cb,
+			      uint64_t mgmt_event, struct net_if *iface)
+{
+	if (mgmt_event == NET_EVENT_IPV4_ADDR_ADD) {
+		char buf[NET_IPV4_ADDR_LEN];
+		for (int i = 0; i < NET_IF_MAX_IPV4_ADDR; i++) {
+			struct net_if_addr_ipv4 *uni = &iface->config.ip.ipv4->unicast[i];
+			if (!uni->ipv4.is_used) {
+				continue;
+			}
+			net_addr_ntop(AF_INET, &uni->ipv4.address.in_addr, buf, sizeof(buf));
+			LOG_INF(">>> IPv4 READY: %s (%s) <<<", buf,
+				uni->ipv4.addr_type == NET_ADDR_DHCP ? "DHCP assigned" : "Static");
+			LOG_INF(">>> SNMP Agent listening on UDP %s:161 <<<", buf);
+			LOG_INF("Query SysDescr : snmpget -v2c -c public %s 1.3.6.1.2.1.1.1.0", buf);
+			LOG_INF("Query Sensor   : snmpget -v2c -c public %s 1.3.6.1.4.1.54321.1.1.0", buf);
+			LOG_INF("Walk Sensors   : snmpwalk -v2c -c public %s 1.3.6.1.4.1.54321.2.1", buf);
+		}
+	} else if (mgmt_event == NET_EVENT_IPV4_ADDR_DEL) {
+		LOG_WRN("IPv4 address removed from network interface");
+	}
+}
+
 int main(void)
 {
-	LOG_INF("Starting SNMP Agent Sample...");
+	LOG_INF("========================================");
+	LOG_INF("Starting SNMP Agent Sample on Zephyr");
+	LOG_INF("========================================");
 
-	/* 1. Initialize SNMP Subsystem (starts UDP port 161 listener) */
+	/* 1. Register network event listener and report current interface status */
+	net_mgmt_init_event_callback(&mgmt_cb, net_event_handler,
+				     NET_EVENT_IPV4_ADDR_ADD | NET_EVENT_IPV4_ADDR_DEL);
+	net_mgmt_add_event_callback(&mgmt_cb);
+
+	struct net_if *iface = net_if_get_default();
+	print_network_status(iface);
+
+	/* 2. Initialize SNMP Subsystem (starts UDP port 161 listener) */
 	int ret = snmp_agent_init();
 	if (ret < 0) {
 		LOG_ERR("Failed to initialize SNMP agent: %d", ret);
