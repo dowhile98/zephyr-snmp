@@ -1,0 +1,11 @@
+sample:
+  name: SNMP Agent Sample
+  description: Demonstrates Zephyr SNMP Agent (v1/v2c) with scalar and table nodes
+tests:
+  sample.net.snmp:
+    platform_allow:
+      - native_sim
+      - qemu_x86
+    tags:
+      - net
+      - snmp

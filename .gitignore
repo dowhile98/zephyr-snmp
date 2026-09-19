@@ -1,0 +1,43 @@
+# Build artifacts
+build/
+build*/
+**/build/
+zephyr/.cache/
+zephyr/zephyr.elf
+zephyr/zephyr.bin
+zephyr/zephyr.hex
+zephyr/zephyr.map
+zephyr/Makefile
+zephyr/CMakeFiles/
+zephyr/cmake_install.cmake
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Generated
+*.pyc
+__pycache__/
+
+# Configuration (keep prj.conf but ignore local overrides)
+prj_local.conf
+.local.conf
+
+# West
+.west/
+
+# CCache
+.ccache/
+
+# Test artifacts
+*.gcda
+*.gcno
+*.gcov
+coverage/

@@ -1,0 +1,100 @@
+DAECGE-BRIGHTC-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY, OBJECT-TYPE, NOTIFICATION-TYPE,
+    enterprises, Integer32, Counter32, Gauge32
+        FROM SNMPv2-SMI
+    DisplayString
+        FROM SNMPv2-TC;
+
+brightcMIB MODULE-IDENTITY
+    LAST-UPDATED "202607300000Z"
+    ORGANIZATION "DAECGE TECNA SMART LAB"
+    CONTACT-INFO "support@tecnasmart.com"
+    DESCRIPTION
+        "MIB para el control de relays, lectura de sensores y eventos del firmware BrightC-B1 V3."
+    REVISION     "202607300000Z"
+    DESCRIPTION  "Primera versión de la MIB privada DAECGE BrightC."
+    ::= { enterprises 3134 }
+
+-- Grupos Principales
+brightcObjects      OBJECT IDENTIFIER ::= { brightcMIB 1 }
+brightcTraps        OBJECT IDENTIFIER ::= { brightcMIB 2 }
+
+-- Subgrupos de Objetos
+brightcControl      OBJECT IDENTIFIER ::= { brightcObjects 1 }
+brightcSensors      OBJECT IDENTIFIER ::= { brightcObjects 2 }
+brightcStats        OBJECT IDENTIFIER ::= { brightcObjects 3 }
+
+-------------------------------------------------------------------------------
+-- Grupo Control (Read-Write)
+-------------------------------------------------------------------------------
+
+relayAA1State OBJECT-TYPE
+    SYNTAX      INTEGER { off(0), on(1) }
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "Estado del Relay Principal AA1 (0 = Apagado/Abierto, 1 = Encendido/Cerrado)."
+    ::= { brightcControl 1 }
+
+alarmOut1State OBJECT-TYPE
+    SYNTAX      INTEGER { off(0), on(1) }
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "Estado de la Salida de Alarma ALM_OUT_1 (0 = Inactiva, 1 = Activa)."
+    ::= { brightcControl 2 }
+
+buzzerState OBJECT-TYPE
+    SYNTAX      INTEGER { off(0), on(1) }
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "Estado del Buzzer PWM (0 = Silencioso, 1 = Beep Activo)."
+    ::= { brightcControl 3 }
+
+-------------------------------------------------------------------------------
+-- Grupo Sensores (Read-Only)
+-------------------------------------------------------------------------------
+
+tempSensorCh1 OBJECT-TYPE
+    SYNTAX      Gauge32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Lectura actual del sensor de temperatura CH1 (grados Celsius * 10)."
+    ::= { brightcSensors 1 }
+
+pressureSensorCh1 OBJECT-TYPE
+    SYNTAX      Gauge32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Lectura actual del sensor de presión CH1 en PSI."
+    ::= { brightcSensors 2 }
+
+-------------------------------------------------------------------------------
+-- Grupo Estadísticas (Read-Only)
+-------------------------------------------------------------------------------
+
+uptimeSeconds OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Segundos totales transcurridos desde el encendido del dispositivo."
+    ::= { brightcStats 1 }
+
+-------------------------------------------------------------------------------
+-- Notificaciones y Traps
+-------------------------------------------------------------------------------
+
+alarmEventTrap NOTIFICATION-TYPE
+    OBJECTS     { alarmOut1State, tempSensorCh1 }
+    STATUS      current
+    DESCRIPTION
+        "Notificación emitida cuando una alarma se activa o supera umbrales."
+    ::= { brightcTraps 1 }
+
+END

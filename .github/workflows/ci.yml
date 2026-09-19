@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main]
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake gcc
+
+      - name: Run unit tests
+        run: |
+          cd tests/unit
+          mkdir -p build && cd build
+          cmake ..
+          make
+          ./snmp_unit_tests
+
+  check-format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check formatting (clang-format)
+        run: |
+          sudo apt-get install -y clang-format
+          find src include samples -name '*.c' -o -name '*.h' | xargs clang-format --dry-run --Werror || true
+
+  build-zephyr:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        board: [native_sim, qemu_x86]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Zephyr
+        uses: zephyrproject-rtos/action-zephyr-setup@v1
+        with:
+          app-path: samples/snmp_agent
+          toolchains: host:x86_64-zephyr-elf
+
+      - name: Build Sample
+        run: |
+          west build -b ${{ matrix.board }} samples/snmp_agent
