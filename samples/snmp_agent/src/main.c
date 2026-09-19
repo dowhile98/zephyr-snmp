@@ -139,6 +139,7 @@ int main(void)
 	LOG_INF("SNMP Agent running. Ready for incoming requests on UDP :161.");
 
 	/* Main loop: simulate sensor readings variation */
+	while (1) {
 		k_sleep(K_SECONDS(5));
 		g_temperature = 20 + (k_uptime_get_32() % 15);
 	}
