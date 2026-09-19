@@ -44,7 +44,8 @@ static int set_temperature(struct snmp_mib_node *node, const struct snmp_varbind
 static const char *g_sensor_names[] = {"CPU Temp", "Amb Humidity", "Voltage"};
 static int32_t g_sensor_values[] = {42, 55, 3300};
 
-static int sensor_col1_get(const struct snmp_table_row *row, uint8_t column, struct snmp_varbind *vb)
+static int sensor_col1_get(const struct snmp_table_row *row, uint8_t column,
+			   struct snmp_varbind *vb)
 {
 	(void)column;
 	vb->type = ASN1_TAG_INTEGER;
@@ -52,19 +53,26 @@ static int sensor_col1_get(const struct snmp_table_row *row, uint8_t column, str
 	return 0;
 }
 
-static int sensor_col2_get(const struct snmp_table_row *row, uint8_t column, struct snmp_varbind *vb)
+static int sensor_col2_get(const struct snmp_table_row *row, uint8_t column,
+			   struct snmp_varbind *vb)
 {
 	(void)column;
 	if (row->index < 1 || row->index > 3) {
 		return -ENOENT;
 	}
 	vb->type = ASN1_TAG_OCTET_STRING;
-	strncpy(vb->val.str_val, g_sensor_names[row->index - 1], sizeof(vb->val.str_val) - 1);
-	vb->val.str_val[sizeof(vb->val.str_val) - 1] = '\0';
+	const char *name = g_sensor_names[row->index - 1];
+	size_t len = strlen(name);
+	if (len > sizeof(vb->val.octet_str.data)) {
+		len = sizeof(vb->val.octet_str.data);
+	}
+	memcpy(vb->val.octet_str.data, name, len);
+	vb->val.octet_str.len = (uint16_t)len;
 	return 0;
 }
 
-static int sensor_col3_get(const struct snmp_table_row *row, uint8_t column, struct snmp_varbind *vb)
+static int sensor_col3_get(const struct snmp_table_row *row, uint8_t column,
+			   struct snmp_varbind *vb)
 {
 	(void)column;
 	if (row->index < 1 || row->index > 3) {
@@ -79,19 +87,15 @@ static const uint8_t g_sensor_cols[] = {1, 2, 3};
 static const uint8_t g_sensor_types[] = {ASN1_TAG_INTEGER, ASN1_TAG_OCTET_STRING, ASN1_TAG_INTEGER};
 static snmp_table_get_cb_t g_sensor_get_cbs[] = {sensor_col1_get, sensor_col2_get, sensor_col3_get};
 
-static struct snmp_table_row g_sensor_rows[3] = {
-	{.index = 1},
-	{.index = 2},
-	{.index = 3}
-};
+static struct snmp_table_row g_sensor_rows[3] = {{.index = 1}, {.index = 2}, {.index = 3}};
 
 static struct snmp_mib_table g_sensor_table = {
-	.table_oid = {.len = 9, .ids = {1, 3, 6, 1, 4, 1, 54321, 2, 1}},
-	.column_cnt = 3,
-	.column_subids = g_sensor_cols,
-	.column_types = g_sensor_types,
-	.get_cbs = g_sensor_get_cbs,
-	.set_cbs = NULL,
+    .table_oid = {.len = 9, .ids = {1, 3, 6, 1, 4, 1, 54321, 2, 1}},
+    .column_cnt = 3,
+    .column_subids = g_sensor_cols,
+    .column_types = g_sensor_types,
+    .get_cbs = g_sensor_get_cbs,
+    .set_cbs = NULL,
 };
 
 int main(void)
@@ -114,13 +118,14 @@ int main(void)
 
 	/* 3. Register custom Enterprise Scalar OID: 1.3.6.1.4.1.54321.1.1.0 */
 	static const struct snmp_mib_node temp_node = {
-		.oid = {
-			.len = 10,
-			.ids = {1, 3, 6, 1, 4, 1, 54321, 1, 1, 0},
+	    .oid =
+		{
+		    .len = 10,
+		    .ids = {1, 3, 6, 1, 4, 1, 54321, 1, 1, 0},
 		},
-		.type = ASN1_TAG_INTEGER,
-		.get_cb = get_temperature,
-		.set_cb = set_temperature,
+	    .type = ASN1_TAG_INTEGER,
+	    .get_cb = get_temperature,
+	    .set_cb = set_temperature,
 	};
 	snmp_mib_register(&temp_node);
 

@@ -219,6 +219,10 @@ config SNMP_RATE_LIMIT_BURST
 
 endif # SNMP_RATE_LIMIT
 
+module = SNMP
+module-str = snmp
+source "subsys/logging/Kconfig.template.log_config"
+
 endif # SNMP_AGENT
 
 endmenu

@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 if(CONFIG_SNMP_AGENT)
+    zephyr_include_directories(include)
+
     zephyr_library()
     zephyr_library_include_directories(include)
 
