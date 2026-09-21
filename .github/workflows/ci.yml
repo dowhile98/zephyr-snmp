@@ -42,13 +42,20 @@ jobs:
         board: [native_sim, qemu_x86]
     steps:
       - uses: actions/checkout@v4
+        with:
+          path: zephyr-snmp
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
 
       - name: Setup Zephyr
         uses: zephyrproject-rtos/action-zephyr-setup@v1
         with:
-          app-path: samples/snmp_agent
-          toolchains: host:x86_64-zephyr-elf
+          app-path: zephyr-snmp
+          toolchains: x86_64-zephyr-elf
 
       - name: Build Sample
         run: |
-          west build -b ${{ matrix.board }} samples/snmp_agent
+          west build -b ${{ matrix.board }} zephyr-snmp/samples/snmp_agent
