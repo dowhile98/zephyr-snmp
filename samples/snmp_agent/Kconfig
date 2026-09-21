@@ -1,0 +1,47 @@
+# Copyright (c) 2026 Zephyr SNMP Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+mainmenu "SNMP Agent Validation Sample"
+
+menu "SNMP Validation Sample Options"
+
+config SNMP_SAMPLE_ENTERPRISE_ID
+	int "Enterprise ID for Private MIB (1.3.6.1.4.1.<ID>)"
+	default 54321
+	help
+	  Enterprise number under which the sample Private MIB is registered.
+	  Default is 54321, resulting in OID tree 1.3.6.1.4.1.54321.1...
+
+config SNMP_SAMPLE_SENSOR_OBJECT
+	bool "Enable simulated sensor objects"
+	default y
+	help
+	  Registers simulated sensors in Private MIB:
+	  - sensorValue (INTEGER / simulated temperature)
+	  - sensorHumidity (GAUGE32 / relative humidity)
+	  - sensorDescription (OCTET STRING)
+	  - sensorStatusOid (OBJECT IDENTIFIER)
+
+config SNMP_SAMPLE_LED_OBJECT
+	bool "Enable LED control object (ledState)"
+	default y
+	help
+	  Registers ledState (read-write INTEGER) controlling the user LED (led0).
+
+config SNMP_SAMPLE_BUTTON_TRAP
+	bool "Enable User Button trap notification"
+	default y
+	help
+	  Enables GPIO interrupt on User Button (sw0). Pressing the button sends
+	  an SNMP Trap/Notification to the configured destination with buttonCounter.
+
+config SNMP_SAMPLE_TRAP_DEST
+	string "Trap destination IPv4 address"
+	default "192.168.16.100"
+	depends on SNMP_TRAP_ENABLED
+	help
+	  IP address of the SNMP Manager receiving traps and notifications on UDP port 162.
+
+endmenu
+
+source "Kconfig.zephyr"

@@ -8,6 +8,7 @@ Embedded SNMP agent (v1, v2c, v3) for Zephyr RTOS. Self-contained, zero dynamic 
 
 ## Table of Contents
 
+- [Documentation & Wiki](#documentation--wiki)
 - [Features](#features)
 - [Quick Start](#quick-start)
 - [Configuration](#configuration)
@@ -22,6 +23,17 @@ Embedded SNMP agent (v1, v2c, v3) for Zephyr RTOS. Self-contained, zero dynamic 
 - [Contributing](#contributing)
 - [License](#license)
 - [Changelog](#changelog)
+
+## Documentation & Wiki
+
+Para obtener documentación detallada, consulte el **[Wiki del Proyecto](docs/wiki/Home.md)**:
+
+- 🏛️ **[Arquitectura e Internales](docs/wiki/Architecture-and-Internals.md)**: Modelo de cero asignación dinámica, códec ASN.1 BER, `net_socket_service` y motor de MIB.
+- 📊 **[Diseño e Implementación de MIBs](docs/wiki/MIB-Design-and-Implementation.md)**: Guía paso a paso para variables escalares (RO/RW), tablas dinámicas y especificación SMIv2.
+- ⚡ **[Integración de Hardware y Red](docs/wiki/Hardware-and-Network-Integration.md)**: DeviceTree (`led0`, `sw0`), interrupciones con debounce, delegación a workqueue y sincronización DHCPv4.
+- 📋 **[Matriz de Protocolos y Auditoría Técnica](docs/wiki/SNMP-Version-Matrix-and-Interoperability.md)**: Análisis comparativo exhaustivo v1/v2c/v3 y auditoría de USM/VACM.
+- 🔧 **[Guía de Depuración y Troubleshooting](docs/wiki/Troubleshooting-and-Debugging.md)**: Resolución de timeouts, caídas de stack, colisiones de sockets y captura de traps.
+- 🚀 **[Sample de Validación en NUCLEO-H743ZI](samples/snmp_agent/README.md)**: Manual exhaustivo con comandos de prueba Net-SNMP listos para usar y consola interactiva.
 
 ## Features
 

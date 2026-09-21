@@ -91,7 +91,13 @@ static bool snmp_rate_check(void)
 }
 #endif
 
-NET_SOCKET_SERVICE_SYNC_DEFINE_STATIC(snmp_svc, snmp_service_callback, 1);
+#ifdef CONFIG_NET_IPV6
+#define SNMP_SVC_SOCKET_COUNT 2
+#else
+#define SNMP_SVC_SOCKET_COUNT 1
+#endif
+
+NET_SOCKET_SERVICE_SYNC_DEFINE_STATIC(snmp_svc, snmp_service_callback, SNMP_SVC_SOCKET_COUNT);
 
 int snmp_service_init(void)
 {
@@ -100,43 +106,40 @@ int snmp_service_init(void)
 	g_rate_last_refill = k_uptime_get();
 #endif
 
+	struct zsock_pollfd pfds[SNMP_SVC_SOCKET_COUNT];
+	int pfd_count = 0;
+
+#ifndef CONFIG_SNMP_AGENT_PORT
+#define CONFIG_SNMP_AGENT_PORT 161
+#endif
+
 	g_snmp_sock = zsock_socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-	if (g_snmp_sock < 0)
+	if (g_snmp_sock >= 0) {
+		struct sockaddr_in bind_addr;
+		memset(&bind_addr, 0, sizeof(bind_addr));
+		bind_addr.sin_family = AF_INET;
+		bind_addr.sin_port = htons(CONFIG_SNMP_AGENT_PORT);
+		bind_addr.sin_addr.s_addr = INADDR_ANY;
+
+		int ret = zsock_bind(g_snmp_sock, (struct sockaddr *)&bind_addr, sizeof(bind_addr));
+		if (ret < 0) {
+			zsock_close(g_snmp_sock);
+			g_snmp_sock = -1;
+			return -errno;
+		}
+
+		pfds[pfd_count].fd = g_snmp_sock;
+		pfds[pfd_count].events = ZSOCK_POLLIN;
+		pfd_count++;
+	} else {
 		return -errno;
-
-	struct sockaddr_in bind_addr;
-	memset(&bind_addr, 0, sizeof(bind_addr));
-	bind_addr.sin_family = AF_INET;
-	bind_addr.sin_port = htons(161);
-	bind_addr.sin_addr.s_addr = INADDR_ANY;
-
-	int ret = zsock_bind(g_snmp_sock, (struct sockaddr *)&bind_addr, sizeof(bind_addr));
-	if (ret < 0)
-	{
-		zsock_close(g_snmp_sock);
-		g_snmp_sock = -1;
-		return -errno;
-	}
-
-	struct zsock_pollfd pfd = {
-		.fd = g_snmp_sock,
-		.events = ZSOCK_POLLIN,
-	};
-
-	ret = net_socket_service_register(&snmp_svc, &pfd, 1, NULL);
-	if (ret < 0)
-	{
-		zsock_close(g_snmp_sock);
-		g_snmp_sock = -1;
-		return ret;
 	}
 
 #ifdef CONFIG_NET_IPV6
-{
 	struct sockaddr_in6 bind_addr6;
 	memset(&bind_addr6, 0, sizeof(bind_addr6));
 	bind_addr6.sin6_family = AF_INET6;
-	bind_addr6.sin6_port = htons(161);
+	bind_addr6.sin6_port = htons(CONFIG_SNMP_AGENT_PORT);
 
 	g_snmp_sock6 = zsock_socket(AF_INET6, SOCK_DGRAM, IPPROTO_UDP);
 	if (g_snmp_sock6 >= 0) {
@@ -145,19 +148,29 @@ int snmp_service_init(void)
 			zsock_close(g_snmp_sock6);
 			g_snmp_sock6 = -1;
 		} else {
-			struct zsock_pollfd pfd6 = {
-				.fd = g_snmp_sock6,
-				.events = ZSOCK_POLLIN,
-			};
-			ret6 = net_socket_service_register(&snmp_svc, &pfd6, 1, NULL);
-			if (ret6 < 0) {
+			pfds[pfd_count].fd = g_snmp_sock6;
+			pfds[pfd_count].events = ZSOCK_POLLIN;
+			pfd_count++;
+		}
+	}
+#endif
+
+	if (pfd_count > 0) {
+		int ret = net_socket_service_register(&snmp_svc, pfds, pfd_count, NULL);
+		if (ret < 0) {
+			if (g_snmp_sock >= 0) {
+				zsock_close(g_snmp_sock);
+				g_snmp_sock = -1;
+			}
+#ifdef CONFIG_NET_IPV6
+			if (g_snmp_sock6 >= 0) {
 				zsock_close(g_snmp_sock6);
 				g_snmp_sock6 = -1;
 			}
+#endif
+			return ret;
 		}
 	}
-}
-#endif
 
 	return 0;
 }
@@ -195,6 +208,7 @@ int snmp_agent_init(void)
 
 int snmp_agent_deinit(void)
 {
+	(void)net_socket_service_unregister(&snmp_svc);
 	if (g_snmp_sock >= 0) {
 		zsock_close(g_snmp_sock);
 		g_snmp_sock = -1;

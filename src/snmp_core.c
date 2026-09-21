@@ -20,8 +20,16 @@
 #include <snmp/snmp_vacm.h>
 #endif
 
-static char g_read_community[64]  = "public";
-static char g_write_community[64] = "private";
+#ifndef CONFIG_SNMP_COMMUNITY_READ
+#define CONFIG_SNMP_COMMUNITY_READ "public"
+#endif
+
+#ifndef CONFIG_SNMP_COMMUNITY_WRITE
+#define CONFIG_SNMP_COMMUNITY_WRITE "private"
+#endif
+
+static char g_read_community[64]  = CONFIG_SNMP_COMMUNITY_READ;
+static char g_write_community[64] = CONFIG_SNMP_COMMUNITY_WRITE;
 
 int snmp_set_read_community(const char *community)
 {

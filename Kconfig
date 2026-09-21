@@ -20,6 +20,27 @@ config SNMP_AGENT
 
 if SNMP_AGENT
 
+config SNMP_AGENT_PORT
+	int "SNMP Agent UDP listening port"
+	default 161
+	range 1 65535
+	help
+	  UDP port on which the SNMP agent listens for incoming queries (default: 161).
+
+config SNMP_COMMUNITY_READ
+	string "Default read community string (SNMPv1/v2c)"
+	default "public"
+	depends on SNMP_VERSION_1 || SNMP_VERSION_2C
+	help
+	  Community string required for GET, GETNEXT, and GETBULK requests.
+
+config SNMP_COMMUNITY_WRITE
+	string "Default write community string (SNMPv1/v2c)"
+	default "private"
+	depends on SNMP_VERSION_1 || SNMP_VERSION_2C
+	help
+	  Community string required for SET requests.
+
 config SNMP_VERSION_1
 	bool "Enable SNMPv1 protocol support"
 	default y
@@ -176,6 +197,41 @@ config SNMP_TRAP_ENABLED
 	  When both v2c and v1 are enabled, traps use the v2c format.
 
 if SNMP_TRAP_ENABLED
+
+config SNMP_TRAP_PORT
+	int "SNMP Trap destination UDP port"
+	default 162
+	range 1 65535
+	help
+	  Destination UDP port for SNMP traps and notifications (default: 162).
+
+choice SNMP_TRAP_FORMAT
+	prompt "Trap notification format"
+	default SNMP_TRAP_FORMAT_V2C if SNMP_VERSION_2C
+	default SNMP_TRAP_FORMAT_V1 if SNMP_VERSION_1
+	default SNMP_TRAP_FORMAT_V3 if SNMP_VERSION_3
+	help
+	  Format used when generating SNMP traps and notifications.
+
+config SNMP_TRAP_FORMAT_V1
+	bool "SNMPv1 Trap (RFC 1157)"
+	depends on SNMP_VERSION_1
+	help
+	  Generate legacy TRAPv1 PDU with enterprise OID and agent address.
+
+config SNMP_TRAP_FORMAT_V2C
+	bool "SNMPv2c Trap (RFC 3416)"
+	depends on SNMP_VERSION_2C
+	help
+	  Generate SNMPv2-Trap PDU with sysUpTime.0 and snmpTrapOID.0 varbinds.
+
+config SNMP_TRAP_FORMAT_V3
+	bool "SNMPv3 Notification (RFC 3412)"
+	depends on SNMP_VERSION_3
+	help
+	  Generate SNMPv3 notification PDU with USM security.
+
+endchoice
 
 config SNMP_TRAP_DEST_COUNT
 	int "Maximum concurrent trap destinations"
