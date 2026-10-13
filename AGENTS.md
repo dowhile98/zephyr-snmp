@@ -46,11 +46,14 @@ west build -p always -b nucleo_h743zi samples/snmp_agent   # hardware sample
 
 zephyr-snmp includes two testing suites:
 
-1. **Native Zephyr Ztest / Twister Suite (`tests/`)**:
-   Full test suite executing under Zephyr RTOS with Ztest. Validates BER encoding/decoding, OID operations, MIB engine, VACM access control, Two-Phase Commit (2PC) SET transactions, MIB-II network groups, and multi-instance isolation on simulated targets:
+1. **Native Zephyr Ztest / Twister Suite (`tests/`)**: Ztest cases in `tests/src/`
+   (BER, OID, MIB engine, VACM, 2PC SET, MIB-II groups, multi-instance). Config:
+   `tests/testcase.yaml` allows `native_sim`, `native_sim/native/64`, `qemu_x86`, with
+   `integration_platforms: native_sim/native/64`. `twister-out/` is gitignored.
    ```bash
-   # On this machine, use the 64-bit native_sim target:
+   # On this machine only native_sim/native/64 works (see Environment):
    west twister -T tests/ -p native_sim/native/64 -v --inline-logs --integration
+   # ~40 s; verified: 1 testsuite, 47/47 ztest cases pass
    ```
 
 2. **Host Unit Tests (`tests/unit/`)**:
@@ -76,39 +79,44 @@ Gotchas an agent will otherwise miss:
 - Integration testing is manual, via Net-SNMP CLI against a running board/QEMU
   (see `README.md` "Testing" and `samples/snmp_agent/README.md`).
 
-## CI gates (`.github/workflows/ci.yml`)
+## CI gates (`.github/workflows/ci.yml` & `docs.yml`) — verified facts
 
-1. `compliance` — `clang-format --dry-run --Werror` over `src include samples tests/src tests/unit` (strict, no bypass).
-2. `host-unit-tests` — Host unit tests fast-gate via CMake/gcc (`snmp_unit_tests` and `vacm_unit_tests`).
-3. `twister-tests` — Native Zephyr Ztest execution via `west twister -T tests/ -p native_sim -v --inline-logs --integration` with XML/JSON artifact upload.
-4. `sample-builds` — Sample builds across matrix `[native_sim, qemu_x86, nucleo_h743zi]` using `x86_64-zephyr-elf` and `arm-zephyr-eabi` toolchains.
+1. `compliance` — `clang-format --dry-run --Werror` over `src include samples tests/src tests/unit`, strict (no bypass). CI installs `pip install clang-format==23.1.1` matching the local development environment, and uses proper `find` grouping `\( -name '*.c' -o -name '*.h' \)`, eliminating local vs CI version drift.
+2. `host-unit-tests` — builds and runs **both** host binaries (`./snmp_unit_tests`, `./vacm_unit_tests`).
+3. `twister-tests` — runs `west twister -T tests/ -p native_sim/native/64 -v --inline-logs --integration`, correctly matching `tests/testcase.yaml` (`integration_platforms: native_sim/native/64`), and uploads test reports and `twister.json`.
+4. `sample-builds` — build matrix targeting `[native_sim/native/64, qemu_x86, nucleo_h743zi]` with target-specific toolchains (`""` for native_sim, `x86_64-zephyr-elf` for qemu_x86, `arm-zephyr-eabi` for nucleo_h743zi), executed with `working-directory: zephyr-snmp` and `-p always`.
+5. `documentation` (`.github/workflows/docs.yml`) — builds Doxygen 1.14.0 and Sphinx HTML documentation with `-W --keep-going`, generates preview artifacts on pull requests, and deploys to GitHub Pages on push to `main`.
 
 ## Style & structure
 
 - `.clang-format` at root: LLVM base, tabs width 8, `ColumnLimit: 100`, Linux braces.
 - Public API prefix `snmp_`, headers under `include/snmp/`, Doxygen `/** */` on public
   functions. Internal functions `static`. Conventional Commits (`fix(usm): ...`).
-- Layout: `src/` core (`snmp_ber`, `snmp_mib`, `snmp_core`, `snmp_service`, plus v3
+- Layout: `src/` core (`snmp_ber`, `snmp_mib` — engine + system/SNMP groups, `snmp_core`,
+  `snmp_service`, `snmp_mib2` — MIB-II network groups ifTable/ip/icmp/tcp/udp, plus v3
   `snmp_usm`/`snmp_vacm` and `snmp_trap` — each guarded by Kconfig in root
   `CMakeLists.txt`). `CONFIG_SNMP_AGENT` depends on `NETWORKING`/`NET_UDP`/`NET_SOCKETS`
   and selects `NET_SOCKETS_SERVICE`; the agent listens on UDP :161.
 - `samples/snmp_agent/src/app_*.c` (app_led, app_button, app_sensor, app_mib) show the
   intended consumption pattern — custom MIB registration, traps, DHCP/LED/button glue.
 - `samples/brightc_sensor/` is MIB-definition documentation only (no code, no build).
-- **RAM cost of multi-instance**: `sizeof(struct snmp_agent)` is **23,016 B (~22.5 KiB)
-  with v1/v2c** and **32,440 B (~31.7 KiB) with `CONFIG_SNMP_VERSION_3=y`** — the
-  USM/VACM/engine members are `#if`-guarded, so a v1/v2c build no longer pays for them.
-  Dominant terms: `mib_nodes[128]` 13.3 KiB, `current_pdu` 6.8 KiB, `rx_buf`+`tx_buf`
-  2 KiB. Measured end-to-end on `qemu_x86` (`west build` RAM report): 1 instance
-  384,228 B → 2 instances 405,092 B (v1/v2c); 474,436 B for 2 instances with v3.
+- **RAM cost of multi-instance**: `sizeof(struct snmp_agent)` is **23,840 B (~23 KiB)
+  with v1/v2c** and **33,320 B (~32.5 KiB) with `CONFIG_SNMP_VERSION_3=y`** (Kconfig
+  defaults incl. `CONFIG_SNMP_MAX_IFACES=8` — `if_rows[8]` now lives in the struct).
+  The USM/VACM/engine members are `#if`-guarded, so a v1/v2c build no longer pays for
+  them. Dominant terms: `mib_nodes[128]` 13.3 KiB, `current_pdu` 6.8 KiB, `rx_buf`+
+  `tx_buf` 2 KiB. Measured end-to-end on `qemu_x86` (`west build` RAM report):
+  389,060 B with 1 instance (v1/v2c); each extra instance adds roughly one struct.
   Size `CONFIG_SNMP_MAX_INSTANCES` (range 1..8) against this.
 - Enforce the no-globals invariant mechanically: `nm --defined-only <obj>` filtered on
-  ` [DdBbWwVv] ` lists mutable file-scope state. Production `src/*.o` must be **empty**;
-  the only allowed hits live in `snmp_service.o` and are platform-mandated:
-  `s_slot_owner`, `s_slot_lock`, Zephyr-generated `__z_net_socket_service*`, and
-  `log_const_/log_dynamic_snmp_service`. `s_slot_desc[]` is `static const` — it lands in
-  `R` on Zephyr builds but in `.data.rel.ro` (`d`) on host x86-64, so an audit script
-  must not assume one section for it. `static const` OID/counter maps are fine.
+  ` [DdBbWwVv] ` lists mutable file-scope state. Run it on **firmware objects** (a Zephyr
+  build) — production `src/*.obj` must be **empty** except `snmp_service.o`'s
+  platform-mandated `s_slot_owner`, `s_slot_lock`, Zephyr-generated
+  `__z_net_socket_service*` and `log_const_/log_dynamic_snmp_service`. On **host/Ztest
+  objects** `snmp_mib2.o` legitimately also shows `s_mock_ifaces`/`s_mock_iface_cnt`
+  (test-only mock, guarded by `#if !defined(__ZEPHYR__) || defined(CONFIG_ZTEST)`).
+  `s_slot_desc[]` is `static const` — `R` on Zephyr builds, `.data.rel.ro` (`d`) on host,
+  so an audit script must not assume one section. `static const` OID/counter maps are fine.
 
 ## Known stale spots (don't trust these as references)
 

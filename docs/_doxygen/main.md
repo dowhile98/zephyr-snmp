@@ -73,8 +73,8 @@ There are no singleton references or implicit default agents. MIB node callbacks
 
 ### 4.1 O(log N) Binary Search MIB Lookup
 The MIB engine maintains registered OID nodes in lexicographical order:
-- `snmp_mib_find_node_idx()` performs an $O(\log N)$ binary search using `snmp_oid_compare()`.
-- Guarantees worst-case lookup in $\le 7$ comparisons for 128 nodes, preventing CPU starvation during high packet bursts.
+- `snmp_mib_find_node_idx()` performs an O(log N) binary search using `snmp_oid_compare()`.
+- Guarantees worst-case lookup in <= 7 comparisons for 128 nodes, preventing CPU starvation during high packet bursts.
 - Candidate searches in `snmp_mib_get_next()` leverage binary search to jump directly to the closest candidate.
 
 ### 4.2 Two-Phase Commit (2PC) Transaction Engine
@@ -113,7 +113,7 @@ The API is structured into the following Doxygen documentation groups:
 | **Public Agent API** | @ref snmp_api | Initialization, configuration, lifecycle, and MIB node registration |
 | **Core Protocol Engine** | @ref snmp_core | Packet dispatcher, PDU parsing, request processing, and error mapping |
 | **ASN.1 BER Codec** | @ref snmp_ber | Tag, length, and value encoders and decoders |
-| **MIB Engine & 2PC** | @ref snmp_mib | MIB registration, $O(\log N)$ lookup, table walking, and 2PC transactions |
+| **MIB Engine & 2PC** | @ref snmp_mib | MIB registration, O(log N) lookup, table walking, and 2PC transactions |
 | **MIB-II Subsystem** | @ref snmp_mib2 | RFC 1213 / RFC 2863 standard network groups and Zephyr OS bindings |
 | **USM Security Model** | @ref snmp_usm | RFC 3414 / RFC 7860 authentication, encryption, and key localization |
 | **VACM Access Control** | @ref snmp_vacm | RFC 3415 view-based access control and subtree mask matching |
