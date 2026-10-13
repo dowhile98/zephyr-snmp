@@ -7,17 +7,25 @@ on:
     branches: [main]
 
 jobs:
-  unit-tests:
+  compliance:
+    name: Code Compliance (clang-format)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install dependencies
+      - name: Install clang-format
+        run: sudo apt-get update && sudo apt-get install -y clang-format
+      - name: Check code formatting
         run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake gcc
+          find src include samples tests/src tests/unit -name '*.c' -o -name '*.h' | xargs clang-format --dry-run --Werror
 
-      - name: Run unit tests
+  host-unit-tests:
+    name: Host Unit Tests (CMake fast-gate)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y cmake gcc
+      - name: Build & Run host tests
         run: |
           cd tests/unit
           mkdir -p build && cd build
@@ -26,37 +34,54 @@ jobs:
           ./snmp_unit_tests
           ./vacm_unit_tests
 
-  check-format:
+  twister-tests:
+    name: Twister Tests (native_sim)
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Check formatting (clang-format)
-        run: |
-          sudo apt-get install -y clang-format
-          find src include samples tests/unit -name '*.c' -o -name '*.h' | xargs clang-format --dry-run --Werror
-
-  build-zephyr:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        board: [native_sim, qemu_x86]
     steps:
       - uses: actions/checkout@v4
         with:
           path: zephyr-snmp
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
       - name: Setup Zephyr
         uses: zephyrproject-rtos/action-zephyr-setup@v1
         with:
           app-path: zephyr-snmp
-          toolchains: x86_64-zephyr-elf
+      - name: Run Twister Unit Tests
+        working-directory: zephyr-snmp
+        run: |
+          west twister -T tests/ -p native_sim -v --inline-logs --integration
+      - name: Upload Twister Artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: twister-reports
+          path: |
+            zephyr-snmp/twister-out/twister.json
+            zephyr-snmp/twister-out/*/twister_report.xml
 
+  sample-builds:
+    name: Sample Build (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [native_sim, qemu_x86, nucleo_h743zi]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: zephyr-snmp
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Setup Zephyr
+        uses: zephyrproject-rtos/action-zephyr-setup@v1
+        with:
+          app-path: zephyr-snmp
+          toolchains: arm-zephyr-eabi,x86_64-zephyr-elf
       - name: Build Sample
         run: |
-          west build -b ${{ matrix.board }} zephyr-snmp/samples/snmp_agent
+          west build -b ${{ matrix.target }} zephyr-snmp/samples/snmp_agent

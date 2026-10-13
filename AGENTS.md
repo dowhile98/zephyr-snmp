@@ -42,41 +42,46 @@ west build -p always -b nucleo_h743zi samples/snmp_agent   # hardware sample
 - Contract for these decisions: `temp/snmp-multi-instance-design.md` (§4 transport,
   §6 counters, §9 invariants). Keep it updated when you deviate.
 
-## Tests — do not use Twister or ztest
+## Tests
 
-The unit suite in `tests/unit/` is **two plain host CMake/POSIX binaries**, not Zephyr
-tests. There is no `testcase.yaml`; `west twister -T tests/` finds nothing.
-`snmp_unit_tests` links `src/snmp_ber.c`, `snmp_mib.c`, `snmp_core.c`;
-`vacm_unit_tests` links `snmp_ber.c`, `snmp_mib.c`, `snmp_vacm.c` and has its **own
-`main()`** (it does not use `main.c`). Both compile against stub headers in
-`tests/unit/zephyr/` (`kernel.h`, `sys/atomic.h`).
+zephyr-snmp includes two testing suites:
 
-```bash
-cd tests/unit
-cmake -S . -B build && cmake --build build
-./build/snmp_unit_tests && ./build/vacm_unit_tests   # you must run BOTH
-```
+1. **Native Zephyr Ztest / Twister Suite (`tests/`)**:
+   Full test suite executing under Zephyr RTOS with Ztest. Validates BER encoding/decoding, OID operations, MIB engine, VACM access control, Two-Phase Commit (2PC) SET transactions, MIB-II network groups, and multi-instance isolation on simulated targets:
+   ```bash
+   # On this machine, use the 64-bit native_sim target:
+   west twister -T tests/ -p native_sim/native/64 -v --inline-logs --integration
+   ```
+
+2. **Host Unit Tests (`tests/unit/`)**:
+   Two plain host CMake/POSIX binaries providing fast-gate local verification without Zephyr kernel dependencies:
+   `snmp_unit_tests` links `src/snmp_ber.c`, `snmp_mib.c`, `snmp_core.c`, `snmp_mib2.c`;
+   `vacm_unit_tests` links `snmp_ber.c`, `snmp_mib.c`, `snmp_vacm.c` and has its own `main()`. Both compile against stub headers in `tests/unit/zephyr/` (`kernel.h`, `sys/atomic.h`).
+   ```bash
+   cd tests/unit
+   cmake -S . -B build && cmake --build build
+   ./build/snmp_unit_tests && ./build/vacm_unit_tests   # you must run BOTH
+   ```
 
 Gotchas an agent will otherwise miss:
-- Custom `ASSERT*` macros call `exit(1)` — the **first failure aborts the whole run**;
+- Custom `ASSERT*` macros call `exit(1)` in host unit tests — the **first failure aborts the whole run**;
   later tests never execute. A short "N passed" list can mean truncated, not clean.
-- Adding a test requires three edits: define it in a `test_*.c`, add `extern`
+- Adding a host test requires three edits: define it in a `test_*.c`, add `extern`
   declaration + `RUN_TEST(...)` in `main.c`, and (for new source under test) add the
   `.c` file plus any needed `CONFIG_SNMP_*` defines in `tests/unit/CMakeLists.txt`.
-  Nothing auto-discovers tests — currently 47 host unit tests verified (37 in
-  `snmp_unit_tests` and 10 in `vacm_unit_tests`).
+  Currently 47 host unit tests verified (37 in `snmp_unit_tests` and 10 in `vacm_unit_tests`).
+- Adding a native Ztest requires adding/updating test cases in `tests/src/` with `ztest` APIs.
 - Compiled with `-Wall -Wextra -Werror`; `snmp_service.c`/`snmp_usm.c`/`snmp_trap.c`
-  are not host-compilable (sockets/crypto/deps), so v3 USM and the transport layer
-  have no host coverage.
+  rely on sockets/crypto/networking and are tested via the Zephyr Ztest / Twister suite and target builds.
 - Integration testing is manual, via Net-SNMP CLI against a running board/QEMU
   (see `README.md` "Testing" and `samples/snmp_agent/README.md`).
 
 ## CI gates (`.github/workflows/ci.yml`)
 
-1. `unit-tests` — host cmake build + runs both `./snmp_unit_tests` and `./vacm_unit_tests` (all 47 tests verified).
-2. `check-format` — `clang-format --dry-run --Werror` over `src include samples tests/unit` (strict, no bypass).
-3. `build-zephyr` — builds `samples/snmp_agent` for `native_sim` and `qemu_x86` only;
-   hardware boards are not covered, so verify STM32 changes yourself.
+1. `compliance` — `clang-format --dry-run --Werror` over `src include samples tests/src tests/unit` (strict, no bypass).
+2. `host-unit-tests` — Host unit tests fast-gate via CMake/gcc (`snmp_unit_tests` and `vacm_unit_tests`).
+3. `twister-tests` — Native Zephyr Ztest execution via `west twister -T tests/ -p native_sim -v --inline-logs --integration` with XML/JSON artifact upload.
+4. `sample-builds` — Sample builds across matrix `[native_sim, qemu_x86, nucleo_h743zi]` using `x86_64-zephyr-elf` and `arm-zephyr-eabi` toolchains.
 
 ## Style & structure
 

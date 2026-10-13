@@ -7,7 +7,11 @@
 #include <string.h>
 #include <errno.h>
 
-#if defined(__ZEPHYR__)
+#if defined(__ZEPHYR__) && !defined(CONFIG_ZTEST)
+#define SNMP_MIB2_ZEPHYR_NET 1
+#endif
+
+#if defined(SNMP_MIB2_ZEPHYR_NET)
 #include <zephyr/net/net_if.h>
 #include <zephyr/net/net_stats.h>
 #if defined(CONFIG_NET_STATISTICS)
@@ -15,7 +19,28 @@ extern struct net_stats net_stats;
 #endif
 #endif
 
-#if !defined(__ZEPHYR__)
+#if !defined(__ZEPHYR__) || defined(CONFIG_ZTEST)
+#if defined(__ZEPHYR__)
+struct snmp_mock_iface {
+	uint32_t index;
+	const char *descr;
+	uint32_t type;
+	uint32_t mtu;
+	uint32_t speed;
+	uint8_t mac[6];
+	uint32_t admin_status;
+	uint32_t oper_status;
+	uint32_t in_octets;
+	uint32_t in_ucast;
+	uint32_t in_errors;
+	uint32_t out_octets;
+	uint32_t out_ucast;
+	uint32_t out_errors;
+};
+
+void snmp_mib2_mock_set_ifaces(const struct snmp_mock_iface *ifaces, size_t count);
+#endif
+
 static struct snmp_mock_iface s_mock_ifaces[CONFIG_SNMP_MAX_IFACES];
 static size_t s_mock_iface_cnt;
 
@@ -38,7 +63,7 @@ void snmp_mib2_mock_set_ifaces(const struct snmp_mock_iface *ifaces, size_t coun
 /* Interfaces Group (1.3.6.1.2.1.2)                                           */
 /* -------------------------------------------------------------------------- */
 
-#if defined(__ZEPHYR__)
+#if defined(SNMP_MIB2_ZEPHYR_NET)
 static void zephyr_count_cb(struct net_if *iface, void *user_data)
 {
 	(void)iface;
@@ -76,7 +101,7 @@ static int if_number_get(struct snmp_agent *agent, const struct snmp_mib_node *n
 		return -EINVAL;
 	}
 	vb->type = ASN1_TAG_INTEGER;
-#if defined(__ZEPHYR__)
+#if defined(SNMP_MIB2_ZEPHYR_NET)
 	vb->val.int_val = (int32_t)zephyr_get_iface_count();
 #else
 	vb->val.int_val = (int32_t)s_mock_iface_cnt;
@@ -106,7 +131,7 @@ static int if_col_descr_get(struct snmp_agent *agent, const struct snmp_table_ro
 		return -EINVAL;
 	}
 	vb->type = ASN1_TAG_OCTET_STRING;
-#if defined(__ZEPHYR__)
+#if defined(SNMP_MIB2_ZEPHYR_NET)
 	struct net_if *iface = (struct net_if *)row->user_data;
 	const char *name = NULL;
 #if defined(CONFIG_NET_INTERFACE_NAME)
@@ -152,7 +177,7 @@ static int if_col_type_get(struct snmp_agent *agent, const struct snmp_table_row
 		return -EINVAL;
 	}
 	vb->type = ASN1_TAG_INTEGER;
-#if defined(__ZEPHYR__)
+#if defined(SNMP_MIB2_ZEPHYR_NET)
 	vb->val.int_val = 6; /* ethernetCsmacd */
 #else
 	const struct snmp_mock_iface *m = (const struct snmp_mock_iface *)row->user_data;
@@ -170,7 +195,7 @@ static int if_col_mtu_get(struct snmp_agent *agent, const struct snmp_table_row 
 		return -EINVAL;
 	}
 	vb->type = ASN1_TAG_INTEGER;
-#if defined(__ZEPHYR__)
+#if defined(SNMP_MIB2_ZEPHYR_NET)
 	struct net_if *iface = (struct net_if *)row->user_data;
 	vb->val.int_val = iface ? (int32_t)net_if_get_mtu(iface) : 1500;
 #else
@@ -189,7 +214,7 @@ static int if_col_speed_get(struct snmp_agent *agent, const struct snmp_table_ro
 		return -EINVAL;
 	}
 	vb->type = SNMP_TAG_GAUGE32;
-#if defined(__ZEPHYR__)
+#if defined(SNMP_MIB2_ZEPHYR_NET)
 	vb->val.uint_val = 10000000;
 #else
 	const struct snmp_mock_iface *m = (const struct snmp_mock_iface *)row->user_data;
@@ -207,7 +232,7 @@ static int if_col_phys_address_get(struct snmp_agent *agent, const struct snmp_t
 		return -EINVAL;
 	}
 	vb->type = ASN1_TAG_OCTET_STRING;
-#if defined(__ZEPHYR__)
+#if defined(SNMP_MIB2_ZEPHYR_NET)
 	struct net_if *iface = (struct net_if *)row->user_data;
 	struct net_linkaddr *ll = iface ? net_if_get_link_addr(iface) : NULL;
 	if (ll && ll->len > 0) {
@@ -240,7 +265,7 @@ static int if_col_admin_status_get(struct snmp_agent *agent, const struct snmp_t
 		return -EINVAL;
 	}
 	vb->type = ASN1_TAG_INTEGER;
-#if defined(__ZEPHYR__)
+#if defined(SNMP_MIB2_ZEPHYR_NET)
 	struct net_if *iface = (struct net_if *)row->user_data;
 	vb->val.int_val = (iface && net_if_is_admin_up(iface)) ? 1 : 2;
 #else
@@ -259,7 +284,7 @@ static int if_col_oper_status_get(struct snmp_agent *agent, const struct snmp_ta
 		return -EINVAL;
 	}
 	vb->type = ASN1_TAG_INTEGER;
-#if defined(__ZEPHYR__)
+#if defined(SNMP_MIB2_ZEPHYR_NET)
 	struct net_if *iface = (struct net_if *)row->user_data;
 	vb->val.int_val = (iface && net_if_is_up(iface)) ? 1 : 2;
 #else
@@ -292,7 +317,7 @@ static int if_col_in_octets_get(struct snmp_agent *agent, const struct snmp_tabl
 		return -EINVAL;
 	}
 	vb->type = SNMP_TAG_COUNTER32;
-#if defined(__ZEPHYR__)
+#if defined(SNMP_MIB2_ZEPHYR_NET)
 #if defined(CONFIG_NET_STATISTICS_PER_INTERFACE)
 	struct net_if *iface = (struct net_if *)row->user_data;
 	vb->val.uint_val = iface ? (uint32_t)iface->stats.bytes.received : 0;
@@ -315,7 +340,7 @@ static int if_col_in_ucast_get(struct snmp_agent *agent, const struct snmp_table
 		return -EINVAL;
 	}
 	vb->type = SNMP_TAG_COUNTER32;
-#if defined(__ZEPHYR__)
+#if defined(SNMP_MIB2_ZEPHYR_NET)
 #if defined(CONFIG_NET_STATISTICS_PER_INTERFACE)
 	struct net_if *iface = (struct net_if *)row->user_data;
 	vb->val.uint_val = iface ? (uint32_t)iface->stats.unicast.rx : 0;
@@ -338,7 +363,7 @@ static int if_col_in_errors_get(struct snmp_agent *agent, const struct snmp_tabl
 		return -EINVAL;
 	}
 	vb->type = SNMP_TAG_COUNTER32;
-#if defined(__ZEPHYR__)
+#if defined(SNMP_MIB2_ZEPHYR_NET)
 #if defined(CONFIG_NET_STATISTICS_PER_INTERFACE)
 	struct net_if *iface = (struct net_if *)row->user_data;
 	vb->val.uint_val = iface ? (uint32_t)iface->stats.errors.rx : 0;
@@ -361,7 +386,7 @@ static int if_col_out_octets_get(struct snmp_agent *agent, const struct snmp_tab
 		return -EINVAL;
 	}
 	vb->type = SNMP_TAG_COUNTER32;
-#if defined(__ZEPHYR__)
+#if defined(SNMP_MIB2_ZEPHYR_NET)
 #if defined(CONFIG_NET_STATISTICS_PER_INTERFACE)
 	struct net_if *iface = (struct net_if *)row->user_data;
 	vb->val.uint_val = iface ? (uint32_t)iface->stats.bytes.sent : 0;
@@ -384,7 +409,7 @@ static int if_col_out_ucast_get(struct snmp_agent *agent, const struct snmp_tabl
 		return -EINVAL;
 	}
 	vb->type = SNMP_TAG_COUNTER32;
-#if defined(__ZEPHYR__)
+#if defined(SNMP_MIB2_ZEPHYR_NET)
 #if defined(CONFIG_NET_STATISTICS_PER_INTERFACE)
 	struct net_if *iface = (struct net_if *)row->user_data;
 	vb->val.uint_val = iface ? (uint32_t)iface->stats.unicast.tx : 0;
@@ -407,7 +432,7 @@ static int if_col_out_errors_get(struct snmp_agent *agent, const struct snmp_tab
 		return -EINVAL;
 	}
 	vb->type = SNMP_TAG_COUNTER32;
-#if defined(__ZEPHYR__)
+#if defined(SNMP_MIB2_ZEPHYR_NET)
 #if defined(CONFIG_NET_STATISTICS_PER_INTERFACE)
 	struct net_if *iface = (struct net_if *)row->user_data;
 	vb->val.uint_val = iface ? (uint32_t)iface->stats.errors.tx : 0;
@@ -490,7 +515,7 @@ int snmp_mib2_register_interfaces(struct snmp_agent *agent)
 	}
 
 	/* 3. Populate rows in reverse order to keep ascending order */
-#if defined(__ZEPHYR__)
+#if defined(SNMP_MIB2_ZEPHYR_NET)
 	struct iface_collect_ctx ctx = {0};
 	net_if_foreach(zephyr_iface_collect_cb, &ctx);
 	for (size_t i = ctx.count; i > 0; i--) {
@@ -565,7 +590,7 @@ static int ip_forwarding_get(struct snmp_agent *agent, const struct snmp_mib_nod
 	(void)agent;
 	(void)node;
 	vb->type = ASN1_TAG_INTEGER;
-#if defined(__ZEPHYR__) && defined(CONFIG_NET_IP_FORWARDING)
+#if defined(SNMP_MIB2_ZEPHYR_NET) && defined(CONFIG_NET_IP_FORWARDING)
 	vb->val.int_val = 1;
 #else
 	vb->val.int_val = 2; /* not-forwarding */
@@ -579,7 +604,7 @@ static int ip_default_ttl_get(struct snmp_agent *agent, const struct snmp_mib_no
 	(void)agent;
 	(void)node;
 	vb->type = ASN1_TAG_INTEGER;
-#if defined(__ZEPHYR__) && defined(CONFIG_NET_INITIAL_TTL)
+#if defined(SNMP_MIB2_ZEPHYR_NET) && defined(CONFIG_NET_INITIAL_TTL)
 	vb->val.int_val = CONFIG_NET_INITIAL_TTL;
 #else
 	vb->val.int_val = 64;
@@ -593,7 +618,7 @@ static int ip_in_receives_get(struct snmp_agent *agent, const struct snmp_mib_no
 	(void)agent;
 	(void)node;
 	vb->type = SNMP_TAG_COUNTER32;
-#if defined(__ZEPHYR__)
+#if defined(SNMP_MIB2_ZEPHYR_NET)
 #if defined(CONFIG_NET_STATISTICS) && defined(CONFIG_NET_STATISTICS_IPV4)
 	vb->val.uint_val = (uint32_t)net_stats.ipv4.recv;
 #else
@@ -611,7 +636,7 @@ static int ip_in_hdr_errors_get(struct snmp_agent *agent, const struct snmp_mib_
 	(void)agent;
 	(void)node;
 	vb->type = SNMP_TAG_COUNTER32;
-#if defined(__ZEPHYR__)
+#if defined(SNMP_MIB2_ZEPHYR_NET)
 #if defined(CONFIG_NET_STATISTICS)
 	vb->val.uint_val = (uint32_t)(net_stats.ip_errors.vhlerr + net_stats.ip_errors.hblenerr +
 				      net_stats.ip_errors.lblenerr + net_stats.ip_errors.chkerr);
@@ -640,7 +665,7 @@ static int ip_in_discards_get(struct snmp_agent *agent, const struct snmp_mib_no
 	(void)agent;
 	(void)node;
 	vb->type = SNMP_TAG_COUNTER32;
-#if defined(__ZEPHYR__)
+#if defined(SNMP_MIB2_ZEPHYR_NET)
 #if defined(CONFIG_NET_STATISTICS) && defined(CONFIG_NET_STATISTICS_IPV4)
 	vb->val.uint_val = (uint32_t)net_stats.ipv4.drop;
 #else
@@ -658,7 +683,7 @@ static int ip_in_delivers_get(struct snmp_agent *agent, const struct snmp_mib_no
 	(void)agent;
 	(void)node;
 	vb->type = SNMP_TAG_COUNTER32;
-#if defined(__ZEPHYR__)
+#if defined(SNMP_MIB2_ZEPHYR_NET)
 #if defined(CONFIG_NET_STATISTICS) && defined(CONFIG_NET_STATISTICS_IPV4)
 	vb->val.uint_val = (uint32_t)net_stats.ipv4.recv;
 #else
@@ -676,7 +701,7 @@ static int ip_out_requests_get(struct snmp_agent *agent, const struct snmp_mib_n
 	(void)agent;
 	(void)node;
 	vb->type = SNMP_TAG_COUNTER32;
-#if defined(__ZEPHYR__)
+#if defined(SNMP_MIB2_ZEPHYR_NET)
 #if defined(CONFIG_NET_STATISTICS) && defined(CONFIG_NET_STATISTICS_IPV4)
 	vb->val.uint_val = (uint32_t)net_stats.ipv4.sent;
 #else
@@ -726,7 +751,7 @@ static int icmp_in_msgs_get(struct snmp_agent *agent, const struct snmp_mib_node
 	(void)agent;
 	(void)node;
 	vb->type = SNMP_TAG_COUNTER32;
-#if defined(__ZEPHYR__)
+#if defined(SNMP_MIB2_ZEPHYR_NET)
 #if defined(CONFIG_NET_STATISTICS) && defined(CONFIG_NET_STATISTICS_ICMP)
 	vb->val.uint_val = (uint32_t)net_stats.icmp.recv;
 #else
@@ -744,7 +769,7 @@ static int icmp_in_errors_get(struct snmp_agent *agent, const struct snmp_mib_no
 	(void)agent;
 	(void)node;
 	vb->type = SNMP_TAG_COUNTER32;
-#if defined(__ZEPHYR__)
+#if defined(SNMP_MIB2_ZEPHYR_NET)
 #if defined(CONFIG_NET_STATISTICS) && defined(CONFIG_NET_STATISTICS_ICMP)
 	vb->val.uint_val =
 	    (uint32_t)(net_stats.icmp.drop + net_stats.icmp.chkerr + net_stats.icmp.typeerr);
@@ -763,7 +788,7 @@ static int icmp_in_dest_unreachs_get(struct snmp_agent *agent, const struct snmp
 	(void)agent;
 	(void)node;
 	vb->type = SNMP_TAG_COUNTER32;
-#if defined(__ZEPHYR__)
+#if defined(SNMP_MIB2_ZEPHYR_NET)
 	vb->val.uint_val = 0;
 #else
 	vb->val.uint_val = 1;
@@ -787,7 +812,7 @@ static int icmp_in_echos_get(struct snmp_agent *agent, const struct snmp_mib_nod
 	(void)agent;
 	(void)node;
 	vb->type = SNMP_TAG_COUNTER32;
-#if defined(__ZEPHYR__)
+#if defined(SNMP_MIB2_ZEPHYR_NET)
 	vb->val.uint_val = 0;
 #else
 	vb->val.uint_val = 8;
@@ -801,7 +826,7 @@ static int icmp_in_echo_reps_get(struct snmp_agent *agent, const struct snmp_mib
 	(void)agent;
 	(void)node;
 	vb->type = SNMP_TAG_COUNTER32;
-#if defined(__ZEPHYR__)
+#if defined(SNMP_MIB2_ZEPHYR_NET)
 	vb->val.uint_val = 0;
 #else
 	vb->val.uint_val = 1;
@@ -815,7 +840,7 @@ static int icmp_out_msgs_get(struct snmp_agent *agent, const struct snmp_mib_nod
 	(void)agent;
 	(void)node;
 	vb->type = SNMP_TAG_COUNTER32;
-#if defined(__ZEPHYR__)
+#if defined(SNMP_MIB2_ZEPHYR_NET)
 #if defined(CONFIG_NET_STATISTICS) && defined(CONFIG_NET_STATISTICS_ICMP)
 	vb->val.uint_val = (uint32_t)net_stats.icmp.sent;
 #else
@@ -843,7 +868,7 @@ static int icmp_out_dest_unreachs_get(struct snmp_agent *agent, const struct snm
 	(void)agent;
 	(void)node;
 	vb->type = SNMP_TAG_COUNTER32;
-#if defined(__ZEPHYR__)
+#if defined(SNMP_MIB2_ZEPHYR_NET)
 	vb->val.uint_val = 0;
 #else
 	vb->val.uint_val = 2;
@@ -857,7 +882,7 @@ static int icmp_out_echo_reps_get(struct snmp_agent *agent, const struct snmp_mi
 	(void)agent;
 	(void)node;
 	vb->type = SNMP_TAG_COUNTER32;
-#if defined(__ZEPHYR__)
+#if defined(SNMP_MIB2_ZEPHYR_NET)
 	vb->val.uint_val = 0;
 #else
 	vb->val.uint_val = 8;
@@ -938,7 +963,7 @@ static int tcp_active_opens_get(struct snmp_agent *agent, const struct snmp_mib_
 	(void)agent;
 	(void)node;
 	vb->type = SNMP_TAG_COUNTER32;
-#if defined(__ZEPHYR__)
+#if defined(SNMP_MIB2_ZEPHYR_NET)
 	vb->val.uint_val = 0;
 #else
 	vb->val.uint_val = 5;
@@ -952,7 +977,7 @@ static int tcp_passive_opens_get(struct snmp_agent *agent, const struct snmp_mib
 	(void)agent;
 	(void)node;
 	vb->type = SNMP_TAG_COUNTER32;
-#if defined(__ZEPHYR__)
+#if defined(SNMP_MIB2_ZEPHYR_NET)
 	vb->val.uint_val = 0;
 #else
 	vb->val.uint_val = 2;
@@ -966,7 +991,7 @@ static int tcp_in_segs_get(struct snmp_agent *agent, const struct snmp_mib_node 
 	(void)agent;
 	(void)node;
 	vb->type = SNMP_TAG_COUNTER32;
-#if defined(__ZEPHYR__)
+#if defined(SNMP_MIB2_ZEPHYR_NET)
 #if defined(CONFIG_NET_STATISTICS) && defined(CONFIG_NET_STATISTICS_TCP)
 	vb->val.uint_val = (uint32_t)net_stats.tcp.recv;
 #else
@@ -984,7 +1009,7 @@ static int tcp_out_segs_get(struct snmp_agent *agent, const struct snmp_mib_node
 	(void)agent;
 	(void)node;
 	vb->type = SNMP_TAG_COUNTER32;
-#if defined(__ZEPHYR__)
+#if defined(SNMP_MIB2_ZEPHYR_NET)
 #if defined(CONFIG_NET_STATISTICS) && defined(CONFIG_NET_STATISTICS_TCP)
 	vb->val.uint_val = (uint32_t)net_stats.tcp.sent;
 #else
@@ -1023,7 +1048,7 @@ static int udp_in_datagrams_get(struct snmp_agent *agent, const struct snmp_mib_
 	(void)agent;
 	(void)node;
 	vb->type = SNMP_TAG_COUNTER32;
-#if defined(__ZEPHYR__)
+#if defined(SNMP_MIB2_ZEPHYR_NET)
 #if defined(CONFIG_NET_STATISTICS) && defined(CONFIG_NET_STATISTICS_UDP)
 	vb->val.uint_val = (uint32_t)net_stats.udp.recv;
 #else
@@ -1041,7 +1066,7 @@ static int udp_no_ports_get(struct snmp_agent *agent, const struct snmp_mib_node
 	(void)agent;
 	(void)node;
 	vb->type = SNMP_TAG_COUNTER32;
-#if defined(__ZEPHYR__)
+#if defined(SNMP_MIB2_ZEPHYR_NET)
 	vb->val.uint_val = 0;
 #else
 	vb->val.uint_val = 3;
@@ -1055,7 +1080,7 @@ static int udp_in_errors_get(struct snmp_agent *agent, const struct snmp_mib_nod
 	(void)agent;
 	(void)node;
 	vb->type = SNMP_TAG_COUNTER32;
-#if defined(__ZEPHYR__)
+#if defined(SNMP_MIB2_ZEPHYR_NET)
 #if defined(CONFIG_NET_STATISTICS) && defined(CONFIG_NET_STATISTICS_UDP)
 	vb->val.uint_val = (uint32_t)(net_stats.udp.drop + net_stats.udp.chkerr);
 #else
@@ -1073,7 +1098,7 @@ static int udp_out_datagrams_get(struct snmp_agent *agent, const struct snmp_mib
 	(void)agent;
 	(void)node;
 	vb->type = SNMP_TAG_COUNTER32;
-#if defined(__ZEPHYR__)
+#if defined(SNMP_MIB2_ZEPHYR_NET)
 #if defined(CONFIG_NET_STATISTICS) && defined(CONFIG_NET_STATISTICS_UDP)
 	vb->val.uint_val = (uint32_t)net_stats.udp.sent;
 #else
