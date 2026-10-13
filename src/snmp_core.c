@@ -28,25 +28,65 @@
 #define CONFIG_SNMP_COMMUNITY_WRITE "private"
 #endif
 
-static char g_read_community[64]  = CONFIG_SNMP_COMMUNITY_READ;
-static char g_write_community[64] = CONFIG_SNMP_COMMUNITY_WRITE;
+static struct snmp_agent_inst g_default_agent = {
+	.read_community = CONFIG_SNMP_COMMUNITY_READ,
+	.write_community = CONFIG_SNMP_COMMUNITY_WRITE,
+	.counters = {
+		.snmpEnableAuthenTraps = 1,
+	},
+};
+
+#define INST_COUNTER_INC(inst, field) do { \
+	snmp_counter_inc(&(inst)->counters.field); \
+	if ((inst) == &g_default_agent) { \
+		snmp_counter_inc(&g_snmp_counters.field); \
+	} \
+} while (0)
+
+int snmp_agent_inst_init(struct snmp_agent_inst *inst)
+{
+	if (!inst) {
+		return -EINVAL;
+	}
+
+	memset(inst, 0, sizeof(*inst));
+	strncpy(inst->read_community, CONFIG_SNMP_COMMUNITY_READ, sizeof(inst->read_community) - 1);
+	inst->read_community[sizeof(inst->read_community) - 1] = '\0';
+	strncpy(inst->write_community, CONFIG_SNMP_COMMUNITY_WRITE, sizeof(inst->write_community) - 1);
+	inst->write_community[sizeof(inst->write_community) - 1] = '\0';
+	inst->counters.snmpEnableAuthenTraps = 1;
+
+	return 0;
+}
+
+int snmp_agent_inst_set_read_community(struct snmp_agent_inst *inst, const char *community)
+{
+	if (!inst || !community || strlen(community) >= sizeof(inst->read_community)) {
+		return -EINVAL;
+	}
+	strncpy(inst->read_community, community, sizeof(inst->read_community) - 1);
+	inst->read_community[sizeof(inst->read_community) - 1] = '\0';
+	return 0;
+}
+
+int snmp_agent_inst_set_write_community(struct snmp_agent_inst *inst, const char *community)
+{
+	if (!inst || !community || strlen(community) >= sizeof(inst->write_community)) {
+		return -EINVAL;
+	}
+	strncpy(inst->write_community, community, sizeof(inst->write_community) - 1);
+	inst->write_community[sizeof(inst->write_community) - 1] = '\0';
+	return 0;
+}
 
 int snmp_set_read_community(const char *community)
 {
-	if (!community || strlen(community) >= sizeof(g_read_community))
-		return -EINVAL;
-	strncpy(g_read_community, community, sizeof(g_read_community) - 1);
-	g_read_community[sizeof(g_read_community) - 1] = '\0';
-	return 0;
+	return snmp_agent_inst_set_read_community(&g_default_agent, community);
 }
 
 int snmp_set_write_community(const char *community)
 {
-	if (!community || strlen(community) >= sizeof(g_write_community))
-		return -EINVAL;
-	strncpy(g_write_community, community, sizeof(g_write_community) - 1);
-	g_write_community[sizeof(g_write_community) - 1] = '\0';
-	return 0;
+	return snmp_agent_inst_set_write_community(&g_default_agent, community);
 }
 
 /* ---- Detect SNMP version from raw buffer ---- */
@@ -71,50 +111,49 @@ static int snmp_detect_version(const uint8_t *buf, size_t buf_len)
 
 /* ---- v1 / v2c processing ---- */
 
-static struct snmp_pdu g_core_pdu;
-
-static int process_v1v2c(const uint8_t *req_buf, size_t req_len,
+static int process_v1v2c(struct snmp_agent_inst *inst,
+			 const uint8_t *req_buf, size_t req_len,
 			 uint8_t *resp_buf, size_t max_resp_len,
 			 size_t *out_resp_len)
 {
 	*out_resp_len = 0;
 
-	memset(&g_core_pdu, 0, sizeof(g_core_pdu));
-	int ret = snmp_ber_decode_pdu(req_buf, req_len, &g_core_pdu);
+	memset(&inst->current_pdu, 0, sizeof(inst->current_pdu));
+	int ret = snmp_ber_decode_pdu(req_buf, req_len, &inst->current_pdu);
 	if (ret < 0) {
-		snmp_counter_inc(&g_snmp_counters.snmpInASNParseErrs);
+		INST_COUNTER_INC(inst, snmpInASNParseErrs);
 		return ret;
 	}
 
 	/* Version validation */
-	if (g_core_pdu.version == 0) {
+	if (inst->current_pdu.version == 0) {
 #ifndef CONFIG_SNMP_VERSION_1
-		snmp_counter_inc(&g_snmp_counters.snmpInBadVersions);
+		INST_COUNTER_INC(inst, snmpInBadVersions);
 		return -ENOTSUP;
 #endif
-		if (g_core_pdu.type == SNMP_PDU_GET_BULK_REQ) {
-			snmp_counter_inc(&g_snmp_counters.snmpInBadVersions);
+		if (inst->current_pdu.type == SNMP_PDU_GET_BULK_REQ) {
+			INST_COUNTER_INC(inst, snmpInBadVersions);
 			return -ENOTSUP;
 		}
-	} else if (g_core_pdu.version == 1) {
+	} else if (inst->current_pdu.version == 1) {
 #ifndef CONFIG_SNMP_VERSION_2C
-		snmp_counter_inc(&g_snmp_counters.snmpInBadVersions);
+		INST_COUNTER_INC(inst, snmpInBadVersions);
 		return -ENOTSUP;
 #endif
 	} else {
-		snmp_counter_inc(&g_snmp_counters.snmpInBadVersions);
+		INST_COUNTER_INC(inst, snmpInBadVersions);
 		return -ENOTSUP;
 	}
 
 	/* Community / Security validation */
-	bool is_write = (g_core_pdu.type == SNMP_PDU_SET_REQ);
+	bool is_write = (inst->current_pdu.type == SNMP_PDU_SET_REQ);
 
 	if (is_write) {
-		if (strcmp((const char *)g_core_pdu.community, g_write_community) != 0) {
-			if (strcmp((const char *)g_core_pdu.community, g_read_community) == 0) {
-				snmp_counter_inc(&g_snmp_counters.snmpInBadCommunityUses);
+		if (strcmp((const char *)inst->current_pdu.community, inst->write_community) != 0) {
+			if (strcmp((const char *)inst->current_pdu.community, inst->read_community) == 0) {
+				INST_COUNTER_INC(inst, snmpInBadCommunityUses);
 			} else {
-				snmp_counter_inc(&g_snmp_counters.snmpInBadCommunityNames);
+				INST_COUNTER_INC(inst, snmpInBadCommunityNames);
 			}
 #if defined(CONFIG_SNMP_TRAP_ENABLED)
 			snmp_trap_send_auth_failure();
@@ -122,10 +161,10 @@ static int process_v1v2c(const uint8_t *req_buf, size_t req_len,
 			return -EACCES;
 		}
 	} else {
-		/* GET / GETNEXT / GETBULK acepta la community de lectura (public) o escritura (private) */
-		if (strcmp((const char *)g_core_pdu.community, g_read_community) != 0 &&
-		    strcmp((const char *)g_core_pdu.community, g_write_community) != 0) {
-			snmp_counter_inc(&g_snmp_counters.snmpInBadCommunityNames);
+		/* GET / GETNEXT / GETBULK accepts read community or write community */
+		if (strcmp((const char *)inst->current_pdu.community, inst->read_community) != 0 &&
+		    strcmp((const char *)inst->current_pdu.community, inst->write_community) != 0) {
+			INST_COUNTER_INC(inst, snmpInBadCommunityNames);
 #if defined(CONFIG_SNMP_TRAP_ENABLED)
 			snmp_trap_send_auth_failure();
 #endif
@@ -133,23 +172,24 @@ static int process_v1v2c(const uint8_t *req_buf, size_t req_len,
 		}
 	}
 
-
-	/* Dispatch to MIB engine */
-	ret = snmp_mib_dispatch(&g_core_pdu);
-	if (ret < 0) return ret;
+	/* Dispatch to MIB engine with instance context */
+	ret = snmp_mib_dispatch(inst, &inst->current_pdu);
+	if (ret < 0) {
+		return ret;
+	}
 
 	/* Encode response PDU */
 	size_t encoded_len = 0;
-	ret = snmp_ber_encode_pdu(resp_buf, max_resp_len, &encoded_len, &g_core_pdu);
+	ret = snmp_ber_encode_pdu(resp_buf, max_resp_len, &encoded_len, &inst->current_pdu);
 	if (ret < 0) {
 		if (ret == -ENOBUFS) {
-			snmp_counter_inc(&g_snmp_counters.snmpOutTooBigs);
+			INST_COUNTER_INC(inst, snmpOutTooBigs);
 		}
 		return ret;
 	}
 
 	*out_resp_len = encoded_len;
-	snmp_counter_inc(&g_snmp_counters.snmpOutPkts);
+	INST_COUNTER_INC(inst, snmpOutPkts);
 	return 0;
 }
 
@@ -157,7 +197,8 @@ static int process_v1v2c(const uint8_t *req_buf, size_t req_len,
 
 #if defined(CONFIG_SNMP_VERSION_3)
 
-static int process_v3(const uint8_t *req_buf, size_t req_len,
+static int process_v3(struct snmp_agent_inst *inst,
+		      const uint8_t *req_buf, size_t req_len,
 		      uint8_t *resp_buf, size_t max_resp_len,
 		      size_t *out_resp_len)
 {
@@ -166,15 +207,16 @@ static int process_v3(const uint8_t *req_buf, size_t req_len,
 	struct snmp_v3_msg msg;
 	int ret = snmp_ber_decode_v3_msg(req_buf, req_len, &msg);
 	if (ret < 0) {
-		snmp_counter_inc(&g_snmp_counters.snmpInASNParseErrs);
+		INST_COUNTER_INC(inst, snmpInASNParseErrs);
 		return ret;
 	}
 
 	/* USM verify */
 	ret = snmp_usm_verify_incoming(&msg, req_buf, req_len);
 	if (ret < 0) {
-		if (ret == -EACCES)
-			snmp_counter_inc(&g_snmp_counters.snmpSilentDrops);
+		if (ret == -EACCES) {
+			INST_COUNTER_INC(inst, snmpSilentDrops);
+		}
 		return ret;
 	}
 
@@ -200,16 +242,18 @@ static int process_v3(const uint8_t *req_buf, size_t req_len,
 		msg.scoped.context_name_len = 0;
 
 		ret = snmp_usm_build_outgoing(&msg);
-		if (ret < 0)
+		if (ret < 0) {
 			return ret;
+		}
 
 		size_t encoded_len = 0;
 		ret = snmp_ber_encode_v3_msg(resp_buf, max_resp_len, &encoded_len, &msg);
-		if (ret < 0)
+		if (ret < 0) {
 			return ret;
+		}
 
 		*out_resp_len = encoded_len;
-		snmp_counter_inc(&g_snmp_counters.snmpOutPkts);
+		INST_COUNTER_INC(inst, snmpOutPkts);
 		return 0;
 	}
 
@@ -217,14 +261,15 @@ static int process_v3(const uint8_t *req_buf, size_t req_len,
 	bool is_write = (msg.scoped.pdu.type == SNMP_PDU_SET_REQ);
 	ret = snmp_vacm_check_access(&msg, is_write);
 	if (ret < 0) {
-		snmp_counter_inc(&g_snmp_counters.snmpSilentDrops);
+		INST_COUNTER_INC(inst, snmpSilentDrops);
 		return ret;
 	}
 
 	/* Dispatch to MIB */
-	ret = snmp_mib_dispatch(&msg.scoped.pdu);
-	if (ret < 0)
+	ret = snmp_mib_dispatch(inst, &msg.scoped.pdu);
+	if (ret < 0) {
 		return ret;
+	}
 
 	/* Set response metadata (RFC 3412 §7.1: echo request's contextEngineID and contextName) */
 	msg.global.msg_max_size       = 1500;
@@ -232,54 +277,66 @@ static int process_v3(const uint8_t *req_buf, size_t req_len,
 
 	/* Build outgoing USM */
 	ret = snmp_usm_build_outgoing(&msg);
-	if (ret < 0)
+	if (ret < 0) {
 		return ret;
+	}
 
 	/* Encode */
 	size_t encoded_len = 0;
 	ret = snmp_ber_encode_v3_msg(resp_buf, max_resp_len, &encoded_len, &msg);
 	if (ret < 0) {
-		if (ret == -ENOBUFS)
-			snmp_counter_inc(&g_snmp_counters.snmpOutTooBigs);
+		if (ret == -ENOBUFS) {
+			INST_COUNTER_INC(inst, snmpOutTooBigs);
+		}
 		return ret;
 	}
 
 	*out_resp_len = encoded_len;
-	snmp_counter_inc(&g_snmp_counters.snmpOutPkts);
+	INST_COUNTER_INC(inst, snmpOutPkts);
 	return 0;
 }
 
 #endif /* CONFIG_SNMP_VERSION_3 */
 
-/* ---- Main entry point ---- */
+/* ---- Main entry points ---- */
 
-int snmp_core_process_pdu(const uint8_t *req_buf, size_t req_len,
-			  uint8_t *resp_buf, size_t max_resp_len,
-			  size_t *out_resp_len)
+int snmp_agent_inst_process_pdu(struct snmp_agent_inst *inst,
+				const uint8_t *req_buf, size_t req_len,
+				uint8_t *resp_buf, size_t max_resp_len,
+				size_t *out_resp_len)
 {
-	if (!req_buf || !resp_buf || !out_resp_len)
+	if (!inst || !req_buf || !resp_buf || !out_resp_len) {
 		return -EINVAL;
+	}
 
 	*out_resp_len = 0;
-	snmp_counter_inc(&g_snmp_counters.snmpInPkts);
+	INST_COUNTER_INC(inst, snmpInPkts);
 
 	int version = snmp_detect_version(req_buf, req_len);
 
 	switch (version) {
 	case 0:
 	case 1:
-		return process_v1v2c(req_buf, req_len, resp_buf, max_resp_len, out_resp_len);
+		return process_v1v2c(inst, req_buf, req_len, resp_buf, max_resp_len, out_resp_len);
 	case 3:
 #if defined(CONFIG_SNMP_VERSION_3)
-		return process_v3(req_buf, req_len, resp_buf, max_resp_len, out_resp_len);
+		return process_v3(inst, req_buf, req_len, resp_buf, max_resp_len, out_resp_len);
 #else
-		snmp_counter_inc(&g_snmp_counters.snmpInBadVersions);
+		INST_COUNTER_INC(inst, snmpInBadVersions);
 		return -ENOTSUP;
 #endif
 	default:
-		snmp_counter_inc(&g_snmp_counters.snmpInBadVersions);
+		INST_COUNTER_INC(inst, snmpInBadVersions);
 		return -ENOTSUP;
 	}
+}
+
+int snmp_core_process_pdu(const uint8_t *req_buf, size_t req_len,
+			  uint8_t *resp_buf, size_t max_resp_len,
+			  size_t *out_resp_len)
+{
+	return snmp_agent_inst_process_pdu(&g_default_agent, req_buf, req_len,
+					   resp_buf, max_resp_len, out_resp_len);
 }
 
 #endif /* CONFIG_SNMP_AGENT */

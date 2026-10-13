@@ -83,6 +83,7 @@
 #include <zephyr/kernel.h>
 #include <snmp/snmp_ber.h>
 #include <snmp/snmp_mib.h>
+#include <snmp/snmp_core.h>
 
 #ifdef __cplusplus
 extern "C" {

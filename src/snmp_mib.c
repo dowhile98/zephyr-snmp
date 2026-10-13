@@ -4,6 +4,7 @@
  */
 
 #include <snmp/snmp_mib.h>
+#include <snmp/snmp_core.h>
 #include <zephyr/sys/atomic.h>
 #include <string.h>
 #include <errno.h>
@@ -570,6 +571,91 @@ int snmp_mib_get_next(const struct snmp_oid *oid, struct snmp_varbind *vb)
 	}
 }
 
+#define MIB_COUNTER_INC(inst, field) do { \
+	if (inst) { \
+		snmp_counter_inc(&(inst)->counters.field); \
+	} \
+	snmp_counter_inc(&g_snmp_counters.field); \
+} while (0)
+
+static int snmp_map_error_to_version(int err, int version)
+{
+	int status;
+
+	if (err == 0) {
+		return SNMP_ERR_NO_ERROR;
+	} else if (err > 0) {
+		status = err;
+	} else {
+		switch (err) {
+		case -EINVAL:
+			status = (version == 0) ? SNMP_ERR_BAD_VALUE : SNMP_ERR_WRONG_VALUE;
+			break;
+		case -EACCES:
+		case -EPERM:
+			status = (version == 0) ? SNMP_ERR_READ_ONLY : SNMP_ERR_NOT_WRITABLE;
+			break;
+		case -ENOENT:
+			status = (version == 0) ? SNMP_ERR_NO_SUCH_NAME : SNMP_ERR_NOT_WRITABLE;
+			break;
+		case -ENOMEM:
+		case -ENOSPC:
+			status = (version == 0) ? SNMP_ERR_GEN_ERR : SNMP_ERR_RESOURCE_UNAVAILABLE;
+			break;
+		case -ERANGE:
+			status = (version == 0) ? SNMP_ERR_BAD_VALUE : SNMP_ERR_WRONG_VALUE;
+			break;
+		default:
+			status = SNMP_ERR_GEN_ERR;
+			break;
+		}
+	}
+
+	if (version == 0) {
+		switch (status) {
+		case SNMP_ERR_NO_ERROR:
+		case SNMP_ERR_TOO_BIG:
+		case SNMP_ERR_NO_SUCH_NAME:
+		case SNMP_ERR_BAD_VALUE:
+		case SNMP_ERR_READ_ONLY:
+		case SNMP_ERR_GEN_ERR:
+			return status;
+		case SNMP_ERR_NO_ACCESS:
+		case SNMP_ERR_NOT_WRITABLE:
+			return SNMP_ERR_READ_ONLY;
+		case SNMP_ERR_WRONG_TYPE:
+		case SNMP_ERR_WRONG_LENGTH:
+		case SNMP_ERR_WRONG_ENCODING:
+		case SNMP_ERR_WRONG_VALUE:
+		case SNMP_ERR_INCONSISTENT_VALUE:
+			return SNMP_ERR_BAD_VALUE;
+		case SNMP_ERR_NO_CREATION:
+		case SNMP_ERR_INCONSISTENT_NAME:
+			return SNMP_ERR_NO_SUCH_NAME;
+		case SNMP_ERR_RESOURCE_UNAVAILABLE:
+		case SNMP_ERR_COMMIT_FAILED:
+		case SNMP_ERR_UNDO_FAILED:
+		case SNMP_ERR_AUTHORIZATION_ERR:
+		default:
+			return SNMP_ERR_GEN_ERR;
+		}
+	}
+
+	return status;
+}
+
+struct snmp_set_tx_item {
+	struct snmp_mib_node *node;
+	struct snmp_mib_table *tbl;
+	struct snmp_table_row *tbl_row;
+	uint8_t tbl_col;
+	bool is_table;
+	bool reserved;
+	bool has_old_vb;
+	struct snmp_varbind old_vb;
+	void *tx_ctx;
+};
+
 int snmp_mib_set(const struct snmp_oid *oid, const struct snmp_varbind *vb)
 {
 	if (!oid || !vb)
@@ -626,6 +712,20 @@ int snmp_mib_set(const struct snmp_oid *oid, const struct snmp_varbind *vb)
 	{
 		if (snmp_oid_equal(&g_mib_nodes[i].oid, oid))
 		{
+			if (g_mib_nodes[i].set_tx_cb)
+			{
+				void *tx_ctx = NULL;
+				int ret = g_mib_nodes[i].set_tx_cb(&g_mib_nodes[i], vb,
+								   SNMP_SET_RESERVE, &tx_ctx);
+				if (ret == 0) {
+					ret = g_mib_nodes[i].set_tx_cb(&g_mib_nodes[i], vb,
+								       SNMP_SET_COMMIT, &tx_ctx);
+				}
+				g_mib_nodes[i].set_tx_cb(&g_mib_nodes[i], vb,
+							 SNMP_SET_CLEANUP, &tx_ctx);
+				snmp_mib_unlock();
+				return ret;
+			}
 			if (!g_mib_nodes[i].set_cb)
 			{
 				snmp_mib_unlock();
@@ -643,7 +743,7 @@ int snmp_mib_set(const struct snmp_oid *oid, const struct snmp_varbind *vb)
 	return -ENOENT;
 }
 
-int snmp_mib_dispatch(struct snmp_pdu *pdu)
+int (snmp_mib_dispatch)(struct snmp_agent_inst *inst, struct snmp_pdu *pdu)
 {
 	if (!pdu)
 		return -EINVAL;
@@ -653,16 +753,16 @@ int snmp_mib_dispatch(struct snmp_pdu *pdu)
 
 	if (pdu->type == SNMP_PDU_GET_REQ)
 	{
-		snmp_counter_inc(&g_snmp_counters.snmpInGetRequests);
+		MIB_COUNTER_INC(inst, snmpInGetRequests);
 		for (uint8_t i = 0; i < pdu->varbind_cnt; i++)
 		{
-			snmp_counter_inc(&g_snmp_counters.snmpInTotalReqVars);
+			MIB_COUNTER_INC(inst, snmpInTotalReqVars);
 			int ret = snmp_mib_get(&pdu->varbinds[i].oid, &pdu->varbinds[i]);
 			if (ret < 0 && pdu->varbinds[i].type != SNMP_TAG_EXCEPT_NO_SUCH_INST)
 			{
 				pdu->error_status = 5; /* genErr */
 				pdu->error_index = i + 1;
-				snmp_counter_inc(&g_snmp_counters.snmpOutGenErrs);
+				MIB_COUNTER_INC(inst, snmpOutGenErrs);
 				break;
 			}
 			if (pdu->version == 0 && (pdu->varbinds[i].type == SNMP_TAG_EXCEPT_NO_SUCH_INST ||
@@ -671,35 +771,35 @@ int snmp_mib_dispatch(struct snmp_pdu *pdu)
 				pdu->error_status = 2; /* noSuchName per RFC 1157 */
 				pdu->error_index = i + 1;
 				pdu->varbinds[i].type = ASN1_TAG_NULL;
-				snmp_counter_inc(&g_snmp_counters.snmpOutNoSuchNames);
+				MIB_COUNTER_INC(inst, snmpOutNoSuchNames);
 				break;
 			}
 		}
 		pdu->type = SNMP_PDU_GET_RESP;
-		snmp_counter_inc(&g_snmp_counters.snmpOutGetResponses);
+		MIB_COUNTER_INC(inst, snmpOutGetResponses);
 	}
 	else if (pdu->type == SNMP_PDU_GET_NEXT_REQ)
 	{
-		snmp_counter_inc(&g_snmp_counters.snmpInGetNexts);
+		MIB_COUNTER_INC(inst, snmpInGetNexts);
 		for (uint8_t i = 0; i < pdu->varbind_cnt; i++)
 		{
-			snmp_counter_inc(&g_snmp_counters.snmpInTotalReqVars);
+			MIB_COUNTER_INC(inst, snmpInTotalReqVars);
 			snmp_mib_get_next(&pdu->varbinds[i].oid, &pdu->varbinds[i]);
 			if (pdu->version == 0 && pdu->varbinds[i].type == SNMP_TAG_EXCEPT_END_MIB_VIEW)
 			{
 				pdu->error_status = 2; /* noSuchName per RFC 1157 */
 				pdu->error_index = i + 1;
 				pdu->varbinds[i].type = ASN1_TAG_NULL;
-				snmp_counter_inc(&g_snmp_counters.snmpOutNoSuchNames);
+				MIB_COUNTER_INC(inst, snmpOutNoSuchNames);
 				break;
 			}
 		}
 		pdu->type = SNMP_PDU_GET_RESP;
-		snmp_counter_inc(&g_snmp_counters.snmpOutGetResponses);
+		MIB_COUNTER_INC(inst, snmpOutGetResponses);
 	}
 	else if (pdu->type == SNMP_PDU_GET_BULK_REQ)
 	{
-		snmp_counter_inc(&g_snmp_counters.snmpInGetNexts);
+		MIB_COUNTER_INC(inst, snmpInGetNexts);
 		uint8_t orig_cnt = pdu->varbind_cnt;
 		int32_t non_rep = pdu->non_repeaters < 0 ? 0 : pdu->non_repeaters;
 		int32_t max_rep = pdu->max_repetitions < 0 ? 0 : pdu->max_repetitions;
@@ -750,38 +850,263 @@ int snmp_mib_dispatch(struct snmp_pdu *pdu)
 		k_mutex_unlock(&g_getbulk_mutex);
 
 		/* RFC 1907: count total variables processed by GetBulk */
+		if (inst) {
+			inst->counters.snmpInTotalReqVars += new_cnt;
+		}
 		g_snmp_counters.snmpInTotalReqVars += new_cnt;
 
 		pdu->type = SNMP_PDU_GET_RESP;
-		snmp_counter_inc(&g_snmp_counters.snmpOutGetResponses);
+		MIB_COUNTER_INC(inst, snmpOutGetResponses);
 	}
 	else if (pdu->type == SNMP_PDU_SET_REQ)
 	{
-		snmp_counter_inc(&g_snmp_counters.snmpInSetRequests);
+		MIB_COUNTER_INC(inst, snmpInSetRequests);
+
+		struct snmp_set_tx_item tx_items[CONFIG_SNMP_MAX_VARBINDS];
+		memset(tx_items, 0, sizeof(tx_items));
+
+		int error_status = SNMP_ERR_NO_ERROR;
+		int error_index = 0;
+
+		snmp_mib_lock();
+
+		/* Phase 1: Reserve & Validation */
 		for (uint8_t i = 0; i < pdu->varbind_cnt; i++)
 		{
-			snmp_counter_inc(&g_snmp_counters.snmpInTotalSetVars);
-			int ret = snmp_mib_set(&pdu->varbinds[i].oid, &pdu->varbinds[i]);
-			if (ret < 0)
-			{
-				if (ret == -EACCES)
-					pdu->error_status = 3; /* readOnly */
-				else if (ret == -ENOENT)
-					pdu->error_status = 2; /* noSuchName */
-				else
-					pdu->error_status = 5; /* genErr */
-				pdu->error_index = i + 1;
-				snmp_counter_inc(&g_snmp_counters.snmpOutGenErrs);
+			MIB_COUNTER_INC(inst, snmpInTotalSetVars);
+			struct snmp_varbind *vb = &pdu->varbinds[i];
+			struct snmp_set_tx_item *item = &tx_items[i];
+			bool found = false;
+
+			/* 1. Check table */
+			for (size_t t = 0; t < g_mib_table_cnt; t++) {
+				struct snmp_mib_table *tbl = g_mib_tables[t];
+				if (vb->oid.len != tbl->table_oid.len + 2) {
+					continue;
+				}
+				bool match = true;
+				for (uint8_t k = 0; k < tbl->table_oid.len; k++) {
+					if (vb->oid.ids[k] != tbl->table_oid.ids[k]) {
+						match = false;
+						break;
+					}
+				}
+				if (!match) continue;
+
+				uint8_t col_subid = (uint8_t)vb->oid.ids[tbl->table_oid.len];
+				uint32_t row_idx = (uint32_t)vb->oid.ids[tbl->table_oid.len + 1];
+
+				for (uint8_t c = 0; c < tbl->column_cnt; c++) {
+					if (tbl->column_subids[c] != col_subid) {
+						continue;
+					}
+					found = true;
+					item->is_table = true;
+					item->tbl = tbl;
+					item->tbl_col = c;
+
+					if (!tbl->set_cbs || !tbl->set_cbs[c]) {
+						error_status = (pdu->version == 0) ? SNMP_ERR_READ_ONLY : SNMP_ERR_NOT_WRITABLE;
+						error_index = i + 1;
+						break;
+					}
+
+					if (tbl->column_types[c] != vb->type) {
+						error_status = (pdu->version == 0) ? SNMP_ERR_BAD_VALUE : SNMP_ERR_WRONG_TYPE;
+						error_index = i + 1;
+						break;
+					}
+
+					for (struct snmp_table_row *r = tbl->rows; r; r = r->next) {
+						if (r->index == row_idx) {
+							item->tbl_row = r;
+							break;
+						}
+					}
+					if (!item->tbl_row) {
+						error_status = (pdu->version == 0) ? SNMP_ERR_NO_SUCH_NAME : SNMP_ERR_NOT_WRITABLE;
+						error_index = i + 1;
+						break;
+					}
+
+					if (tbl->get_cbs && tbl->get_cbs[c]) {
+						item->old_vb.oid = vb->oid;
+						if (tbl->get_cbs[c](item->tbl_row, c, &item->old_vb) == 0) {
+							item->has_old_vb = true;
+						}
+					}
+					item->reserved = true;
+					break;
+				}
+				if (found) break;
+			}
+
+			if (error_status != SNMP_ERR_NO_ERROR) {
 				break;
 			}
-			/* RFC 3416: Update response varbind with confirmed value */
+
+			/* 2. Check scalar nodes if not a table column */
+			if (!found) {
+				for (size_t k = 0; k < g_mib_node_cnt; k++) {
+					if (snmp_oid_equal(&g_mib_nodes[k].oid, &vb->oid)) {
+						found = true;
+						item->node = &g_mib_nodes[k];
+						break;
+					}
+				}
+
+				if (!found) {
+					error_status = (pdu->version == 0) ? SNMP_ERR_NO_SUCH_NAME : SNMP_ERR_NOT_WRITABLE;
+					error_index = i + 1;
+					break;
+				}
+
+				if (!item->node->set_tx_cb && !item->node->set_cb) {
+					error_status = (pdu->version == 0) ? SNMP_ERR_READ_ONLY : SNMP_ERR_NOT_WRITABLE;
+					error_index = i + 1;
+					break;
+				}
+
+				if (item->node->type != vb->type) {
+					error_status = (pdu->version == 0) ? SNMP_ERR_BAD_VALUE : SNMP_ERR_WRONG_TYPE;
+					error_index = i + 1;
+					break;
+				}
+
+				if (item->node->set_tx_cb) {
+					int rc = item->node->set_tx_cb(item->node, vb, SNMP_SET_RESERVE, &item->tx_ctx);
+					if (rc != 0) {
+						error_status = snmp_map_error_to_version(rc, pdu->version);
+						error_index = i + 1;
+						break;
+					}
+					item->reserved = true;
+				} else {
+					if (item->node->get_cb) {
+						item->old_vb.oid = item->node->oid;
+						if (item->node->get_cb(item->node, &item->old_vb) == 0) {
+							item->has_old_vb = true;
+						}
+					}
+					item->reserved = true;
+				}
+			}
+		}
+
+		/* If Phase 1 failed, cleanup reserved resources and abort */
+		if (error_status != SNMP_ERR_NO_ERROR) {
+			for (uint8_t j = 0; j < pdu->varbind_cnt; j++) {
+				if (tx_items[j].reserved && tx_items[j].node && tx_items[j].node->set_tx_cb) {
+					tx_items[j].node->set_tx_cb(tx_items[j].node, &pdu->varbinds[j],
+								    SNMP_SET_CLEANUP, &tx_items[j].tx_ctx);
+				}
+			}
+			snmp_mib_unlock();
+
+			pdu->error_status = error_status;
+			pdu->error_index = error_index;
+			pdu->type = SNMP_PDU_GET_RESP;
+
+			if (error_status == SNMP_ERR_BAD_VALUE || error_status == SNMP_ERR_WRONG_VALUE) {
+				MIB_COUNTER_INC(inst, snmpOutBadValues);
+			} else if (error_status == SNMP_ERR_READ_ONLY || error_status == SNMP_ERR_NOT_WRITABLE) {
+				MIB_COUNTER_INC(inst, snmpInReadOnlys);
+			} else if (error_status == SNMP_ERR_NO_SUCH_NAME) {
+				MIB_COUNTER_INC(inst, snmpOutNoSuchNames);
+			} else {
+				MIB_COUNTER_INC(inst, snmpOutGenErrs);
+			}
+			MIB_COUNTER_INC(inst, snmpOutGetResponses);
+			return 0;
+		}
+
+		/* Phase 2: Commit */
+		uint8_t commit_fail_idx = 0;
+		bool commit_failed = false;
+
+		for (uint8_t k = 0; k < pdu->varbind_cnt; k++) {
+			struct snmp_set_tx_item *item = &tx_items[k];
+			struct snmp_varbind *vb = &pdu->varbinds[k];
+			int rc = 0;
+
+			if (item->node && item->node->set_tx_cb) {
+				rc = item->node->set_tx_cb(item->node, vb, SNMP_SET_COMMIT, &item->tx_ctx);
+			} else if (item->node && item->node->set_cb) {
+				rc = item->node->set_cb(item->node, vb);
+			} else if (item->is_table && item->tbl && item->tbl->set_cbs[item->tbl_col]) {
+				rc = item->tbl->set_cbs[item->tbl_col](item->tbl_row, item->tbl_col, vb);
+			}
+
+			if (rc != 0) {
+				commit_failed = true;
+				commit_fail_idx = k;
+				break;
+			}
+		}
+
+		if (commit_failed) {
+			/* Phase 3: Rollback / Undo */
+			for (int u = (int)commit_fail_idx - 1; u >= 0; u--) {
+				struct snmp_set_tx_item *item = &tx_items[u];
+				if (item->node && item->node->set_tx_cb) {
+					item->node->set_tx_cb(item->node, &pdu->varbinds[u],
+							      SNMP_SET_UNDO, &item->tx_ctx);
+				} else if (item->has_old_vb) {
+					if (item->node && item->node->set_cb) {
+						item->node->set_cb(item->node, &item->old_vb);
+					} else if (item->is_table && item->tbl && item->tbl->set_cbs[item->tbl_col]) {
+						item->tbl->set_cbs[item->tbl_col](item->tbl_row,
+										  item->tbl_col, &item->old_vb);
+					}
+				}
+			}
+
+			/* Cleanup all */
+			for (uint8_t j = 0; j < pdu->varbind_cnt; j++) {
+				if (tx_items[j].reserved && tx_items[j].node && tx_items[j].node->set_tx_cb) {
+					tx_items[j].node->set_tx_cb(tx_items[j].node, &pdu->varbinds[j],
+								    SNMP_SET_CLEANUP, &tx_items[j].tx_ctx);
+				}
+			}
+			snmp_mib_unlock();
+
+			pdu->error_status = (pdu->version == 0) ? SNMP_ERR_GEN_ERR : SNMP_ERR_COMMIT_FAILED;
+			pdu->error_index = commit_fail_idx + 1;
+			pdu->type = SNMP_PDU_GET_RESP;
+
+			MIB_COUNTER_INC(inst, snmpOutGenErrs);
+			MIB_COUNTER_INC(inst, snmpOutGetResponses);
+			return 0;
+		}
+
+		/* Phase 4: Commit Succeeded -> Cleanup & Read Back */
+		for (uint8_t j = 0; j < pdu->varbind_cnt; j++) {
+			if (tx_items[j].reserved && tx_items[j].node && tx_items[j].node->set_tx_cb) {
+				tx_items[j].node->set_tx_cb(tx_items[j].node, &pdu->varbinds[j],
+							    SNMP_SET_CLEANUP, &tx_items[j].tx_ctx);
+			}
+		}
+
+		/* Read back confirmed values per RFC 3416 §4.2.5 */
+		for (uint8_t i = 0; i < pdu->varbind_cnt; i++) {
 			snmp_mib_get(&pdu->varbinds[i].oid, &pdu->varbinds[i]);
 		}
+
+		snmp_mib_unlock();
+
+		pdu->error_status = SNMP_ERR_NO_ERROR;
+		pdu->error_index = 0;
 		pdu->type = SNMP_PDU_GET_RESP;
-		snmp_counter_inc(&g_snmp_counters.snmpOutGetResponses);
+		MIB_COUNTER_INC(inst, snmpOutGetResponses);
+		return 0;
 	}
 
 	return 0;
+}
+
+int snmp_mib_dispatch_legacy(struct snmp_pdu *pdu)
+{
+	return (snmp_mib_dispatch)(NULL, pdu);
 }
 
 /* --- MIB Table Support --- */
