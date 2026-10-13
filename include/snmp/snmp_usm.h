@@ -13,53 +13,79 @@
 extern "C" {
 #endif
 
-#if defined(CONFIG_SNMP_AGENT) && defined(CONFIG_SNMP_VERSION_3)
+#ifdef CONFIG_SNMP_AGENT
 
-#include <psa/crypto.h>
+#ifndef CONFIG_SNMP_V3_MAX_USERS
+#define CONFIG_SNMP_V3_MAX_USERS 4
+#endif
+
+/* Forward declaration of agent instance */
+struct snmp_agent_inst;
 
 struct snmp_usm_user {
-	const char *user_name;
+	char        user_name[32];
 	uint8_t     auth_protocol;  /* 0=none, 1=SHA, 2=MD5 */
-	const char *auth_pass;
+	char        auth_pass[64];
 	uint8_t     priv_protocol;  /* 0=none, 1=AES, 2=DES */
-	const char *priv_pass;
+	char        priv_pass[64];
 
 	/* Localized keys (derived at init) */
 	uint8_t  auth_key[20];       /* SHA1=20, MD5=16 */
 	uint16_t auth_key_len;
 	uint8_t  priv_key[20];       /* AES=16, DES=16 */
 	uint16_t priv_key_len;
+	bool     in_use;
 };
 
+/* ---- Instance-based APIs ---- */
+
+/**
+ * @brief Initialize USM engine inside an agent instance.
+ */
+int snmp_usm_init_inst(struct snmp_agent_inst *inst);
+
+/**
+ * @brief Add a user to an agent instance's USM engine.
+ */
+int snmp_usm_add_user_inst(struct snmp_agent_inst *inst, const struct snmp_usm_user *user);
+
+/**
+ * @brief Verify incoming v3 message against an agent instance.
+ */
+int snmp_usm_verify_incoming_inst(struct snmp_agent_inst *inst, struct snmp_v3_msg *msg,
+				  const uint8_t *raw_buf, size_t raw_len);
+
+/**
+ * @brief Prepare outgoing v3 message using an agent instance's USM engine.
+ */
+int snmp_usm_build_outgoing_inst(struct snmp_agent_inst *inst, struct snmp_v3_msg *msg);
+
+/**
+ * @brief Get engine ID for an agent instance.
+ */
+int snmp_usm_get_engine_id_inst(struct snmp_agent_inst *inst, uint8_t *engine_id, uint8_t *len);
+
+/**
+ * @brief Set engine boots for an agent instance.
+ */
+int snmp_usm_set_engine_boots_inst(struct snmp_agent_inst *inst, uint32_t boots);
+
+/**
+ * @brief Get engine boots for an agent instance.
+ */
+uint32_t snmp_usm_get_engine_boots_inst(struct snmp_agent_inst *inst);
+
+/* ---- Legacy API Facade (delegates to default agent) ---- */
+
 int snmp_usm_init(void);
-
-/**
- * @brief Get the local authoritative SNMPv3 engine ID.
- * @param engine_id Buffer to receive the engine ID.
- * @param len In: buffer capacity; Out: actual engine ID length.
- * @return 0 on success, negative errno on error.
- */
+int snmp_usm_add_user(const struct snmp_usm_user *user);
 int snmp_usm_get_engine_id(uint8_t *engine_id, uint8_t *len);
-
-
-/**
- * @brief Verify incoming v3 message: check HMAC, decrypt scopedPDU if priv enabled.
- * @param msg   Decoded v3 message (msg->usm populated from wire).
- * @param raw_buf Raw received packet (full SNMP message, outer SEQUENCE included).
- * @param raw_len Length of raw_buf.
- * @return 0 on success, -EAUTH on auth failure (silent drop), other negative on error.
- */
 int snmp_usm_verify_incoming(struct snmp_v3_msg *msg, const uint8_t *raw_buf, size_t raw_len);
-
-/**
- * @brief Prepare outgoing v3 message: encrypt scopedPDU if priv enabled,
- *        compute HMAC, populate auth_params. The msg is ready for BER encode.
- * @param msg   Response v3 message (scoped.pdu must be populated).
- * @return 0 on success, negative on error.
- */
 int snmp_usm_build_outgoing(struct snmp_v3_msg *msg);
+int snmp_usm_set_engine_boots(uint32_t boots);
+uint32_t snmp_usm_get_engine_boots(void);
 
-#endif /* CONFIG_SNMP_AGENT && CONFIG_SNMP_VERSION_3 */
+#endif /* CONFIG_SNMP_AGENT */
 
 #ifdef __cplusplus
 }

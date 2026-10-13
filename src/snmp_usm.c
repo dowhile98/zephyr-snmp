@@ -8,32 +8,48 @@
 
 #include <snmp/snmp_usm.h>
 #include <snmp/snmp_mib.h>
+#include <snmp/snmp_core.h>
 #include <string.h>
 #include <errno.h>
 #include <zephyr/random/random.h>
 
 #if defined(CONFIG_SNMP_AGENT) && defined(CONFIG_SNMP_VERSION_3)
 
+#if defined(CONFIG_SETTINGS)
+#include <zephyr/settings/settings.h>
+#endif
+
 #define HMAC_SHA1_LEN 12
 #define HMAC_MD5_LEN 12
 #define AES_IV_LEN    16
+#define SNMP_ENGINE_BOOTS_MAX 2147483647U
 
-/* ---- Engine state ---- */
-static uint32_t g_engine_boots = 1;
-static uint8_t g_engine_id[SNMP_V3_ENGINE_ID_MAX_LEN] = {
-	0x80, 0x00, 0x1F, 0x88, 0x80, 'Z', 'E', 'P', 'H', 'Y', 'R', '1'};
-static uint8_t g_engine_id_len = 12;
+#define INC_STAT(inst, field) do { \
+		if (inst) { snmp_counter_inc(&(inst)->counters.field); } \
+		snmp_counter_inc(&g_snmp_counters.field); \
+	} while (0)
 
-static struct snmp_usm_user g_users[] = {
-	{
-		.user_name     = CONFIG_SNMP_V3_USER_NAME,
-		.auth_protocol = 1,
-		.auth_pass     = CONFIG_SNMP_V3_AUTH_PASS,
-		.priv_protocol = 1,
-		.priv_pass     = CONFIG_SNMP_V3_PRIV_PASS,
-	},
-};
-#define USM_USER_COUNT (sizeof(g_users) / sizeof(g_users[0]))
+#if defined(CONFIG_SETTINGS)
+static int usm_settings_set(const char *name, size_t len,
+			    settings_read_cb read_cb, void *cb_arg)
+{
+	const char *next;
+	if (settings_name_steq(name, "boots", &next) && !next) {
+		struct snmp_agent_inst *def = snmp_agent_get_default();
+		if (!def || len != sizeof(def->engine_boots)) {
+			return -EINVAL;
+		}
+		int ret = read_cb(cb_arg, &def->engine_boots, sizeof(def->engine_boots));
+		if (ret < 0) {
+			return ret;
+		}
+		return 0;
+	}
+	return -ENOENT;
+}
+
+SETTINGS_STATIC_HANDLER_DEFINE(snmp_usm, "snmp", NULL, usm_settings_set, NULL, NULL);
+#endif
 
 /* ---- HMAC computation ---- */
 
@@ -391,13 +407,13 @@ static int build_scopedpdu_plaintext(const struct snmp_v3_msg *msg,
 
 /* ---- User lookup ---- */
 
-static struct snmp_usm_user *usm_find_user(const char *name)
+static struct snmp_usm_user *usm_find_user(struct snmp_agent_inst *inst, const char *name)
 {
-	if (!name)
+	if (!inst || !name)
 		return NULL;
-	for (size_t i = 0; i < USM_USER_COUNT; i++) {
-		if (strcmp(g_users[i].user_name, name) == 0)
-			return &g_users[i];
+	for (size_t i = 0; i < CONFIG_SNMP_V3_MAX_USERS; i++) {
+		if (inst->users[i].in_use && strcmp(inst->users[i].user_name, name) == 0)
+			return &inst->users[i];
 	}
 	return NULL;
 }
@@ -440,36 +456,136 @@ static int usm_verify_auth(const struct snmp_v3_msg *msg,
 	return 0;
 }
 
-/* ---- Init ---- */
+/* ---- Instance-based APIs ---- */
 
-int snmp_usm_init(void)
+int snmp_usm_add_user_inst(struct snmp_agent_inst *inst, const struct snmp_usm_user *user)
 {
+	if (!inst || !user) {
+		return -EINVAL;
+	}
+	if (strlen(user->user_name) >= sizeof(inst->users[0].user_name)) {
+		return -EINVAL;
+	}
+
+	/* Update existing if found */
+	for (size_t i = 0; i < CONFIG_SNMP_V3_MAX_USERS; i++) {
+		if (inst->users[i].in_use && strcmp(inst->users[i].user_name, user->user_name) == 0) {
+			inst->users[i] = *user;
+			inst->users[i].in_use = true;
+			if (inst->users[i].auth_protocol > 0) {
+				usm_key_localize(inst->users[i].auth_key, &inst->users[i].auth_key_len,
+						 inst->users[i].auth_pass, inst->users[i].auth_protocol,
+						 inst->engine_id, inst->engine_id_len, false);
+			}
+			if (inst->users[i].priv_protocol > 0) {
+				usm_key_localize(inst->users[i].priv_key, &inst->users[i].priv_key_len,
+						 inst->users[i].priv_pass, inst->users[i].priv_protocol,
+						 inst->engine_id, inst->engine_id_len, true);
+			}
+			return 0;
+		}
+	}
+
+	/* Find free slot */
+	for (size_t i = 0; i < CONFIG_SNMP_V3_MAX_USERS; i++) {
+		if (!inst->users[i].in_use) {
+			inst->users[i] = *user;
+			inst->users[i].in_use = true;
+			if (inst->users[i].auth_protocol > 0) {
+				usm_key_localize(inst->users[i].auth_key, &inst->users[i].auth_key_len,
+						 inst->users[i].auth_pass, inst->users[i].auth_protocol,
+						 inst->engine_id, inst->engine_id_len, false);
+			}
+			if (inst->users[i].priv_protocol > 0) {
+				usm_key_localize(inst->users[i].priv_key, &inst->users[i].priv_key_len,
+						 inst->users[i].priv_pass, inst->users[i].priv_protocol,
+						 inst->engine_id, inst->engine_id_len, true);
+			}
+			inst->user_cnt++;
+			return 0;
+		}
+	}
+
+	return -ENOMEM;
+}
+
+int snmp_usm_init_inst(struct snmp_agent_inst *inst)
+{
+	if (!inst) {
+		return -EINVAL;
+	}
 	psa_crypto_init();
 
-	g_engine_boots = CONFIG_SNMP_V3_ENGINE_BOOTS;
+	if (inst->engine_id_len == 0) {
+		static const uint8_t default_engine_id[12] = {
+			0x80, 0x00, 0x1F, 0x88, 0x80, 'Z', 'E', 'P', 'H', 'Y', 'R', '1'
+		};
+		memcpy(inst->engine_id, default_engine_id, sizeof(default_engine_id));
+		inst->engine_id_len = sizeof(default_engine_id);
+	}
 
-	for (size_t i = 0; i < USM_USER_COUNT; i++) {
-		if (g_users[i].auth_protocol > 0) {
-			usm_key_localize(g_users[i].auth_key, &g_users[i].auth_key_len,
-					 g_users[i].auth_pass, g_users[i].auth_protocol,
-					 g_engine_id, g_engine_id_len, false);
-		}
-		if (g_users[i].priv_protocol > 0) {
-			usm_key_localize(g_users[i].priv_key, &g_users[i].priv_key_len,
-					 g_users[i].priv_pass, g_users[i].priv_protocol,
-					 g_engine_id, g_engine_id_len, true);
+#if defined(CONFIG_SETTINGS)
+	settings_subsys_init();
+	settings_load_subtree("snmp");
+	if (inst->engine_boots < SNMP_ENGINE_BOOTS_MAX) {
+		inst->engine_boots++;
+		settings_save_one("snmp/boots", &inst->engine_boots, sizeof(inst->engine_boots));
+	}
+#else
+	if (inst->engine_boots == 0) {
+#if defined(CONFIG_SNMP_V3_ENGINE_BOOTS)
+		inst->engine_boots = CONFIG_SNMP_V3_ENGINE_BOOTS;
+#else
+		inst->engine_boots = 1;
+#endif
+	}
+#endif
+
+	if (inst->user_cnt == 0) {
+		struct snmp_usm_user default_user = {
+			.auth_protocol = 1,
+			.priv_protocol = 1,
+			.in_use = true,
+		};
+		strncpy(default_user.user_name, CONFIG_SNMP_V3_USER_NAME, sizeof(default_user.user_name) - 1);
+		default_user.user_name[sizeof(default_user.user_name) - 1] = '\0';
+		strncpy(default_user.auth_pass, CONFIG_SNMP_V3_AUTH_PASS, sizeof(default_user.auth_pass) - 1);
+		default_user.auth_pass[sizeof(default_user.auth_pass) - 1] = '\0';
+		strncpy(default_user.priv_pass, CONFIG_SNMP_V3_PRIV_PASS, sizeof(default_user.priv_pass) - 1);
+		default_user.priv_pass[sizeof(default_user.priv_pass) - 1] = '\0';
+		snmp_usm_add_user_inst(inst, &default_user);
+	} else {
+		/* Re-localize existing users with current engine_id */
+		for (size_t i = 0; i < CONFIG_SNMP_V3_MAX_USERS; i++) {
+			if (inst->users[i].in_use) {
+				if (inst->users[i].auth_protocol > 0) {
+					usm_key_localize(inst->users[i].auth_key, &inst->users[i].auth_key_len,
+							 inst->users[i].auth_pass, inst->users[i].auth_protocol,
+							 inst->engine_id, inst->engine_id_len, false);
+				}
+				if (inst->users[i].priv_protocol > 0) {
+					usm_key_localize(inst->users[i].priv_key, &inst->users[i].priv_key_len,
+							 inst->users[i].priv_pass, inst->users[i].priv_protocol,
+							 inst->engine_id, inst->engine_id_len, true);
+				}
+			}
 		}
 	}
 
 	return 0;
 }
 
-/* ---- Main API: verify incoming ---- */
-
-int snmp_usm_verify_incoming(struct snmp_v3_msg *msg, const uint8_t *raw_buf, size_t raw_len)
+int snmp_usm_verify_incoming_inst(struct snmp_agent_inst *inst, struct snmp_v3_msg *msg,
+				  const uint8_t *raw_buf, size_t raw_len)
 {
-	if (!msg || !raw_buf)
+	if (!inst || !msg || !raw_buf)
 		return -EINVAL;
+
+	/* RFC 3414 §2.2: if engine boots reaches 2147483647, stop processing */
+	if (inst->engine_boots >= SNMP_ENGINE_BOOTS_MAX || msg->usm.engine_boots >= SNMP_ENGINE_BOOTS_MAX) {
+		INC_STAT(inst, snmpSilentDrops);
+		return -EACCES;
+	}
 
 	if ((msg->usm.engine_boots == 0 && msg->usm.engine_time == 0) || msg->usm.engine_id_len == 0) {
 		memset(&msg->scoped.pdu, 0, sizeof(msg->scoped.pdu));
@@ -478,27 +594,27 @@ int snmp_usm_verify_incoming(struct snmp_v3_msg *msg, const uint8_t *raw_buf, si
 		return 0;
 	}
 
-	struct snmp_usm_user *user = usm_find_user((const char *)msg->usm.user_name);
+	struct snmp_usm_user *user = usm_find_user(inst, (const char *)msg->usm.user_name);
 	if (!user) {
-		snmp_counter_inc(&g_snmp_counters.snmpSilentDrops);
+		INC_STAT(inst, snmpSilentDrops);
 		return -EACCES;
 	}
 
 	int ret = usm_verify_auth(msg, user);
 	if (ret < 0) {
-		snmp_counter_inc(&g_snmp_counters.snmpSilentDrops);
+		INC_STAT(inst, snmpSilentDrops);
 		return ret;
 	}
 
 	if (msg->global.msg_flags & 0x02) {
 		if (user->priv_protocol == 0) {
-			snmp_counter_inc(&g_snmp_counters.snmpSilentDrops);
+			INC_STAT(inst, snmpSilentDrops);
 			return -EACCES;
 		}
 
 		/* RFC 3826 §3.1.2: msgPrivacyParameters is strictly 8 octets (salt) */
 		if (msg->usm.priv_params_len != 8) {
-			snmp_counter_inc(&g_snmp_counters.snmpSilentDrops);
+			INC_STAT(inst, snmpSilentDrops);
 			return -EBADMSG;
 		}
 
@@ -506,7 +622,7 @@ int snmp_usm_verify_incoming(struct snmp_v3_msg *msg, const uint8_t *raw_buf, si
 		size_t ct_len;
 		ret = find_encrypted_scopedpdu(raw_buf, raw_len, &ct_data, &ct_len);
 		if (ret < 0) {
-			snmp_counter_inc(&g_snmp_counters.snmpSilentDrops);
+			INC_STAT(inst, snmpSilentDrops);
 			return ret;
 		}
 
@@ -527,13 +643,13 @@ int snmp_usm_verify_incoming(struct snmp_v3_msg *msg, const uint8_t *raw_buf, si
 		ret = aes128_cfb_decrypt(user->priv_key, iv, ct_data, ct_len,
 					 pt, sizeof(pt), &pt_len);
 		if (ret < 0) {
-			snmp_counter_inc(&g_snmp_counters.snmpSilentDrops);
+			INC_STAT(inst, snmpSilentDrops);
 			return ret;
 		}
 
 		ret = parse_scopedpdu_plaintext(pt, pt_len, &msg->scoped);
 		if (ret < 0) {
-			snmp_counter_inc(&g_snmp_counters.snmpSilentDrops);
+			INC_STAT(inst, snmpSilentDrops);
 			return ret;
 		}
 	}
@@ -541,28 +657,31 @@ int snmp_usm_verify_incoming(struct snmp_v3_msg *msg, const uint8_t *raw_buf, si
 	int32_t local_time = (int32_t)(k_uptime_get() / 1000);
 	int32_t diff = (int32_t)msg->usm.engine_time - local_time;
 	if (diff < -150 || diff > 150) {
-		snmp_counter_inc(&g_snmp_counters.snmpSilentDrops);
+		INC_STAT(inst, snmpSilentDrops);
 		return -EACCES;
 	}
-	if (msg->usm.engine_boots != g_engine_boots) {
-		snmp_counter_inc(&g_snmp_counters.snmpSilentDrops);
+	if (msg->usm.engine_boots != inst->engine_boots) {
+		INC_STAT(inst, snmpSilentDrops);
 		return -EACCES;
 	}
 
 	return 0;
 }
 
-/* ---- Main API: build outgoing ---- */
-
-int snmp_usm_build_outgoing(struct snmp_v3_msg *msg)
+int snmp_usm_build_outgoing_inst(struct snmp_agent_inst *inst, struct snmp_v3_msg *msg)
 {
-	if (!msg)
+	if (!inst || !msg)
 		return -EINVAL;
 
+	/* RFC 3414 §2.2: if engine boots reaches 2147483647, stop processing */
+	if (inst->engine_boots >= SNMP_ENGINE_BOOTS_MAX) {
+		return -EACCES;
+	}
+
 	if (msg->scoped.pdu.type == SNMP_PDU_REPORT) {
-		memcpy(msg->usm.engine_id, g_engine_id, g_engine_id_len);
-		msg->usm.engine_id_len = g_engine_id_len;
-		msg->usm.engine_boots = g_engine_boots;
+		memcpy(msg->usm.engine_id, inst->engine_id, inst->engine_id_len);
+		msg->usm.engine_id_len = inst->engine_id_len;
+		msg->usm.engine_boots = inst->engine_boots;
 		msg->usm.engine_time = (uint32_t)(k_uptime_get() / 1000);
 		msg->global.msg_flags = 0x00;
 		msg->usm.auth_params_len = 0;
@@ -570,13 +689,13 @@ int snmp_usm_build_outgoing(struct snmp_v3_msg *msg)
 		return 0;
 	}
 
-	struct snmp_usm_user *user = usm_find_user((const char *)msg->usm.user_name);
+	struct snmp_usm_user *user = usm_find_user(inst, (const char *)msg->usm.user_name);
 	if (!user)
 		return -EACCES;
 
-	memcpy(msg->usm.engine_id, g_engine_id, g_engine_id_len);
-	msg->usm.engine_id_len = g_engine_id_len;
-	msg->usm.engine_boots = g_engine_boots;
+	memcpy(msg->usm.engine_id, inst->engine_id, inst->engine_id_len);
+	msg->usm.engine_id_len = inst->engine_id_len;
+	msg->usm.engine_boots = inst->engine_boots;
 	msg->usm.engine_time = (uint32_t)(k_uptime_get() / 1000);
 
 	uint8_t pdu_type = msg->scoped.pdu.type;
@@ -607,10 +726,10 @@ int snmp_usm_build_outgoing(struct snmp_v3_msg *msg)
 
 		/* RFC 3826 §3.1.1.1: 16-byte IV = boots (4 BE) || time (4 BE) || salt (8) */
 		uint8_t iv[AES_IV_LEN];
-		iv[0] = (uint8_t)(msg->usm.engine_boots >> 24);
-		iv[1] = (uint8_t)(msg->usm.engine_boots >> 16);
-		iv[2] = (uint8_t)(msg->usm.engine_boots >> 8);
-		iv[3] = (uint8_t)(msg->usm.engine_boots);
+		iv[0] = (uint8_t)(inst->engine_boots >> 24);
+		iv[1] = (uint8_t)(inst->engine_boots >> 16);
+		iv[2] = (uint8_t)(inst->engine_boots >> 8);
+		iv[3] = (uint8_t)(inst->engine_boots);
 		iv[4] = (uint8_t)(msg->usm.engine_time >> 24);
 		iv[5] = (uint8_t)(msg->usm.engine_time >> 16);
 		iv[6] = (uint8_t)(msg->usm.engine_time >> 8);
@@ -665,17 +784,73 @@ int snmp_usm_build_outgoing(struct snmp_v3_msg *msg)
 	return 0;
 }
 
-int snmp_usm_get_engine_id(uint8_t *engine_id, uint8_t *len)
+int snmp_usm_get_engine_id_inst(struct snmp_agent_inst *inst, uint8_t *engine_id, uint8_t *len)
 {
-	if (!engine_id || !len) {
+	if (!inst || !engine_id || !len) {
 		return -EINVAL;
 	}
-	if (*len < g_engine_id_len) {
+	if (*len < inst->engine_id_len) {
 		return -ENOBUFS;
 	}
-	memcpy(engine_id, g_engine_id, g_engine_id_len);
-	*len = g_engine_id_len;
+	memcpy(engine_id, inst->engine_id, inst->engine_id_len);
+	*len = inst->engine_id_len;
 	return 0;
+}
+
+int snmp_usm_set_engine_boots_inst(struct snmp_agent_inst *inst, uint32_t boots)
+{
+	if (!inst || boots > SNMP_ENGINE_BOOTS_MAX) {
+		return -EINVAL;
+	}
+	inst->engine_boots = boots;
+#if defined(CONFIG_SETTINGS)
+	if (inst == snmp_agent_get_default()) {
+		settings_save_one("snmp/boots", &inst->engine_boots, sizeof(inst->engine_boots));
+	}
+#endif
+	return 0;
+}
+
+uint32_t snmp_usm_get_engine_boots_inst(struct snmp_agent_inst *inst)
+{
+	return inst ? inst->engine_boots : 0;
+}
+
+/* ---- Legacy API Facade (delegates to default agent) ---- */
+
+int snmp_usm_init(void)
+{
+	return snmp_usm_init_inst(snmp_agent_get_default());
+}
+
+int snmp_usm_add_user(const struct snmp_usm_user *user)
+{
+	return snmp_usm_add_user_inst(snmp_agent_get_default(), user);
+}
+
+int snmp_usm_get_engine_id(uint8_t *engine_id, uint8_t *len)
+{
+	return snmp_usm_get_engine_id_inst(snmp_agent_get_default(), engine_id, len);
+}
+
+int snmp_usm_verify_incoming(struct snmp_v3_msg *msg, const uint8_t *raw_buf, size_t raw_len)
+{
+	return snmp_usm_verify_incoming_inst(snmp_agent_get_default(), msg, raw_buf, raw_len);
+}
+
+int snmp_usm_build_outgoing(struct snmp_v3_msg *msg)
+{
+	return snmp_usm_build_outgoing_inst(snmp_agent_get_default(), msg);
+}
+
+int snmp_usm_set_engine_boots(uint32_t boots)
+{
+	return snmp_usm_set_engine_boots_inst(snmp_agent_get_default(), boots);
+}
+
+uint32_t snmp_usm_get_engine_boots(void)
+{
+	return snmp_usm_get_engine_boots_inst(snmp_agent_get_default());
 }
 
 #endif /* CONFIG_SNMP_AGENT && CONFIG_SNMP_VERSION_3 */

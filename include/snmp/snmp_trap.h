@@ -13,61 +13,56 @@
 extern "C" {
 #endif
 
-#if defined(CONFIG_SNMP_AGENT) && defined(CONFIG_SNMP_TRAP_ENABLED)
+#ifdef CONFIG_SNMP_AGENT
 
-/**
- * @brief Send an SNMP Trap or Inform notification to all configured trap destinations.
- *
- * @param trap_oid Pointer to the Trap OID identifying the event.
- * @param varbinds Pointer to array of additional variable bindings (may be NULL if cnt == 0).
- * @param varbind_cnt Number of variable bindings.
- * @param is_inform True to send InformRequest requiring ACK, false for Trap.
- *
- * @return 0 on success, negative errno on failure.
- */
-int snmp_trap_send(const struct snmp_oid *trap_oid,
-                   const struct snmp_varbind *varbinds,
-                   uint8_t varbind_cnt,
-                   bool is_inform);
-
-#if defined(CONFIG_SNMP_VERSION_3)
-/**
- * @brief Send an SNMPv3 Trap or Inform notification to all configured trap destinations.
- *
- * @param trap_oid Pointer to the Trap OID identifying the event.
- * @param varbinds Pointer to array of additional variable bindings (may be NULL if cnt == 0).
- * @param varbind_cnt Number of variable bindings.
- * @param is_inform True to send InformRequest requiring ACK, false for Trap.
- *
- * @return 0 on success, negative errno on failure.
- */
-int snmp_trap_send_v3(const struct snmp_oid *trap_oid,
-                     const struct snmp_varbind *varbinds,
-                     uint8_t varbind_cnt,
-                     bool is_inform);
+#ifndef CONFIG_SNMP_TRAP_DEST_COUNT
+#define CONFIG_SNMP_TRAP_DEST_COUNT 3
 #endif
 
+/* Forward declaration of agent instance */
+struct snmp_agent_inst;
+
+/* ---- Instance-based APIs ---- */
+
 /**
- * @brief Add a destination IP address for trap notifications.
- *
- * @param addr IPv4 address string (e.g. "192.168.1.100").
- * @return 0 on success, negative errno on failure.
+ * @brief Add a destination IP address for trap notifications on a specific agent instance.
  */
+int snmp_trap_add_destination_inst(struct snmp_agent_inst *inst, const char *addr);
+
+/**
+ * @brief Send an SNMP Trap or Inform notification from a specific agent instance.
+ */
+int snmp_trap_send_inst(struct snmp_agent_inst *inst, const struct snmp_oid *trap_oid,
+			const struct snmp_varbind *varbinds, uint8_t varbind_cnt,
+			bool is_inform);
+
+/**
+ * @brief Send standard Cold Start Trap from a specific agent instance.
+ */
+int snmp_trap_send_coldstart_inst(struct snmp_agent_inst *inst);
+
+/**
+ * @brief Send standard Authentication Failure Trap from a specific agent instance.
+ */
+int snmp_trap_send_auth_failure_inst(struct snmp_agent_inst *inst);
+
+/* ---- Legacy API Facade (delegates to default agent) ---- */
+
 int snmp_trap_add_destination(const char *addr);
-
-/**
- * @brief Send standard Cold Start Trap (1.3.6.1.6.3.1.1.5.1).
- */
+int snmp_trap_send(const struct snmp_oid *trap_oid,
+		   const struct snmp_varbind *varbinds,
+		   uint8_t varbind_cnt,
+		   bool is_inform);
+#if defined(CONFIG_SNMP_VERSION_3)
+int snmp_trap_send_v3(const struct snmp_oid *trap_oid,
+		      const struct snmp_varbind *varbinds,
+		      uint8_t varbind_cnt,
+		      bool is_inform);
+#endif
 int snmp_trap_send_coldstart(void);
-
-/**
- * @brief Send standard Authentication Failure Trap (1.3.6.1.6.3.1.1.5.5).
- */
 int snmp_trap_send_auth_failure(void);
 
-#endif /* CONFIG_SNMP_AGENT && CONFIG_SNMP_TRAP_ENABLED */
-
-
+#endif /* CONFIG_SNMP_AGENT */
 
 #ifdef __cplusplus
 }

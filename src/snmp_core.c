@@ -31,10 +31,38 @@
 static struct snmp_agent_inst g_default_agent = {
 	.read_community = CONFIG_SNMP_COMMUNITY_READ,
 	.write_community = CONFIG_SNMP_COMMUNITY_WRITE,
+	.port = 161,
+	.sock_v4 = -1,
+	.sock_v6 = -1,
 	.counters = {
 		.snmpEnableAuthenTraps = 1,
 	},
+	.sys_descr = "Zephyr SNMP Agent",
+	.sys_contact = "admin@example.com",
+	.sys_name = "zephyr-node",
+	.sys_location = "Server Room",
+	.sys_object_id = {
+		.len = 7,
+		.ids = {1, 3, 6, 1, 4, 1, 0},
+	},
 };
+
+static bool g_default_agent_inited = false;
+
+struct snmp_agent_inst *snmp_agent_get_default(void)
+{
+	if (!g_default_agent_inited) {
+		g_default_agent_inited = true;
+		k_mutex_init(&g_default_agent.mib_lock);
+		snmp_mib_init_inst(&g_default_agent);
+		snmp_mib_register_defaults_inst(&g_default_agent);
+#if defined(CONFIG_SNMP_VERSION_3)
+		snmp_usm_init_inst(&g_default_agent);
+		snmp_vacm_init_inst(&g_default_agent);
+#endif
+	}
+	return &g_default_agent;
+}
 
 #define INST_COUNTER_INC(inst, field) do { \
 	snmp_counter_inc(&(inst)->counters.field); \
@@ -50,11 +78,38 @@ int snmp_agent_inst_init(struct snmp_agent_inst *inst)
 	}
 
 	memset(inst, 0, sizeof(*inst));
+	k_mutex_init(&inst->mib_lock);
+
 	strncpy(inst->read_community, CONFIG_SNMP_COMMUNITY_READ, sizeof(inst->read_community) - 1);
 	inst->read_community[sizeof(inst->read_community) - 1] = '\0';
 	strncpy(inst->write_community, CONFIG_SNMP_COMMUNITY_WRITE, sizeof(inst->write_community) - 1);
 	inst->write_community[sizeof(inst->write_community) - 1] = '\0';
+
+	inst->port = 161;
+	inst->sock_v4 = -1;
+	inst->sock_v6 = -1;
 	inst->counters.snmpEnableAuthenTraps = 1;
+
+	strncpy(inst->sys_descr, "Zephyr SNMP Agent", sizeof(inst->sys_descr) - 1);
+	strncpy(inst->sys_contact, "admin@example.com", sizeof(inst->sys_contact) - 1);
+	strncpy(inst->sys_name, "zephyr-node", sizeof(inst->sys_name) - 1);
+	strncpy(inst->sys_location, "Server Room", sizeof(inst->sys_location) - 1);
+	inst->sys_object_id.len = 7;
+	inst->sys_object_id.ids[0] = 1;
+	inst->sys_object_id.ids[1] = 3;
+	inst->sys_object_id.ids[2] = 6;
+	inst->sys_object_id.ids[3] = 1;
+	inst->sys_object_id.ids[4] = 4;
+	inst->sys_object_id.ids[5] = 1;
+	inst->sys_object_id.ids[6] = 0;
+
+	snmp_mib_init_inst(inst);
+	snmp_mib_register_defaults_inst(inst);
+
+#if defined(CONFIG_SNMP_VERSION_3)
+	snmp_usm_init_inst(inst);
+	snmp_vacm_init_inst(inst);
+#endif
 
 	return 0;
 }
@@ -156,7 +211,7 @@ static int process_v1v2c(struct snmp_agent_inst *inst,
 				INST_COUNTER_INC(inst, snmpInBadCommunityNames);
 			}
 #if defined(CONFIG_SNMP_TRAP_ENABLED)
-			snmp_trap_send_auth_failure();
+			snmp_trap_send_auth_failure_inst(inst);
 #endif
 			return -EACCES;
 		}
@@ -166,14 +221,14 @@ static int process_v1v2c(struct snmp_agent_inst *inst,
 		    strcmp((const char *)inst->current_pdu.community, inst->write_community) != 0) {
 			INST_COUNTER_INC(inst, snmpInBadCommunityNames);
 #if defined(CONFIG_SNMP_TRAP_ENABLED)
-			snmp_trap_send_auth_failure();
+			snmp_trap_send_auth_failure_inst(inst);
 #endif
 			return -EACCES;
 		}
 	}
 
 	/* Dispatch to MIB engine with instance context */
-	ret = snmp_mib_dispatch(inst, &inst->current_pdu);
+	ret = snmp_mib_dispatch_inst(inst, &inst->current_pdu);
 	if (ret < 0) {
 		return ret;
 	}
@@ -212,7 +267,7 @@ static int process_v3(struct snmp_agent_inst *inst,
 	}
 
 	/* USM verify */
-	ret = snmp_usm_verify_incoming(&msg, req_buf, req_len);
+	ret = snmp_usm_verify_incoming_inst(inst, &msg, req_buf, req_len);
 	if (ret < 0) {
 		if (ret == -EACCES) {
 			INST_COUNTER_INC(inst, snmpSilentDrops);
@@ -236,12 +291,12 @@ static int process_v3(struct snmp_agent_inst *inst,
 		msg.global.msg_max_size = CONFIG_SNMP_MAX_PDU_SIZE;
 		msg.global.msg_security_model = 3;
 		uint8_t eng_len = sizeof(msg.scoped.context_engine_id);
-		if (snmp_usm_get_engine_id(msg.scoped.context_engine_id, &eng_len) == 0) {
+		if (snmp_usm_get_engine_id_inst(inst, msg.scoped.context_engine_id, &eng_len) == 0) {
 			msg.scoped.context_engine_id_len = eng_len;
 		}
 		msg.scoped.context_name_len = 0;
 
-		ret = snmp_usm_build_outgoing(&msg);
+		ret = snmp_usm_build_outgoing_inst(inst, &msg);
 		if (ret < 0) {
 			return ret;
 		}
@@ -257,16 +312,45 @@ static int process_v3(struct snmp_agent_inst *inst,
 		return 0;
 	}
 
-	/* VACM access check */
-	bool is_write = (msg.scoped.pdu.type == SNMP_PDU_SET_REQ);
-	ret = snmp_vacm_check_access(&msg, is_write);
-	if (ret < 0) {
-		INST_COUNTER_INC(inst, snmpSilentDrops);
-		return ret;
+	/* VACM access check per RFC 3415 */
+	int sec_level = SNMP_SEC_LEVEL_NOAUTH_NOPRIV;
+	if (msg.global.msg_flags & 0x02) {
+		sec_level = SNMP_SEC_LEVEL_AUTH_PRIV;
+	} else if (msg.global.msg_flags & 0x01) {
+		sec_level = SNMP_SEC_LEVEL_AUTH_NOPRIV;
+	}
+	int access_type = (msg.scoped.pdu.type == SNMP_PDU_SET_REQ) ?
+			  SNMP_VACM_ACCESS_WRITE : SNMP_VACM_ACCESS_READ;
+
+	char user_name[sizeof(msg.usm.user_name) + 1];
+	size_t name_len = msg.usm.user_name_len < sizeof(msg.usm.user_name)
+			  ? msg.usm.user_name_len : sizeof(msg.usm.user_name);
+	memcpy(user_name, msg.usm.user_name, name_len);
+	user_name[name_len] = '\0';
+
+	if (msg.scoped.pdu.varbind_cnt == 0) {
+		ret = snmp_vacm_check_access_ex_inst(inst, (const char *)msg.scoped.context_name,
+						     msg.global.msg_security_model,
+						     user_name, sec_level, access_type, NULL);
+		if (ret < 0) {
+			INST_COUNTER_INC(inst, snmpSilentDrops);
+			return ret;
+		}
+	} else {
+		for (size_t i = 0; i < msg.scoped.pdu.varbind_cnt; i++) {
+			ret = snmp_vacm_check_access_ex_inst(inst, (const char *)msg.scoped.context_name,
+							     msg.global.msg_security_model,
+							     user_name, sec_level, access_type,
+							     &msg.scoped.pdu.varbinds[i].oid);
+			if (ret < 0) {
+				INST_COUNTER_INC(inst, snmpSilentDrops);
+				return ret;
+			}
+		}
 	}
 
 	/* Dispatch to MIB */
-	ret = snmp_mib_dispatch(inst, &msg.scoped.pdu);
+	ret = snmp_mib_dispatch_inst(inst, &msg.scoped.pdu);
 	if (ret < 0) {
 		return ret;
 	}
@@ -276,7 +360,7 @@ static int process_v3(struct snmp_agent_inst *inst,
 	msg.global.msg_security_model = 3;
 
 	/* Build outgoing USM */
-	ret = snmp_usm_build_outgoing(&msg);
+	ret = snmp_usm_build_outgoing_inst(inst, &msg);
 	if (ret < 0) {
 		return ret;
 	}

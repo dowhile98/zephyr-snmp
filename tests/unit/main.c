@@ -56,6 +56,7 @@ extern void test_table_register_get(void);
 extern void test_table_get_next_order(void);
 extern void test_table_set(void);
 extern void test_interleaved_scalar_and_table_walk(void);
+extern void test_multi_instance_coexistence(void);
 
 int main(void)
 {
@@ -88,6 +89,9 @@ int main(void)
     RUN_TEST(test_table_get_next_order);
     RUN_TEST(test_table_set);
     RUN_TEST(test_interleaved_scalar_and_table_walk);
+
+    printf("\nMulti-Instance Engine:\n");
+    RUN_TEST(test_multi_instance_coexistence);
 
     printf("\n=====================\n");
     printf("Results: %d passed, 0 failed, %d total\n", tests_passed, tests_run);

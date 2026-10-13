@@ -23,8 +23,6 @@ static int g_snmp_sock = -1;
 #ifdef CONFIG_NET_IPV6
 static int g_snmp_sock6 = -1;
 #endif
-static uint8_t g_rx_buf[CONFIG_SNMP_MAX_PDU_SIZE];
-static uint8_t g_tx_buf[CONFIG_SNMP_MAX_PDU_SIZE];
 
 #ifdef CONFIG_SNMP_RATE_LIMIT
 static uint32_t g_rate_tokens;
@@ -39,9 +37,15 @@ static void snmp_service_callback(struct net_socket_service_event *pev)
 
 	if (pev->event.revents & ZSOCK_POLLIN)
 	{
+		struct snmp_agent_inst *agent = snmp_agent_get_default();
+		if (!agent) {
+			return;
+		}
+
 #ifdef CONFIG_SNMP_RATE_LIMIT
 		if (!snmp_rate_check()) {
-			g_snmp_counters.snmpSilentDrops++;
+			snmp_counter_inc(&agent->counters.snmpSilentDrops);
+			snmp_counter_inc(&g_snmp_counters.snmpSilentDrops);
 			return; /* Silently drop — don't respond */
 		}
 #endif
@@ -49,18 +53,18 @@ static void snmp_service_callback(struct net_socket_service_event *pev)
 		struct sockaddr_storage client_addr;
 		socklen_t addr_len = sizeof(client_addr);
 
-		ssize_t len = zsock_recvfrom(pev->event.fd, g_rx_buf, sizeof(g_rx_buf), 0,
-									 (struct sockaddr *)&client_addr, &addr_len);
+		ssize_t len = zsock_recvfrom(pev->event.fd, agent->rx_buf, sizeof(agent->rx_buf), 0,
+					     (struct sockaddr *)&client_addr, &addr_len);
 		if (len > 0)
 		{
 			size_t resp_len = 0;
-			int ret = snmp_core_process_pdu(g_rx_buf, (size_t)len,
-											g_tx_buf, sizeof(g_tx_buf),
-											&resp_len);
+			int ret = snmp_agent_inst_process_pdu(agent, agent->rx_buf, (size_t)len,
+							     agent->tx_buf, sizeof(agent->tx_buf),
+							     &resp_len);
 			if (ret == 0 && resp_len > 0)
 			{
-				zsock_sendto(pev->event.fd, g_tx_buf, resp_len, 0,
-							 (const struct sockaddr *)&client_addr, addr_len);
+				zsock_sendto(pev->event.fd, agent->tx_buf, resp_len, 0,
+					     (const struct sockaddr *)&client_addr, addr_len);
 			}
 		}
 	}
@@ -177,23 +181,9 @@ int snmp_service_init(void)
 
 int snmp_agent_init(void)
 {
-	int ret = snmp_mib_init();
+	int ret = snmp_agent_inst_init(snmp_agent_get_default());
 	if (ret < 0)
 		return ret;
-
-	ret = snmp_mib_register_defaults();
-	if (ret < 0)
-		return ret;
-
-#if defined(CONFIG_SNMP_VERSION_3)
-	ret = snmp_usm_init();
-	if (ret < 0)
-		return ret;
-
-	ret = snmp_vacm_init();
-	if (ret < 0)
-		return ret;
-#endif
 
 	ret = snmp_service_init();
 	if (ret < 0)

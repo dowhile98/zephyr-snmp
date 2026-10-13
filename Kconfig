@@ -149,6 +149,30 @@ config SNMP_USM_PRIV_DES
 	  (RFC 3414). DES is deprecated and should only be used for
 	  legacy NMS compatibility.
 
+config SNMP_VACM_MAX_CONTEXTS
+	int "Maximum VACM contexts"
+	default 8
+	help
+	  Maximum number of contexts in vacmContextTable (RFC 3415).
+
+config SNMP_VACM_MAX_GROUPS
+	int "Maximum VACM group mappings"
+	default 16
+	help
+	  Maximum number of security-to-group mappings in vacmSecurityToGroupTable (RFC 3415).
+
+config SNMP_VACM_MAX_ACCESS_RULES
+	int "Maximum VACM access rules"
+	default 16
+	help
+	  Maximum number of access rules in vacmAccessTable (RFC 3415).
+
+config SNMP_VACM_MAX_VIEW_TREES
+	int "Maximum VACM view tree family entries"
+	default 32
+	help
+	  Maximum number of view tree family entries in vacmViewTreeFamilyTable (RFC 3415).
+
 endif # SNMP_VERSION_3
 
 

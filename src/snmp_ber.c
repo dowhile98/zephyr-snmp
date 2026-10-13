@@ -632,183 +632,338 @@ int snmp_ber_decode_pdu(const uint8_t *buf, size_t buf_len, struct snmp_pdu *pdu
 	return snmp_ber_decode_pdu_body(buf, buf_len, &off, pdu);
 }
 
-static K_MUTEX_DEFINE(g_snmp_ber_enc_mutex);
-static uint8_t g_enc_payload[CONFIG_SNMP_MAX_PDU_SIZE];
-static uint8_t g_enc_pdu_body[CONFIG_SNMP_MAX_PDU_SIZE];
-static uint8_t g_enc_vb_buf[CONFIG_SNMP_MAX_PDU_SIZE];
-static uint8_t g_enc_single_vb[512];
+/* ---- Reverse BER Encoder Helpers (Zero Heap, Zero Static BSS, Reentrant) ---- */
 
-static int snmp_ber_encode_pdu_body_internal(uint8_t *buf, size_t buf_len, size_t *out_len, const struct snmp_pdu *pdu)
+static int ber_push_bytes(uint8_t *buf, size_t *pos, const uint8_t *data, size_t len)
 {
-	if (!buf || !pdu || !out_len)
+	if (*pos < len) {
+		return -ENOBUFS;
+	}
+	*pos -= len;
+	if (data && len > 0) {
+		memcpy(&buf[*pos], data, len);
+	}
+	return 0;
+}
+
+static int ber_push_header(uint8_t *buf, size_t *pos, uint8_t tag, size_t len)
+{
+	uint8_t hdr[6];
+	size_t hlen = 0;
+
+	hdr[hlen++] = tag;
+	if (len < 128) {
+		hdr[hlen++] = (uint8_t)len;
+	} else if (len <= 0xFF) {
+		hdr[hlen++] = 0x81;
+		hdr[hlen++] = (uint8_t)len;
+	} else if (len <= 0xFFFF) {
+		hdr[hlen++] = 0x82;
+		hdr[hlen++] = (uint8_t)(len >> 8);
+		hdr[hlen++] = (uint8_t)(len & 0xFF);
+	} else {
+		hdr[hlen++] = 0x84;
+		hdr[hlen++] = (uint8_t)(len >> 24);
+		hdr[hlen++] = (uint8_t)(len >> 16);
+		hdr[hlen++] = (uint8_t)(len >> 8);
+		hdr[hlen++] = (uint8_t)(len & 0xFF);
+	}
+
+	return ber_push_bytes(buf, pos, hdr, hlen);
+}
+
+static int ber_push_int(uint8_t *buf, size_t *pos, uint8_t tag, int32_t val)
+{
+	uint8_t tmp[4];
+	size_t len = 0;
+
+	if (val >= -128 && val <= 127) {
+		tmp[0] = (uint8_t)val;
+		len = 1;
+	} else if (val >= -32768 && val <= 32767) {
+		tmp[0] = (uint8_t)(val >> 8);
+		tmp[1] = (uint8_t)val;
+		len = 2;
+	} else if (val >= -8388608 && val <= 8388607) {
+		tmp[0] = (uint8_t)(val >> 16);
+		tmp[1] = (uint8_t)(val >> 8);
+		tmp[2] = (uint8_t)val;
+		len = 3;
+	} else {
+		tmp[0] = (uint8_t)(val >> 24);
+		tmp[1] = (uint8_t)(val >> 16);
+		tmp[2] = (uint8_t)(val >> 8);
+		tmp[3] = (uint8_t)val;
+		len = 4;
+	}
+
+	int ret = ber_push_bytes(buf, pos, tmp, len);
+	if (ret < 0) {
+		return ret;
+	}
+	return ber_push_header(buf, pos, tag, len);
+}
+
+static int ber_push_uint(uint8_t *buf, size_t *pos, uint8_t tag, uint32_t val)
+{
+	uint8_t tmp[5];
+	size_t len = 0;
+
+	if ((val & 0x80000000) != 0) {
+		tmp[0] = 0x00;
+		tmp[1] = (uint8_t)(val >> 24);
+		tmp[2] = (uint8_t)(val >> 16);
+		tmp[3] = (uint8_t)(val >> 8);
+		tmp[4] = (uint8_t)val;
+		len = 5;
+	} else if (val >= 0x800000) {
+		tmp[0] = (uint8_t)(val >> 24);
+		tmp[1] = (uint8_t)(val >> 16);
+		tmp[2] = (uint8_t)(val >> 8);
+		tmp[3] = (uint8_t)val;
+		len = 4;
+	} else if (val >= 0x8000) {
+		tmp[0] = (uint8_t)(val >> 16);
+		tmp[1] = (uint8_t)(val >> 8);
+		tmp[2] = (uint8_t)val;
+		len = 3;
+	} else if (val >= 0x80) {
+		tmp[0] = (uint8_t)(val >> 8);
+		tmp[1] = (uint8_t)val;
+		len = 2;
+	} else {
+		tmp[0] = (uint8_t)val;
+		len = 1;
+	}
+
+	int ret = ber_push_bytes(buf, pos, tmp, len);
+	if (ret < 0) {
+		return ret;
+	}
+	return ber_push_header(buf, pos, tag, len);
+}
+
+static int ber_push_uint64(uint8_t *buf, size_t *pos, uint8_t tag, uint64_t val)
+{
+	uint8_t tmp[9];
+	size_t len = 0;
+
+	if ((val & 0x8000000000000000ULL) != 0) {
+		tmp[0] = 0x00;
+		for (int i = 0; i < 8; i++) {
+			tmp[1 + i] = (uint8_t)(val >> (56 - i * 8));
+		}
+		len = 9;
+	} else {
+		int first_nonzero = -1;
+		for (int i = 7; i >= 0; i--) {
+			if ((val >> (i * 8)) & 0xFF) {
+				first_nonzero = i;
+				break;
+			}
+		}
+		if (first_nonzero == -1) {
+			tmp[0] = 0x00;
+			len = 1;
+		} else {
+			uint8_t top_byte = (uint8_t)((val >> (first_nonzero * 8)) & 0xFF);
+			if (top_byte & 0x80) {
+				tmp[len++] = 0x00;
+			}
+			for (int i = first_nonzero; i >= 0; i--) {
+				tmp[len++] = (uint8_t)((val >> (i * 8)) & 0xFF);
+			}
+		}
+	}
+
+	int ret = ber_push_bytes(buf, pos, tmp, len);
+	if (ret < 0) {
+		return ret;
+	}
+	return ber_push_header(buf, pos, tag, len);
+}
+
+static int ber_push_octet_string(uint8_t *buf, size_t *pos, uint8_t tag, const uint8_t *data, size_t len)
+{
+	int ret = ber_push_bytes(buf, pos, data, len);
+	if (ret < 0) {
+		return ret;
+	}
+	return ber_push_header(buf, pos, tag, len);
+}
+
+static int ber_push_null(uint8_t *buf, size_t *pos, uint8_t tag)
+{
+	return ber_push_header(buf, pos, tag, 0);
+}
+
+static int ber_push_oid(uint8_t *buf, size_t *pos, const struct snmp_oid *oid)
+{
+	if (!oid || oid->len < 2) {
 		return -EINVAL;
-
-	size_t pb_off = 0;
-
-	if (pdu->type == SNMP_PDU_TRAP_V1)
-	{
-		int ret = snmp_ber_encode_oid(g_enc_pdu_body, sizeof(g_enc_pdu_body), &pb_off, &pdu->enterprise);
-		if (ret < 0)
-			return ret;
-		ret = snmp_ber_encode_octet_string(g_enc_pdu_body, sizeof(g_enc_pdu_body), &pb_off, SNMP_TAG_IPADDRESS, pdu->agent_addr, 4);
-		if (ret < 0)
-			return ret;
-		ret = snmp_ber_encode_int(g_enc_pdu_body, sizeof(g_enc_pdu_body), &pb_off, ASN1_TAG_INTEGER, pdu->generic_trap);
-		if (ret < 0)
-			return ret;
-		ret = snmp_ber_encode_int(g_enc_pdu_body, sizeof(g_enc_pdu_body), &pb_off, ASN1_TAG_INTEGER, pdu->specific_trap);
-		if (ret < 0)
-			return ret;
-		ret = snmp_ber_encode_uint(g_enc_pdu_body, sizeof(g_enc_pdu_body), &pb_off, SNMP_TAG_TIMETICKS, pdu->timestamp);
-		if (ret < 0)
-			return ret;
-	}
-	else
-	{
-		int ret = snmp_ber_encode_int(g_enc_pdu_body, sizeof(g_enc_pdu_body), &pb_off, ASN1_TAG_INTEGER, pdu->request_id);
-		if (ret < 0)
-			return ret;
-
-		if (pdu->type == SNMP_PDU_GET_BULK_REQ)
-		{
-			ret = snmp_ber_encode_int(g_enc_pdu_body, sizeof(g_enc_pdu_body), &pb_off, ASN1_TAG_INTEGER, pdu->non_repeaters);
-			if (ret < 0)
-				return ret;
-			ret = snmp_ber_encode_int(g_enc_pdu_body, sizeof(g_enc_pdu_body), &pb_off, ASN1_TAG_INTEGER, pdu->max_repetitions);
-			if (ret < 0)
-				return ret;
-		}
-		else
-		{
-			ret = snmp_ber_encode_int(g_enc_pdu_body, sizeof(g_enc_pdu_body), &pb_off, ASN1_TAG_INTEGER, pdu->error_status);
-			if (ret < 0)
-				return ret;
-			ret = snmp_ber_encode_int(g_enc_pdu_body, sizeof(g_enc_pdu_body), &pb_off, ASN1_TAG_INTEGER, pdu->error_index);
-			if (ret < 0)
-				return ret;
-		}
 	}
 
-	size_t vb_off = 0;
+	uint8_t tmp[128];
+	size_t off = 0;
+	int ret = snmp_ber_encode_oid(tmp, sizeof(tmp), &off, oid);
+	if (ret < 0) {
+		return ret;
+	}
 
-	for (uint8_t i = 0; i < pdu->varbind_cnt; i++)
-	{
+	return ber_push_bytes(buf, pos, tmp, off);
+}
+
+static int ber_push_pdu_body(uint8_t *buf, size_t *pos, const struct snmp_pdu *pdu)
+{
+	size_t vb_list_end = *pos;
+
+	for (int i = (int)pdu->varbind_cnt - 1; i >= 0; i--) {
 		const struct snmp_varbind *vb = &pdu->varbinds[i];
-		size_t svb_off = 0;
+		size_t vb_end = *pos;
+		int ret = 0;
 
-		int ret = snmp_ber_encode_oid(g_enc_single_vb, sizeof(g_enc_single_vb), &svb_off, &vb->oid);
-		if (ret < 0)
-			return ret;
-
-		switch (vb->type)
-		{
+		switch (vb->type) {
 		case ASN1_TAG_INTEGER:
-			ret = snmp_ber_encode_int(g_enc_single_vb, sizeof(g_enc_single_vb), &svb_off, vb->type, vb->val.int_val);
+			ret = ber_push_int(buf, pos, vb->type, vb->val.int_val);
 			break;
 		case ASN1_TAG_OCTET_STRING:
 		case SNMP_TAG_OPAQUE:
-			ret = snmp_ber_encode_octet_string(g_enc_single_vb, sizeof(g_enc_single_vb), &svb_off, vb->type, vb->val.octet_str.data, vb->val.octet_str.len);
+			ret = ber_push_octet_string(buf, pos, vb->type, vb->val.octet_str.data, vb->val.octet_str.len);
 			break;
 		case SNMP_TAG_IPADDRESS:
-			ret = snmp_ber_encode_octet_string(g_enc_single_vb, sizeof(g_enc_single_vb), &svb_off, vb->type, vb->val.ip_addr, 4);
+			ret = ber_push_octet_string(buf, pos, vb->type, vb->val.ip_addr, 4);
 			break;
 		case ASN1_TAG_NULL:
 		case SNMP_TAG_EXCEPT_NO_SUCH_OBJ:
 		case SNMP_TAG_EXCEPT_NO_SUCH_INST:
 		case SNMP_TAG_EXCEPT_END_MIB_VIEW:
-			ret = snmp_ber_encode_null(g_enc_single_vb, sizeof(g_enc_single_vb), &svb_off, vb->type);
+			ret = ber_push_null(buf, pos, vb->type);
 			break;
 		case ASN1_TAG_OID:
-			ret = snmp_ber_encode_oid(g_enc_single_vb, sizeof(g_enc_single_vb), &svb_off, &vb->val.oid);
+			ret = ber_push_oid(buf, pos, &vb->val.oid);
 			break;
 		case SNMP_TAG_COUNTER32:
 		case SNMP_TAG_GAUGE32:
 		case SNMP_TAG_TIMETICKS:
 		case SNMP_TAG_UNSIGNED32:
-			ret = snmp_ber_encode_uint(g_enc_single_vb, sizeof(g_enc_single_vb), &svb_off, vb->type, vb->val.uint_val);
+			ret = ber_push_uint(buf, pos, vb->type, vb->val.uint_val);
 			break;
 		case SNMP_TAG_COUNTER64:
-			ret = snmp_ber_encode_uint64(g_enc_single_vb, sizeof(g_enc_single_vb), &svb_off, vb->type, vb->val.uint64_val);
+			ret = ber_push_uint64(buf, pos, vb->type, vb->val.uint64_val);
 			break;
 		default:
 			return -EINVAL;
 		}
 
-		if (ret < 0)
+		if (ret < 0) {
 			return ret;
-		ret = snmp_ber_encode_header(g_enc_vb_buf, sizeof(g_enc_vb_buf), &vb_off, ASN1_TAG_SEQUENCE, svb_off);
-		if (ret < 0)
+		}
+
+		ret = ber_push_oid(buf, pos, &vb->oid);
+		if (ret < 0) {
 			return ret;
-		memcpy(&g_enc_vb_buf[vb_off], g_enc_single_vb, svb_off);
-		vb_off += svb_off;
+		}
+
+		size_t vb_len = vb_end - *pos;
+		ret = ber_push_header(buf, pos, ASN1_TAG_SEQUENCE, vb_len);
+		if (ret < 0) {
+			return ret;
+		}
 	}
 
-	int ret = snmp_ber_encode_header(g_enc_pdu_body, sizeof(g_enc_pdu_body), &pb_off, ASN1_TAG_SEQUENCE, vb_off);
-	if (ret < 0)
+	size_t vb_list_len = vb_list_end - *pos;
+	int ret = ber_push_header(buf, pos, ASN1_TAG_SEQUENCE, vb_list_len);
+	if (ret < 0) {
 		return ret;
-	memcpy(&g_enc_pdu_body[pb_off], g_enc_vb_buf, vb_off);
-	pb_off += vb_off;
+	}
 
-	size_t body_hdr_off = 0;
-	ret = snmp_ber_encode_header(buf, buf_len, &body_hdr_off, pdu->type, pb_off);
-	if (ret < 0)
-		return ret;
-	if (body_hdr_off + pb_off > buf_len)
-		return -ENOBUFS;
-	memcpy(&buf[body_hdr_off], g_enc_pdu_body, pb_off);
+	if (pdu->type == SNMP_PDU_TRAP_V1) {
+		ret = ber_push_uint(buf, pos, SNMP_TAG_TIMETICKS, pdu->timestamp);
+		if (ret < 0) return ret;
+		ret = ber_push_int(buf, pos, ASN1_TAG_INTEGER, pdu->specific_trap);
+		if (ret < 0) return ret;
+		ret = ber_push_int(buf, pos, ASN1_TAG_INTEGER, pdu->generic_trap);
+		if (ret < 0) return ret;
+		ret = ber_push_octet_string(buf, pos, SNMP_TAG_IPADDRESS, pdu->agent_addr, 4);
+		if (ret < 0) return ret;
+		ret = ber_push_oid(buf, pos, &pdu->enterprise);
+		if (ret < 0) return ret;
+	} else if (pdu->type == SNMP_PDU_GET_BULK_REQ) {
+		ret = ber_push_int(buf, pos, ASN1_TAG_INTEGER, pdu->max_repetitions);
+		if (ret < 0) return ret;
+		ret = ber_push_int(buf, pos, ASN1_TAG_INTEGER, pdu->non_repeaters);
+		if (ret < 0) return ret;
+		ret = ber_push_int(buf, pos, ASN1_TAG_INTEGER, pdu->request_id);
+		if (ret < 0) return ret;
+	} else {
+		ret = ber_push_int(buf, pos, ASN1_TAG_INTEGER, pdu->error_index);
+		if (ret < 0) return ret;
+		ret = ber_push_int(buf, pos, ASN1_TAG_INTEGER, pdu->error_status);
+		if (ret < 0) return ret;
+		ret = ber_push_int(buf, pos, ASN1_TAG_INTEGER, pdu->request_id);
+		if (ret < 0) return ret;
+	}
 
-	*out_len = body_hdr_off + pb_off;
-	return 0;
+	size_t pdu_len = vb_list_end - *pos;
+	return ber_push_header(buf, pos, pdu->type, pdu_len);
 }
 
 int snmp_ber_encode_pdu_body(uint8_t *buf, size_t buf_len, size_t *out_len, const struct snmp_pdu *pdu)
 {
-	k_mutex_lock(&g_snmp_ber_enc_mutex, K_FOREVER);
-	int ret = snmp_ber_encode_pdu_body_internal(buf, buf_len, out_len, pdu);
-	k_mutex_unlock(&g_snmp_ber_enc_mutex);
-	return ret;
-}
-
-static int snmp_ber_encode_pdu_internal(uint8_t *buf, size_t buf_len, size_t *out_len, const struct snmp_pdu *pdu)
-{
-	if (!buf || !pdu || !out_len)
+	if (!buf || !pdu || !out_len) {
 		return -EINVAL;
+	}
 
-	size_t p_off = 0;
-
-	int ret = snmp_ber_encode_int(g_enc_payload, sizeof(g_enc_payload), &p_off, ASN1_TAG_INTEGER, pdu->version);
-	if (ret < 0)
+	size_t pos = buf_len;
+	int ret = ber_push_pdu_body(buf, &pos, pdu);
+	if (ret < 0) {
 		return ret;
+	}
 
-	ret = snmp_ber_encode_octet_string(g_enc_payload, sizeof(g_enc_payload), &p_off, ASN1_TAG_OCTET_STRING, pdu->community, pdu->community_len);
-	if (ret < 0)
-		return ret;
-
-	size_t body_len = 0;
-	ret = snmp_ber_encode_pdu_body_internal(&g_enc_payload[p_off], sizeof(g_enc_payload) - p_off, &body_len, pdu);
-	if (ret < 0)
-		return ret;
-	p_off += body_len;
-
-	size_t final_off = 0;
-	ret = snmp_ber_encode_header(buf, buf_len, &final_off, ASN1_TAG_SEQUENCE, p_off);
-	if (ret < 0)
-		return ret;
-	if (final_off + p_off > buf_len)
-		return -ENOBUFS;
-	memcpy(&buf[final_off], g_enc_payload, p_off);
-	final_off += p_off;
-
-	*out_len = final_off;
+	size_t total_len = buf_len - pos;
+	if (pos > 0) {
+		memmove(buf, &buf[pos], total_len);
+	}
+	*out_len = total_len;
 	return 0;
 }
 
 int snmp_ber_encode_pdu(uint8_t *buf, size_t buf_len, size_t *out_len, const struct snmp_pdu *pdu)
 {
-	k_mutex_lock(&g_snmp_ber_enc_mutex, K_FOREVER);
-	int ret = snmp_ber_encode_pdu_internal(buf, buf_len, out_len, pdu);
-	k_mutex_unlock(&g_snmp_ber_enc_mutex);
-	return ret;
+	if (!buf || !pdu || !out_len) {
+		return -EINVAL;
+	}
+
+	size_t pos = buf_len;
+	size_t msg_end = pos;
+
+	int ret = ber_push_pdu_body(buf, &pos, pdu);
+	if (ret < 0) {
+		return ret;
+	}
+
+	ret = ber_push_octet_string(buf, &pos, ASN1_TAG_OCTET_STRING, pdu->community, pdu->community_len);
+	if (ret < 0) {
+		return ret;
+	}
+
+	ret = ber_push_int(buf, &pos, ASN1_TAG_INTEGER, pdu->version);
+	if (ret < 0) {
+		return ret;
+	}
+
+	size_t msg_len = msg_end - pos;
+	ret = ber_push_header(buf, &pos, ASN1_TAG_SEQUENCE, msg_len);
+	if (ret < 0) {
+		return ret;
+	}
+
+	size_t total_len = buf_len - pos;
+	if (pos > 0) {
+		memmove(buf, &buf[pos], total_len);
+	}
+	*out_len = total_len;
+	return 0;
 }
 
 /* ---- SNMPv3 message decode / encode (RFC 3412) ---- */
@@ -948,143 +1103,130 @@ int snmp_ber_decode_v3_msg(const uint8_t *buf, size_t buf_len, struct snmp_v3_ms
 
 int snmp_ber_encode_v3_msg(uint8_t *buf, size_t buf_len, size_t *out_len, const struct snmp_v3_msg *msg)
 {
-	if (!buf || !msg || !out_len)
+	if (!buf || !msg || !out_len) {
 		return -EINVAL;
+	}
 
+	size_t pos = buf_len;
+	size_t outer_end = pos;
 	int ret;
 
-	/* 1. Encode the inner PDU (skip if priv/encrypted) */
-	uint8_t pdu_raw[CONFIG_SNMP_MAX_PDU_SIZE];
-	size_t pdu_len = 0;
-	if (!(msg->global.msg_flags & 0x02)) {
-		ret = snmp_ber_encode_pdu_body(pdu_raw, sizeof(pdu_raw), &pdu_len, &msg->scoped.pdu);
-		if (ret < 0)
-			return ret;
-	}
-
-	/* 2. ScopedPDU SEQUENCE (or single OCTET STRING if encrypted) */
-	uint8_t scoped[CONFIG_SNMP_MAX_PDU_SIZE];
-	size_t sc_off = 0;
+	/* 1. ScopedPDU */
+	size_t scoped_end = pos;
 	if (msg->global.msg_flags & 0x02) {
-		ret = snmp_ber_encode_octet_string(scoped, sizeof(scoped), &sc_off, ASN1_TAG_OCTET_STRING,
-						   msg->scoped.priv_ciphertext, (uint16_t)msg->scoped.priv_ciphertext_len);
-		if (ret < 0)
+		ret = ber_push_octet_string(buf, &pos, ASN1_TAG_OCTET_STRING,
+					   msg->scoped.priv_ciphertext, msg->scoped.priv_ciphertext_len);
+		if (ret < 0) {
 			return ret;
+		}
 	} else {
-		ret = snmp_ber_encode_octet_string(scoped, sizeof(scoped), &sc_off, ASN1_TAG_OCTET_STRING,
-						   msg->scoped.context_engine_id, msg->scoped.context_engine_id_len);
-		if (ret < 0)
+		ret = ber_push_pdu_body(buf, &pos, &msg->scoped.pdu);
+		if (ret < 0) {
 			return ret;
-		ret = snmp_ber_encode_octet_string(scoped, sizeof(scoped), &sc_off, ASN1_TAG_OCTET_STRING,
-						   msg->scoped.context_name, msg->scoped.context_name_len);
-		if (ret < 0)
+		}
+		ret = ber_push_octet_string(buf, &pos, ASN1_TAG_OCTET_STRING,
+					   msg->scoped.context_name, msg->scoped.context_name_len);
+		if (ret < 0) {
 			return ret;
-		memcpy(&scoped[sc_off], pdu_raw, pdu_len);
-		sc_off += pdu_len;
+		}
+		ret = ber_push_octet_string(buf, &pos, ASN1_TAG_OCTET_STRING,
+					   msg->scoped.context_engine_id, msg->scoped.context_engine_id_len);
+		if (ret < 0) {
+			return ret;
+		}
+	}
+	size_t scoped_len = scoped_end - pos;
+	ret = ber_push_header(buf, &pos, ASN1_TAG_SEQUENCE, scoped_len);
+	if (ret < 0) {
+		return ret;
 	}
 
-	/* 3. msgSecurityParameters — encode USM SEQUENCE */
-	uint8_t usm_seq[256];
-	size_t usm_off = 0;
-	ret = snmp_ber_encode_octet_string(usm_seq, sizeof(usm_seq), &usm_off, ASN1_TAG_OCTET_STRING,
-					   msg->usm.engine_id, msg->usm.engine_id_len);
-	if (ret < 0)
+	/* 2. msgSecurityParameters (USM SEQUENCE inside OCTET STRING) */
+	size_t sec_params_end = pos;
+	size_t usm_end = pos;
+	ret = ber_push_octet_string(buf, &pos, ASN1_TAG_OCTET_STRING,
+				   msg->usm.priv_params, msg->usm.priv_params_len);
+	if (ret < 0) {
 		return ret;
-	ret = snmp_ber_encode_int(usm_seq, sizeof(usm_seq), &usm_off, ASN1_TAG_INTEGER, msg->usm.engine_boots);
-	if (ret < 0)
+	}
+	ret = ber_push_octet_string(buf, &pos, ASN1_TAG_OCTET_STRING,
+				   msg->usm.auth_params, msg->usm.auth_params_len);
+	if (ret < 0) {
 		return ret;
-	ret = snmp_ber_encode_int(usm_seq, sizeof(usm_seq), &usm_off, ASN1_TAG_INTEGER, msg->usm.engine_time);
-	if (ret < 0)
+	}
+	ret = ber_push_octet_string(buf, &pos, ASN1_TAG_OCTET_STRING,
+				   (const uint8_t *)msg->usm.user_name, msg->usm.user_name_len);
+	if (ret < 0) {
 		return ret;
-	ret = snmp_ber_encode_octet_string(usm_seq, sizeof(usm_seq), &usm_off, ASN1_TAG_OCTET_STRING,
-					   msg->usm.user_name, msg->usm.user_name_len);
-	if (ret < 0)
+	}
+	ret = ber_push_int(buf, &pos, ASN1_TAG_INTEGER, msg->usm.engine_time);
+	if (ret < 0) {
 		return ret;
-	ret = snmp_ber_encode_octet_string(usm_seq, sizeof(usm_seq), &usm_off, ASN1_TAG_OCTET_STRING,
-					   msg->usm.auth_params, msg->usm.auth_params_len);
-	if (ret < 0)
+	}
+	ret = ber_push_int(buf, &pos, ASN1_TAG_INTEGER, msg->usm.engine_boots);
+	if (ret < 0) {
 		return ret;
-	ret = snmp_ber_encode_octet_string(usm_seq, sizeof(usm_seq), &usm_off, ASN1_TAG_OCTET_STRING,
-					   msg->usm.priv_params, msg->usm.priv_params_len);
-	if (ret < 0)
+	}
+	ret = ber_push_octet_string(buf, &pos, ASN1_TAG_OCTET_STRING,
+				   msg->usm.engine_id, msg->usm.engine_id_len);
+	if (ret < 0) {
 		return ret;
+	}
+	size_t usm_len = usm_end - pos;
+	ret = ber_push_header(buf, &pos, ASN1_TAG_SEQUENCE, usm_len);
+	if (ret < 0) {
+		return ret;
+	}
 
-	/* Wrap USM SEQUENCE in header */
-	uint8_t usm_wrapped[300];
-	size_t uw_off = 0;
-	ret = snmp_ber_encode_header(usm_wrapped, sizeof(usm_wrapped), &uw_off, ASN1_TAG_SEQUENCE, usm_off);
-	if (ret < 0)
+	size_t sec_len = sec_params_end - pos;
+	ret = ber_push_header(buf, &pos, ASN1_TAG_OCTET_STRING, sec_len);
+	if (ret < 0) {
 		return ret;
-	memcpy(&usm_wrapped[uw_off], usm_seq, usm_off);
-	uw_off += usm_off;
+	}
 
-	/* msgSecurityParameters as OCTET STRING */
-	uint8_t sec_params[300];
-	size_t sp_off = 0;
-	ret = snmp_ber_encode_octet_string(sec_params, sizeof(sec_params), &sp_off,
-					   ASN1_TAG_OCTET_STRING, usm_wrapped, (uint16_t)uw_off);
-	if (ret < 0)
+	/* 3. msgGlobalData */
+	size_t gl_end = pos;
+	ret = ber_push_int(buf, &pos, ASN1_TAG_INTEGER, msg->global.msg_security_model);
+	if (ret < 0) {
 		return ret;
-
-	/* 4. msgGlobalData SEQUENCE */
+	}
 	uint8_t flags_byte = msg->global.msg_flags;
-	uint8_t global_seq[128];
-	size_t gl_off = 0;
-	ret = snmp_ber_encode_int(global_seq, sizeof(global_seq), &gl_off, ASN1_TAG_INTEGER, msg->global.msg_id);
-	if (ret < 0)
+	ret = ber_push_octet_string(buf, &pos, ASN1_TAG_OCTET_STRING, &flags_byte, 1);
+	if (ret < 0) {
 		return ret;
-	ret = snmp_ber_encode_int(global_seq, sizeof(global_seq), &gl_off, ASN1_TAG_INTEGER, msg->global.msg_max_size);
-	if (ret < 0)
+	}
+	ret = ber_push_int(buf, &pos, ASN1_TAG_INTEGER, msg->global.msg_max_size);
+	if (ret < 0) {
 		return ret;
-	ret = snmp_ber_encode_octet_string(global_seq, sizeof(global_seq), &gl_off, ASN1_TAG_OCTET_STRING, &flags_byte, 1);
-	if (ret < 0)
+	}
+	ret = ber_push_int(buf, &pos, ASN1_TAG_INTEGER, msg->global.msg_id);
+	if (ret < 0) {
 		return ret;
-	ret = snmp_ber_encode_int(global_seq, sizeof(global_seq), &gl_off, ASN1_TAG_INTEGER, msg->global.msg_security_model);
-	if (ret < 0)
+	}
+	size_t gl_len = gl_end - pos;
+	ret = ber_push_header(buf, &pos, ASN1_TAG_SEQUENCE, gl_len);
+	if (ret < 0) {
 		return ret;
+	}
 
-	uint8_t global_wrapped[200];
-	size_t gw_off = 0;
-	ret = snmp_ber_encode_header(global_wrapped, sizeof(global_wrapped), &gw_off, ASN1_TAG_SEQUENCE, gl_off);
-	if (ret < 0)
+	/* 4. SNMP Version 3 */
+	ret = ber_push_int(buf, &pos, ASN1_TAG_INTEGER, 3);
+	if (ret < 0) {
 		return ret;
-	memcpy(&global_wrapped[gw_off], global_seq, gl_off);
-	gw_off += gl_off;
+	}
 
-	/* 5. Build payload: version + global + securityParams + scopedPDU */
-	uint8_t payload[CONFIG_SNMP_MAX_PDU_SIZE];
-	size_t pl_off = 0;
-	ret = snmp_ber_encode_int(payload, sizeof(payload), &pl_off, ASN1_TAG_INTEGER, 3);
-	if (ret < 0)
+	/* 5. Outer SEQUENCE */
+	size_t total_payload_len = outer_end - pos;
+	ret = ber_push_header(buf, &pos, ASN1_TAG_SEQUENCE, total_payload_len);
+	if (ret < 0) {
 		return ret;
+	}
 
-	memcpy(&payload[pl_off], global_wrapped, gw_off);
-	pl_off += gw_off;
-
-	memcpy(&payload[pl_off], sec_params, sp_off);
-	pl_off += sp_off;
-
-	/* ScopedPDU wrapped in SEQUENCE */
-	uint8_t scoped_wrapped[CONFIG_SNMP_MAX_PDU_SIZE];
-	size_t sw_off = 0;
-	ret = snmp_ber_encode_header(scoped_wrapped, sizeof(scoped_wrapped), &sw_off, ASN1_TAG_SEQUENCE, sc_off);
-	if (ret < 0)
-		return ret;
-	memcpy(&scoped_wrapped[sw_off], scoped, sc_off);
-	sw_off += sc_off;
-
-	memcpy(&payload[pl_off], scoped_wrapped, sw_off);
-	pl_off += sw_off;
-
-	/* 6. Outer SEQUENCE wrapper */
-	size_t final_off = 0;
-	ret = snmp_ber_encode_header(buf, buf_len, &final_off, ASN1_TAG_SEQUENCE, pl_off);
-	if (ret < 0)
-		return ret;
-	memcpy(&buf[final_off], payload, pl_off);
-	final_off += pl_off;
-
-	*out_len = final_off;
+	size_t total_len = buf_len - pos;
+	if (pos > 0) {
+		memmove(buf, &buf[pos], total_len);
+	}
+	*out_len = total_len;
 	return 0;
 }
 

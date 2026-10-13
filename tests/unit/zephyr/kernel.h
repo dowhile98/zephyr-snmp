@@ -17,22 +17,29 @@
 
 /* --- Basic Types --- */
 typedef int32_t k_timeout_t;
-typedef struct {
+struct k_mutex {
     void *unused;
-} k_mutex;
+};
+typedef struct k_mutex k_mutex;
 
 /* --- Mutex Stubs --- */
-#define K_MUTEX_DEFINE(name) k_mutex name = {0}
+#define K_MUTEX_DEFINE(name) struct k_mutex name = {0}
 #define K_FOREVER ((k_timeout_t)-1)
 
-static inline int k_mutex_lock(k_mutex *mutex, k_timeout_t timeout)
+static inline int k_mutex_init(struct k_mutex *mutex)
+{
+    (void)mutex;
+    return 0;
+}
+
+static inline int k_mutex_lock(struct k_mutex *mutex, k_timeout_t timeout)
 {
     (void)mutex;
     (void)timeout;
     return 0;
 }
 
-static inline void k_mutex_unlock(k_mutex *mutex)
+static inline void k_mutex_unlock(struct k_mutex *mutex)
 {
     (void)mutex;
 }

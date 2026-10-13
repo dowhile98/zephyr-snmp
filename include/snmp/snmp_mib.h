@@ -16,6 +16,10 @@ extern "C" {
 
 #ifdef CONFIG_SNMP_AGENT
 
+#ifndef CONFIG_SNMP_MAX_MIB_NODES
+#define CONFIG_SNMP_MAX_MIB_NODES 128
+#endif
+
 #ifndef CONFIG_SNMP_MAX_TABLES
 #define CONFIG_SNMP_MAX_TABLES 8
 #endif
@@ -104,10 +108,6 @@ struct snmp_mib2_counters {
 
 extern struct snmp_mib2_counters g_snmp_counters;
 
-/* Counter increment helper — uses atomic ops when CONFIG_ATOMIC_OPERATIONS
- * is enabled, otherwise plain increment. Counters are best-effort stats;
- * minor races are acceptable per RFC 1907.
- */
 static inline void snmp_counter_inc(uint32_t *counter)
 {
 #if defined(CONFIG_ATOMIC_OPERATIONS)
@@ -116,55 +116,6 @@ static inline void snmp_counter_inc(uint32_t *counter)
 	(*counter)++;
 #endif
 }
-
-/* --- MIB Public APIs --- */
-
-/**
- * @brief Initialize the MIB tree. Must be called once before any other MIB operation.
- *        The tree starts empty; register nodes with snmp_mib_register() or
- *        snmp_mib_register_defaults().
- *
- * @return 0 on success, negative errno on failure.
- */
-int snmp_mib_init(void);
-
-/**
- * @brief Register the standard MIB-II system group (1.3.6.1.2.1.1) and
- *        snmp group (1.3.6.1.2.1.11) counters. Call after snmp_mib_init()
- *        if standard MIB-II objects are needed.
- *
- * @return 0 on success, negative errno on failure.
- */
-int snmp_mib_register_defaults(void);
-
-/**
- * @brief Register a single MIB node. Nodes are kept lexicographically sorted.
- *
- * @param node Pointer to the MIB node definition to register.
- * @return 0 on success, negative errno on failure.
- */
-int snmp_mib_register(const struct snmp_mib_node *node);
-
-/**
- * @brief Register an array of MIB nodes in bulk (equivalent to lwIP's snmp_set_mibs).
- *        All nodes are inserted into the same sorted tree.
- *
- * @param nodes Pointer to array of MIB node definitions.
- * @param count Number of nodes in the array.
- * @return 0 on success, negative errno on failure.
- */
-int snmp_mib_register_nodes(const struct snmp_mib_node *nodes, size_t count);
-
-int snmp_mib_get(const struct snmp_oid *oid, struct snmp_varbind *vb);
-int snmp_mib_get_next(const struct snmp_oid *oid, struct snmp_varbind *vb);
-int snmp_mib_set(const struct snmp_oid *oid, const struct snmp_varbind *vb);
-int (snmp_mib_dispatch)(struct snmp_agent_inst *inst, struct snmp_pdu *pdu);
-int snmp_mib_dispatch_legacy(struct snmp_pdu *pdu);
-
-#define _SNMP_DISPATCH_1(pdu) (snmp_mib_dispatch)(NULL, (pdu))
-#define _SNMP_DISPATCH_2(inst, pdu) (snmp_mib_dispatch)((inst), (pdu))
-#define _SNMP_DISPATCH_GET(_1, _2, NAME, ...) NAME
-#define snmp_mib_dispatch(...) _SNMP_DISPATCH_GET(__VA_ARGS__, _SNMP_DISPATCH_2, _SNMP_DISPATCH_1)(__VA_ARGS__)
 
 /* --- MIB Table Support --- */
 
@@ -190,15 +141,51 @@ struct snmp_mib_table {
 	void *user_data;
 };
 
-int snmp_mib_register_table(struct snmp_mib_table *table);
 int snmp_mib_table_add_row(struct snmp_mib_table *table, struct snmp_table_row *row);
 int snmp_mib_table_remove_row(struct snmp_mib_table *table, uint32_t index);
 
-/* Thread safety mutex lock helpers */
+/* --- Instance-based MIB APIs --- */
+
+int snmp_mib_init_inst(struct snmp_agent_inst *inst);
+int snmp_mib_register_defaults_inst(struct snmp_agent_inst *inst);
+int snmp_mib_register_inst(struct snmp_agent_inst *inst, const struct snmp_mib_node *node);
+int snmp_mib_register_nodes_inst(struct snmp_agent_inst *inst, const struct snmp_mib_node *nodes, size_t count);
+int snmp_mib_get_inst(struct snmp_agent_inst *inst, const struct snmp_oid *oid, struct snmp_varbind *vb);
+int snmp_mib_get_next_inst(struct snmp_agent_inst *inst, const struct snmp_oid *oid, struct snmp_varbind *vb);
+int snmp_mib_set_inst(struct snmp_agent_inst *inst, const struct snmp_oid *oid, const struct snmp_varbind *vb);
+int snmp_mib_dispatch_inst(struct snmp_agent_inst *inst, struct snmp_pdu *pdu);
+int snmp_mib_register_table_inst(struct snmp_agent_inst *inst, struct snmp_mib_table *table);
+
+void snmp_mib_lock_inst(struct snmp_agent_inst *inst);
+void snmp_mib_unlock_inst(struct snmp_agent_inst *inst);
+
+int snmp_set_device_enterprise_oid_inst(struct snmp_agent_inst *inst, const struct snmp_oid *oid);
+int snmp_mib2_set_sysdescr_inst(struct snmp_agent_inst *inst, const char *descr);
+int snmp_mib2_set_syscontact_inst(struct snmp_agent_inst *inst, const char *contact);
+int snmp_mib2_set_sysname_inst(struct snmp_agent_inst *inst, const char *name);
+int snmp_mib2_set_syslocation_inst(struct snmp_agent_inst *inst, const char *location);
+
+/* --- Legacy Facade APIs (delegates to default agent) --- */
+
+int snmp_mib_init(void);
+int snmp_mib_register_defaults(void);
+int snmp_mib_register(const struct snmp_mib_node *node);
+int snmp_mib_register_nodes(const struct snmp_mib_node *nodes, size_t count);
+int snmp_mib_get(const struct snmp_oid *oid, struct snmp_varbind *vb);
+int snmp_mib_get_next(const struct snmp_oid *oid, struct snmp_varbind *vb);
+int snmp_mib_set(const struct snmp_oid *oid, const struct snmp_varbind *vb);
+int (snmp_mib_dispatch)(struct snmp_agent_inst *inst, struct snmp_pdu *pdu);
+int snmp_mib_dispatch_legacy(struct snmp_pdu *pdu);
+
+#define _SNMP_DISPATCH_1(pdu) snmp_mib_dispatch_inst(NULL, (pdu))
+#define _SNMP_DISPATCH_2(inst, pdu) snmp_mib_dispatch_inst((inst), (pdu))
+#define _SNMP_DISPATCH_GET(_1, _2, NAME, ...) NAME
+#define snmp_mib_dispatch(...) _SNMP_DISPATCH_GET(__VA_ARGS__, _SNMP_DISPATCH_2, _SNMP_DISPATCH_1)(__VA_ARGS__)
+
+int snmp_mib_register_table(struct snmp_mib_table *table);
 void snmp_mib_lock(void);
 void snmp_mib_unlock(void);
 
-/* --- MIB-II System Group Convenience Setters --- */
 int snmp_set_device_enterprise_oid(const struct snmp_oid *oid);
 int snmp_mib2_set_sysdescr(const char *descr);
 int snmp_mib2_set_syscontact(const char *contact);
