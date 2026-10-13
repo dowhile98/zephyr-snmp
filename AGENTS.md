@@ -63,7 +63,8 @@ Gotchas an agent will otherwise miss:
 - Adding a test requires three edits: define it in a `test_*.c`, add `extern`
   declaration + `RUN_TEST(...)` in `main.c`, and (for new source under test) add the
   `.c` file plus any needed `CONFIG_SNMP_*` defines in `tests/unit/CMakeLists.txt`.
-  Nothing auto-discovers tests — `test_set_2pc.c` was wired in Sub-Phase 8d (29 tests in `snmp_unit_tests`).
+  Nothing auto-discovers tests — currently 47 host unit tests verified (37 in
+  `snmp_unit_tests` and 10 in `vacm_unit_tests`).
 - Compiled with `-Wall -Wextra -Werror`; `snmp_service.c`/`snmp_usm.c`/`snmp_trap.c`
   are not host-compilable (sockets/crypto/deps), so v3 USM and the transport layer
   have no host coverage.
@@ -72,7 +73,7 @@ Gotchas an agent will otherwise miss:
 
 ## CI gates (`.github/workflows/ci.yml`)
 
-1. `unit-tests` — host cmake build + runs both `./snmp_unit_tests` and `./vacm_unit_tests` (all 36 tests verified).
+1. `unit-tests` — host cmake build + runs both `./snmp_unit_tests` and `./vacm_unit_tests` (all 47 tests verified).
 2. `check-format` — `clang-format --dry-run --Werror` over `src include samples tests/unit` (strict, no bypass).
 3. `build-zephyr` — builds `samples/snmp_agent` for `native_sim` and `qemu_x86` only;
    hardware boards are not covered, so verify STM32 changes yourself.
@@ -106,8 +107,8 @@ Gotchas an agent will otherwise miss:
 
 ## Known stale spots (don't trust these as references)
 
-- `docs/` Sphinx + Doxygen config still names the project `zephyr-dgus` — copied from
-  a different repo; the wiki under `docs/wiki/` is the accurate architecture source.
+- `docs/` Doxygen and Sphinx documentation is now fully modernized and synchronized with
+  `zephyr-snmp` (previously referenced `zephyr-dgus`).
 - `task.md` and `temp/` are gitignored scratch files, not specs.
 - `dts/`, `scripts/`, `reference/` are currently empty placeholders.
 

@@ -1,38 +1,40 @@
 Sample Application
 ==================
 
-The repository includes a complete demonstration sample located in ``samples/dwin-interface/``.
+The repository includes a complete demonstration sample located in ``samples/snmp_agent/``.
 
 Overview
 --------
 
 The sample application demonstrates:
-- Initialization and acquisition of a DGUS II device instance from Devicetree.
-- Writing 16-bit and 32-bit values to display Variable Pointers (VP).
-- Writing text strings to display labels.
-- Switching active pages and querying the current page.
-- Modifying backlight brightness and triggering the internal buzzer.
-- Subscribing to touch button events via asynchronous VP callbacks.
-- Plotting real-time trend curve points using Command 0x84.
+- Initialization and lifecycle management of an SNMP agent instance using ``snmp_agent_init()`` and ``snmp_agent_start()``.
+- Automated network configuration via DHCPv4 and network link event monitoring.
+- Standard MIB-II network group registration using ``snmp_mib2_register_all()`` (system, snmp, ifTable, ip, icmp, tcp, udp).
+- Custom enterprise MIB registration under the private enterprise subtree (``1.3.6.1.4.1.59999``):
+  - LED state control with Two-Phase Commit (2PC) SET transactional handlers.
+  - Button state monitoring.
+  - Sensor telemetry reporting.
+- Asynchronous SNMP trap notifications triggered by hardware interrupt events (button push).
 
 Building the Sample
 -------------------
 
-For simulated testing on host with native_sim:
+For simulated testing in QEMU:
 
 .. code-block:: bash
 
-   west build -b native_sim samples/dwin-interface/
+   # Remember to set PATH and ZEPHYR_BASE if west is in a venv
+   source ~/zephyrproject/zephyr/zephyr-env.sh
+   west build -p always -b qemu_x86 samples/snmp_agent
 
-For physical target boards:
+For native simulation (64-bit POSIX host):
 
 .. code-block:: bash
 
-   # STM32F4-Discovery
-   west build -b stm32f4_disco samples/dwin-interface/
+   west build -p always -b native_sim/native/64 samples/snmp_agent
 
-   # Nucleo F429ZI
-   west build -b nucleo_f429zi samples/dwin-interface/
+For physical hardware targets (e.g. ST Nucleo-H743ZI):
 
-   # Nucleo H753ZI
-   west build -b nucleo_h753zi samples/dwin-interface/
+.. code-block:: bash
+
+   west build -p always -b nucleo_h743zi samples/snmp_agent

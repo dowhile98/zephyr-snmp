@@ -1,21 +1,62 @@
 /**
- * @defgroup dgus2_api DGUS II Display Driver API
+ * @defgroup snmp_api Public Agent API & Management
  * @{
- * @brief Public interface and high-level control functions for DGUS II displays.
+ * @brief Public agent initialization, lifecycle management, and MIB registration.
  * @}
  */
 
 /**
- * @defgroup dgus2_protocol DGUS II Protocol Layer
+ * @defgroup snmp_core Core Engine & Protocol Operations
  * @{
- * @brief Hardware-independent frame encoders, decoders, CRC-16, and FSM parser.
+ * @brief SNMP packet dispatcher, PDU parsing, and request processing.
  * @}
  */
 
 /**
- * @defgroup dgus2_sys_regs DGUS II System Registers and Addresses
- * @ingroup dgus2_api
+ * @defgroup snmp_ber ASN.1 BER Codec
  * @{
- * @brief Variable Pointer (VP) addresses and system register constants.
+ * @brief Basic Encoding Rules (BER) tag/length/value encoders and decoders.
+ * @}
+ */
+
+/**
+ * @defgroup snmp_mib MIB Tree Engine & Two-Phase Commit (2PC)
+ * @{
+ * @brief MIB tree storage, O(log N) lookup, table walk, and transactional SET engine.
+ * @}
+ */
+
+/**
+ * @defgroup snmp_mib2 MIB-II Standard Network Subsystem
+ * @{
+ * @brief RFC 1213 / RFC 2863 MIB-II network groups and Zephyr stack integration.
+ * @}
+ */
+
+/**
+ * @defgroup snmp_usm User-Based Security Model (USM)
+ * @{
+ * @brief RFC 3414 / RFC 7860 authentication, encryption, and key localization.
+ * @}
+ */
+
+/**
+ * @defgroup snmp_vacm View-Based Access Control Model (VACM)
+ * @{
+ * @brief RFC 3415 access control tables and MIB view filtering.
+ * @}
+ */
+
+/**
+ * @defgroup snmp_service Transport & Socket Service Adapter
+ * @{
+ * @brief Zephyr net_socket_service integration and UDP transport layer.
+ * @}
+ */
+
+/**
+ * @defgroup snmp_trap Trap & Inform Notification Engine
+ * @{
+ * @brief SNMPv1 trap and SNMPv2c/v3 notification generation and delivery.
  * @}
  */

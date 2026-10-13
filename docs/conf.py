@@ -4,7 +4,7 @@
 # https://www.sphinx-doc.org/en/master/usage/configuration.html
 
 # -- Project information -----------------------------------------------------
-project = 'zephyr-dgus'
+project = 'zephyr-snmp'
 copyright = '2026, StructCore Embedded'
 author = 'StructCore Embedded'
 release = '1.0.0'
@@ -14,9 +14,9 @@ extensions = ['sphinx.ext.intersphinx', 'breathe']
 
 # Breathe configuration
 breathe_projects = {
-    "zephyr-dgus": "_build_doxygen/xml"
+    "zephyr-snmp": "_build_doxygen/xml"
 }
-breathe_default_project = "zephyr-dgus"
+breathe_default_project = "zephyr-snmp"
 
 templates_path = ['_templates']
 exclude_patterns = ['_build_sphinx', '_build_doxygen', 'Thumbs.db', '.DS_Store']

@@ -1,7 +1,7 @@
-zephyr-dgus Documentation
+zephyr-snmp Documentation
 =========================
 
-Welcome to the documentation for **zephyr-dgus**, the DWIN DGUS II smart display driver for Zephyr RTOS.
+Welcome to the documentation for **zephyr-snmp**, the embedded SNMP agent for Zephyr RTOS.
 
 .. toctree::
    :maxdepth: 2
