@@ -37,7 +37,7 @@ static void snmp_service_callback(struct net_socket_service_event *pev)
 
 	if (pev->event.revents & ZSOCK_POLLIN)
 	{
-		struct snmp_agent_inst *agent = snmp_agent_get_default();
+		struct snmp_agent *agent = snmp_agent_get_default();
 		if (!agent) {
 			return;
 		}
@@ -58,9 +58,9 @@ static void snmp_service_callback(struct net_socket_service_event *pev)
 		if (len > 0)
 		{
 			size_t resp_len = 0;
-			int ret = snmp_agent_inst_process_pdu(agent, agent->rx_buf, (size_t)len,
-							     agent->tx_buf, sizeof(agent->tx_buf),
-							     &resp_len);
+			int ret =
+			    snmp_agent_process_pdu(agent, agent->rx_buf, (size_t)len, agent->tx_buf,
+						   sizeof(agent->tx_buf), &resp_len);
 			if (ret == 0 && resp_len > 0)
 			{
 				zsock_sendto(pev->event.fd, agent->tx_buf, resp_len, 0,
@@ -179,9 +179,15 @@ int snmp_service_init(void)
 	return 0;
 }
 
+/**
+ * @brief Deprecated no-parameter facade: initialize the default agent and its transport.
+ *
+ * @deprecated Removed in sub-phase 8c. Call snmp_agent_inst_init(agent, cfg) followed by
+ *             snmp_agent_start(agent) on caller-owned storage instead.
+ */
 int snmp_agent_init(void)
 {
-	int ret = snmp_agent_inst_init(snmp_agent_get_default());
+	int ret = snmp_agent_inst_init(snmp_agent_get_default(), NULL);
 	if (ret < 0)
 		return ret;
 
@@ -196,20 +202,11 @@ int snmp_agent_init(void)
 	return 0;
 }
 
-int snmp_agent_deinit(void)
-{
-	(void)net_socket_service_unregister(&snmp_svc);
-	if (g_snmp_sock >= 0) {
-		zsock_close(g_snmp_sock);
-		g_snmp_sock = -1;
-	}
-#ifdef CONFIG_NET_IPV6
-	if (g_snmp_sock6 >= 0) {
-		zsock_close(g_snmp_sock6);
-		g_snmp_sock6 = -1;
-	}
-#endif
-	return 0;
-}
+/*
+ * The legacy snmp_agent_deinit(void) facade is gone: the identifier is now the instance
+ * API snmp_agent_deinit(struct snmp_agent *) implemented in snmp_core.c (RFC: contract
+ * 3.1). Nothing called the no-parameter version; the global socket-service teardown
+ * belongs to the per-instance adapter (sub-phase 8b, snmp_agent_stop()).
+ */
 
 #endif /* CONFIG_SNMP_AGENT */

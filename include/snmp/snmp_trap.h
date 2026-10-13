@@ -20,31 +20,30 @@ extern "C" {
 #endif
 
 /* Forward declaration of agent instance */
-struct snmp_agent_inst;
+struct snmp_agent;
 
 /* ---- Instance-based APIs ---- */
 
 /**
  * @brief Add a destination IP address for trap notifications on a specific agent instance.
  */
-int snmp_trap_add_destination_inst(struct snmp_agent_inst *inst, const char *addr);
+int snmp_trap_add_destination_inst(struct snmp_agent *inst, const char *addr);
 
 /**
  * @brief Send an SNMP Trap or Inform notification from a specific agent instance.
  */
-int snmp_trap_send_inst(struct snmp_agent_inst *inst, const struct snmp_oid *trap_oid,
-			const struct snmp_varbind *varbinds, uint8_t varbind_cnt,
-			bool is_inform);
+int snmp_trap_send_inst(struct snmp_agent *inst, const struct snmp_oid *trap_oid,
+			const struct snmp_varbind *varbinds, uint8_t varbind_cnt, bool is_inform);
 
 /**
  * @brief Send standard Cold Start Trap from a specific agent instance.
  */
-int snmp_trap_send_coldstart_inst(struct snmp_agent_inst *inst);
+int snmp_trap_send_coldstart_inst(struct snmp_agent *inst);
 
 /**
  * @brief Send standard Authentication Failure Trap from a specific agent instance.
  */
-int snmp_trap_send_auth_failure_inst(struct snmp_agent_inst *inst);
+int snmp_trap_send_auth_failure_inst(struct snmp_agent *inst);
 
 /* ---- Legacy API Facade (delegates to default agent) ---- */
 

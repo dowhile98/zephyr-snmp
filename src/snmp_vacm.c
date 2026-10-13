@@ -31,7 +31,7 @@ static void safe_strncpy(char *dst, const char *src, size_t dst_sz)
 	dst[dst_sz - 1] = '\0';
 }
 
-static bool vacm_context_is_valid(const struct snmp_agent_inst *inst, const char *context_name)
+static bool vacm_context_is_valid(const struct snmp_agent *inst, const char *context_name)
 {
 	if (!inst) {
 		return false;
@@ -46,8 +46,8 @@ static bool vacm_context_is_valid(const struct snmp_agent_inst *inst, const char
 	return false;
 }
 
-static const char *vacm_resolve_group(const struct snmp_agent_inst *inst,
-				      int security_model, const char *security_name)
+static const char *vacm_resolve_group(const struct snmp_agent *inst, int security_model,
+				      const char *security_name)
 {
 	if (!inst || !security_name) {
 		return NULL;
@@ -74,10 +74,10 @@ static const char *vacm_resolve_group(const struct snmp_agent_inst *inst,
 	return NULL;
 }
 
-static const struct vacm_access_rule_entry *vacm_find_access_rule(
-	const struct snmp_agent_inst *inst,
-	const char *group_name, const char *context_name,
-	int security_model, int sec_level)
+static const struct vacm_access_rule_entry *vacm_find_access_rule(const struct snmp_agent *inst,
+								  const char *group_name,
+								  const char *context_name,
+								  int security_model, int sec_level)
 {
 	if (!inst || !group_name) {
 		return NULL;
@@ -133,8 +133,8 @@ static const struct vacm_access_rule_entry *vacm_find_access_rule(
 	return best_rule;
 }
 
-static int vacm_evaluate_view(const struct snmp_agent_inst *inst,
-			      const char *view_name, const struct snmp_oid *target_oid)
+static int vacm_evaluate_view(const struct snmp_agent *inst, const char *view_name,
+			      const struct snmp_oid *target_oid)
 {
 	if (!inst || !view_name || view_name[0] == '\0') {
 		return -EACCES;
@@ -204,7 +204,7 @@ static int vacm_evaluate_view(const struct snmp_agent_inst *inst,
 
 /* ---- Instance-based APIs ---- */
 
-int snmp_vacm_init_inst(struct snmp_agent_inst *inst)
+int snmp_vacm_init_inst(struct snmp_agent *inst)
 {
 	if (!inst) {
 		return -EINVAL;
@@ -276,7 +276,7 @@ int snmp_vacm_init_inst(struct snmp_agent_inst *inst)
 	return 0;
 }
 
-int snmp_vacm_add_context_inst(struct snmp_agent_inst *inst, const char *context_name)
+int snmp_vacm_add_context_inst(struct snmp_agent *inst, const char *context_name)
 {
 	if (!inst) {
 		return -EINVAL;
@@ -305,7 +305,7 @@ int snmp_vacm_add_context_inst(struct snmp_agent_inst *inst, const char *context
 	return -ENOMEM;
 }
 
-int snmp_vacm_add_group_mapping_inst(struct snmp_agent_inst *inst, int security_model,
+int snmp_vacm_add_group_mapping_inst(struct snmp_agent *inst, int security_model,
 				     const char *security_name, const char *group_name)
 {
 	if (!inst || !security_name || !group_name) {
@@ -344,10 +344,10 @@ int snmp_vacm_add_group_mapping_inst(struct snmp_agent_inst *inst, int security_
 	return -ENOMEM;
 }
 
-int snmp_vacm_add_access_rule_inst(struct snmp_agent_inst *inst, const char *group_name,
+int snmp_vacm_add_access_rule_inst(struct snmp_agent *inst, const char *group_name,
 				   const char *context_prefix, int security_model,
-				   int min_sec_level, const char *read_view,
-				   const char *write_view, const char *notify_view)
+				   int min_sec_level, const char *read_view, const char *write_view,
+				   const char *notify_view)
 {
 	if (!inst || !group_name) {
 		return -EINVAL;
@@ -400,7 +400,7 @@ int snmp_vacm_add_access_rule_inst(struct snmp_agent_inst *inst, const char *gro
 	return -ENOMEM;
 }
 
-int snmp_vacm_add_view_tree_inst(struct snmp_agent_inst *inst, const char *view_name,
+int snmp_vacm_add_view_tree_inst(struct snmp_agent *inst, const char *view_name,
 				 const struct snmp_oid *subtree, const uint8_t *mask,
 				 size_t mask_len, int type_included)
 {
@@ -458,10 +458,9 @@ int snmp_vacm_add_view_tree_inst(struct snmp_agent_inst *inst, const char *view_
 	return -ENOMEM;
 }
 
-int snmp_vacm_check_access_ex_inst(struct snmp_agent_inst *inst, const char *context_name,
-				   int security_model, const char *security_name,
-				   int sec_level, int access_type,
-				   const struct snmp_oid *target_oid)
+int snmp_vacm_check_access_ex_inst(struct snmp_agent *inst, const char *context_name,
+				   int security_model, const char *security_name, int sec_level,
+				   int access_type, const struct snmp_oid *target_oid)
 {
 	if (!inst || !security_name) {
 		return -EINVAL;
@@ -511,8 +510,8 @@ int snmp_vacm_check_access_ex_inst(struct snmp_agent_inst *inst, const char *con
 	return vacm_evaluate_view(inst, view, target_oid);
 }
 
-int snmp_vacm_check_access_inst(struct snmp_agent_inst *inst,
-				const struct snmp_v3_msg *msg, bool is_write)
+int snmp_vacm_check_access_inst(struct snmp_agent *inst, const struct snmp_v3_msg *msg,
+				bool is_write)
 {
 	if (!inst || !msg) {
 		return -EINVAL;

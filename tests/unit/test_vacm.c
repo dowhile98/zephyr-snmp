@@ -13,8 +13,8 @@
 #include <snmp/snmp_vacm.h>
 #include <snmp/snmp_core.h>
 
-static struct snmp_agent_inst s_vacm_test_agent;
-struct snmp_agent_inst *snmp_agent_get_default(void)
+static struct snmp_agent s_vacm_test_agent;
+struct snmp_agent *snmp_agent_get_default(void)
 {
 	return &s_vacm_test_agent;
 }

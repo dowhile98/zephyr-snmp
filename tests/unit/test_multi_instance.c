@@ -64,19 +64,19 @@ static size_t build_get_req_packet(uint8_t *buf, size_t buf_sz,
 
 void test_multi_instance_coexistence(void)
 {
-	static struct snmp_agent_inst lan_agent;
-	static struct snmp_agent_inst wan_agent;
+	static struct snmp_agent lan_agent;
+	static struct snmp_agent wan_agent;
 
 	/* 1. Initialize both independent instances */
-	int ret = snmp_agent_inst_init(&lan_agent);
+	int ret = snmp_agent_inst_init(&lan_agent, NULL);
 	ASSERT_EQ(ret, 0);
-	ret = snmp_agent_inst_init(&wan_agent);
+	ret = snmp_agent_inst_init(&wan_agent, NULL);
 	ASSERT_EQ(ret, 0);
 
 	/* 2. Configure distinct community strings */
-	ret = snmp_agent_inst_set_read_community(&lan_agent, "lan_pub");
+	ret = snmp_agent_set_read_community(&lan_agent, "lan_pub");
 	ASSERT_EQ(ret, 0);
-	ret = snmp_agent_inst_set_read_community(&wan_agent, "wan_pub");
+	ret = snmp_agent_set_read_community(&wan_agent, "wan_pub");
 	ASSERT_EQ(ret, 0);
 
 	/* 3. Configure distinct sysName strings */
@@ -127,7 +127,8 @@ void test_multi_instance_coexistence(void)
 
 	/* 6. Query lan_agent for .1.3.6.1.4.1.1111.1.0 with community "lan_pub" */
 	req_len = build_get_req_packet(req_buf, sizeof(req_buf), "lan_pub", &node1.oid, 101);
-	ret = snmp_agent_inst_process_pdu(&lan_agent, req_buf, req_len, resp_buf, sizeof(resp_buf), &resp_len);
+	ret = snmp_agent_process_pdu(&lan_agent, req_buf, req_len, resp_buf, sizeof(resp_buf),
+				     &resp_len);
 	ASSERT_EQ(ret, 0);
 	ASSERT(resp_len > 0);
 
@@ -146,7 +147,8 @@ void test_multi_instance_coexistence(void)
 	ASSERT_EQ(wan_agent.counters.snmpOutPkts, 0);
 
 	/* 7. Send "lan_pub" request to wan_agent -> must be rejected (-EACCES) */
-	ret = snmp_agent_inst_process_pdu(&wan_agent, req_buf, req_len, resp_buf, sizeof(resp_buf), &resp_len);
+	ret = snmp_agent_process_pdu(&wan_agent, req_buf, req_len, resp_buf, sizeof(resp_buf),
+				     &resp_len);
 	ASSERT_EQ(ret, -EACCES);
 	ASSERT_EQ(wan_agent.counters.snmpInPkts, 1);
 	ASSERT_EQ(wan_agent.counters.snmpInBadCommunityNames, 1);
@@ -155,7 +157,8 @@ void test_multi_instance_coexistence(void)
 
 	/* 8. Query wan_agent for .1.3.6.1.4.1.2222.1.0 with community "wan_pub" */
 	req_len = build_get_req_packet(req_buf, sizeof(req_buf), "wan_pub", &node2.oid, 202);
-	ret = snmp_agent_inst_process_pdu(&wan_agent, req_buf, req_len, resp_buf, sizeof(resp_buf), &resp_len);
+	ret = snmp_agent_process_pdu(&wan_agent, req_buf, req_len, resp_buf, sizeof(resp_buf),
+				     &resp_len);
 	ASSERT_EQ(ret, 0);
 	ASSERT(resp_len > 0);
 
@@ -171,7 +174,8 @@ void test_multi_instance_coexistence(void)
 
 	/* 9. Cross-instance isolation: Query lan_agent for .1.3.6.1.4.1.2222.1.0 (WAN OID) */
 	req_len = build_get_req_packet(req_buf, sizeof(req_buf), "lan_pub", &node2.oid, 103);
-	ret = snmp_agent_inst_process_pdu(&lan_agent, req_buf, req_len, resp_buf, sizeof(resp_buf), &resp_len);
+	ret = snmp_agent_process_pdu(&lan_agent, req_buf, req_len, resp_buf, sizeof(resp_buf),
+				     &resp_len);
 	ASSERT_EQ(ret, 0);
 	memset(&resp_pdu, 0, sizeof(resp_pdu));
 	ret = snmp_ber_decode_pdu(resp_buf, resp_len, &resp_pdu);
@@ -183,7 +187,8 @@ void test_multi_instance_coexistence(void)
 
 	/* 10. Cross-instance isolation: Query wan_agent for .1.3.6.1.4.1.1111.1.0 (LAN OID) */
 	req_len = build_get_req_packet(req_buf, sizeof(req_buf), "wan_pub", &node1.oid, 204);
-	ret = snmp_agent_inst_process_pdu(&wan_agent, req_buf, req_len, resp_buf, sizeof(resp_buf), &resp_len);
+	ret = snmp_agent_process_pdu(&wan_agent, req_buf, req_len, resp_buf, sizeof(resp_buf),
+				     &resp_len);
 	ASSERT_EQ(ret, 0);
 	memset(&resp_pdu, 0, sizeof(resp_pdu));
 	ret = snmp_ber_decode_pdu(resp_buf, resp_len, &resp_pdu);
@@ -198,7 +203,8 @@ void test_multi_instance_coexistence(void)
 		.ids = {1, 3, 6, 1, 2, 1, 1, 5, 0}
 	};
 	req_len = build_get_req_packet(req_buf, sizeof(req_buf), "lan_pub", &sysname_oid, 105);
-	ret = snmp_agent_inst_process_pdu(&lan_agent, req_buf, req_len, resp_buf, sizeof(resp_buf), &resp_len);
+	ret = snmp_agent_process_pdu(&lan_agent, req_buf, req_len, resp_buf, sizeof(resp_buf),
+				     &resp_len);
 	ASSERT_EQ(ret, 0);
 	memset(&resp_pdu, 0, sizeof(resp_pdu));
 	ret = snmp_ber_decode_pdu(resp_buf, resp_len, &resp_pdu);
@@ -209,7 +215,8 @@ void test_multi_instance_coexistence(void)
 
 	/* 12. Query MIB-II sysName on wan_agent -> should return "gateway-wan" */
 	req_len = build_get_req_packet(req_buf, sizeof(req_buf), "wan_pub", &sysname_oid, 206);
-	ret = snmp_agent_inst_process_pdu(&wan_agent, req_buf, req_len, resp_buf, sizeof(resp_buf), &resp_len);
+	ret = snmp_agent_process_pdu(&wan_agent, req_buf, req_len, resp_buf, sizeof(resp_buf),
+				     &resp_len);
 	ASSERT_EQ(ret, 0);
 	memset(&resp_pdu, 0, sizeof(resp_pdu));
 	ret = snmp_ber_decode_pdu(resp_buf, resp_len, &resp_pdu);

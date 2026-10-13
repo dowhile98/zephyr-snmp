@@ -94,16 +94,12 @@ extern "C" {
 /**
  * @brief Initialize the SNMP agent subsystem, MIB tree, and UDP socket service on port 161.
  *
+ * @deprecated No-parameter facade operating on snmp_agent_get_default(). Removed in
+ *             sub-phase 8c: own your @ref struct snmp_agent storage and call
+ *             snmp_agent_inst_init() followed by snmp_agent_start().
  * @return 0 on success, negative errno on failure.
  */
 int snmp_agent_init(void);
-
-/**
- * @brief Deinitialize the SNMP agent subsystem and close network sockets.
- *
- * @return 0 on success, negative errno on failure.
- */
-int snmp_agent_deinit(void);
 
 /**
  * @brief Register standard MIB-II objects (system group + snmp group counters).

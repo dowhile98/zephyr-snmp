@@ -25,7 +25,7 @@ extern "C" {
 #endif
 
 struct snmp_mib_node;
-struct snmp_agent_inst;
+struct snmp_agent;
 
 /**
  * @brief Two-Phase Commit (2PC) SET transaction action phases per RFC 3416 §4.2.5.
@@ -146,24 +146,27 @@ int snmp_mib_table_remove_row(struct snmp_mib_table *table, uint32_t index);
 
 /* --- Instance-based MIB APIs --- */
 
-int snmp_mib_init_inst(struct snmp_agent_inst *inst);
-int snmp_mib_register_defaults_inst(struct snmp_agent_inst *inst);
-int snmp_mib_register_inst(struct snmp_agent_inst *inst, const struct snmp_mib_node *node);
-int snmp_mib_register_nodes_inst(struct snmp_agent_inst *inst, const struct snmp_mib_node *nodes, size_t count);
-int snmp_mib_get_inst(struct snmp_agent_inst *inst, const struct snmp_oid *oid, struct snmp_varbind *vb);
-int snmp_mib_get_next_inst(struct snmp_agent_inst *inst, const struct snmp_oid *oid, struct snmp_varbind *vb);
-int snmp_mib_set_inst(struct snmp_agent_inst *inst, const struct snmp_oid *oid, const struct snmp_varbind *vb);
-int snmp_mib_dispatch_inst(struct snmp_agent_inst *inst, struct snmp_pdu *pdu);
-int snmp_mib_register_table_inst(struct snmp_agent_inst *inst, struct snmp_mib_table *table);
+int snmp_mib_init_inst(struct snmp_agent *inst);
+int snmp_mib_register_defaults_inst(struct snmp_agent *inst);
+int snmp_mib_register_inst(struct snmp_agent *inst, const struct snmp_mib_node *node);
+int snmp_mib_register_nodes_inst(struct snmp_agent *inst, const struct snmp_mib_node *nodes,
+				 size_t count);
+int snmp_mib_get_inst(struct snmp_agent *inst, const struct snmp_oid *oid, struct snmp_varbind *vb);
+int snmp_mib_get_next_inst(struct snmp_agent *inst, const struct snmp_oid *oid,
+			   struct snmp_varbind *vb);
+int snmp_mib_set_inst(struct snmp_agent *inst, const struct snmp_oid *oid,
+		      const struct snmp_varbind *vb);
+int snmp_mib_dispatch_inst(struct snmp_agent *inst, struct snmp_pdu *pdu);
+int snmp_mib_register_table_inst(struct snmp_agent *inst, struct snmp_mib_table *table);
 
-void snmp_mib_lock_inst(struct snmp_agent_inst *inst);
-void snmp_mib_unlock_inst(struct snmp_agent_inst *inst);
+void snmp_mib_lock_inst(struct snmp_agent *inst);
+void snmp_mib_unlock_inst(struct snmp_agent *inst);
 
-int snmp_set_device_enterprise_oid_inst(struct snmp_agent_inst *inst, const struct snmp_oid *oid);
-int snmp_mib2_set_sysdescr_inst(struct snmp_agent_inst *inst, const char *descr);
-int snmp_mib2_set_syscontact_inst(struct snmp_agent_inst *inst, const char *contact);
-int snmp_mib2_set_sysname_inst(struct snmp_agent_inst *inst, const char *name);
-int snmp_mib2_set_syslocation_inst(struct snmp_agent_inst *inst, const char *location);
+int snmp_set_device_enterprise_oid_inst(struct snmp_agent *inst, const struct snmp_oid *oid);
+int snmp_mib2_set_sysdescr_inst(struct snmp_agent *inst, const char *descr);
+int snmp_mib2_set_syscontact_inst(struct snmp_agent *inst, const char *contact);
+int snmp_mib2_set_sysname_inst(struct snmp_agent *inst, const char *name);
+int snmp_mib2_set_syslocation_inst(struct snmp_agent *inst, const char *location);
 
 /* --- Legacy Facade APIs (delegates to default agent) --- */
 
@@ -174,7 +177,7 @@ int snmp_mib_register_nodes(const struct snmp_mib_node *nodes, size_t count);
 int snmp_mib_get(const struct snmp_oid *oid, struct snmp_varbind *vb);
 int snmp_mib_get_next(const struct snmp_oid *oid, struct snmp_varbind *vb);
 int snmp_mib_set(const struct snmp_oid *oid, const struct snmp_varbind *vb);
-int (snmp_mib_dispatch)(struct snmp_agent_inst *inst, struct snmp_pdu *pdu);
+int(snmp_mib_dispatch)(struct snmp_agent *inst, struct snmp_pdu *pdu);
 int snmp_mib_dispatch_legacy(struct snmp_pdu *pdu);
 
 #define _SNMP_DISPATCH_1(pdu) snmp_mib_dispatch_inst(NULL, (pdu))

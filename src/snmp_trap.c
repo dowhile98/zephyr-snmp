@@ -21,7 +21,7 @@
 #define CONFIG_SNMP_TRAP_PORT 162
 #endif
 
-int snmp_trap_add_destination_inst(struct snmp_agent_inst *inst, const char *addr)
+int snmp_trap_add_destination_inst(struct snmp_agent *inst, const char *addr)
 {
 	if (!inst || !addr)
 		return -EINVAL;
@@ -42,10 +42,8 @@ int snmp_trap_add_destination_inst(struct snmp_agent_inst *inst, const char *add
 }
 
 #if defined(CONFIG_SNMP_VERSION_3)
-static int snmp_trap_send_v3_inst(struct snmp_agent_inst *inst,
-				  const struct snmp_oid *trap_oid,
-				  const struct snmp_varbind *varbinds,
-				  uint8_t varbind_cnt,
+static int snmp_trap_send_v3_inst(struct snmp_agent *inst, const struct snmp_oid *trap_oid,
+				  const struct snmp_varbind *varbinds, uint8_t varbind_cnt,
 				  bool is_inform)
 {
 	struct snmp_v3_msg msg;
@@ -152,9 +150,8 @@ static int snmp_trap_send_v3_inst(struct snmp_agent_inst *inst,
 }
 #endif
 
-int snmp_trap_send_inst(struct snmp_agent_inst *inst, const struct snmp_oid *trap_oid,
-			const struct snmp_varbind *varbinds, uint8_t varbind_cnt,
-			bool is_inform)
+int snmp_trap_send_inst(struct snmp_agent *inst, const struct snmp_oid *trap_oid,
+			const struct snmp_varbind *varbinds, uint8_t varbind_cnt, bool is_inform)
 {
 	if (!inst || !trap_oid)
 		return -EINVAL;
@@ -184,12 +181,12 @@ int snmp_trap_send_inst(struct snmp_agent_inst *inst, const struct snmp_oid *tra
 	}
 #endif
 
-	k_mutex_lock(&inst->mib_lock, K_FOREVER);
+	k_mutex_lock(&inst->lock, K_FOREVER);
 
 	int sock = zsock_socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
 	if (sock < 0)
 	{
-		k_mutex_unlock(&inst->mib_lock);
+		k_mutex_unlock(&inst->lock);
 		return -errno;
 	}
 
@@ -260,7 +257,7 @@ int snmp_trap_send_inst(struct snmp_agent_inst *inst, const struct snmp_oid *tra
 	if (ret < 0)
 	{
 		zsock_close(sock);
-		k_mutex_unlock(&inst->mib_lock);
+		k_mutex_unlock(&inst->lock);
 		return ret;
 	}
 
@@ -286,11 +283,11 @@ int snmp_trap_send_inst(struct snmp_agent_inst *inst, const struct snmp_oid *tra
 	snmp_counter_inc(&inst->counters.snmpOutTraps);
 	snmp_counter_inc(&g_snmp_counters.snmpOutTraps);
 	zsock_close(sock);
-	k_mutex_unlock(&inst->mib_lock);
+	k_mutex_unlock(&inst->lock);
 	return 0;
 }
 
-int snmp_trap_send_coldstart_inst(struct snmp_agent_inst *inst)
+int snmp_trap_send_coldstart_inst(struct snmp_agent *inst)
 {
 	static const struct snmp_oid cold_start_oid = {
 		.len = 10,
@@ -298,7 +295,7 @@ int snmp_trap_send_coldstart_inst(struct snmp_agent_inst *inst)
 	return snmp_trap_send_inst(inst, &cold_start_oid, NULL, 0, false);
 }
 
-int snmp_trap_send_auth_failure_inst(struct snmp_agent_inst *inst)
+int snmp_trap_send_auth_failure_inst(struct snmp_agent *inst)
 {
 	if (!inst) {
 		return -EINVAL;

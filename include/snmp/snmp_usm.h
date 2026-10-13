@@ -20,7 +20,7 @@ extern "C" {
 #endif
 
 /* Forward declaration of agent instance */
-struct snmp_agent_inst;
+struct snmp_agent;
 
 struct snmp_usm_user {
 	char        user_name[32];
@@ -42,38 +42,38 @@ struct snmp_usm_user {
 /**
  * @brief Initialize USM engine inside an agent instance.
  */
-int snmp_usm_init_inst(struct snmp_agent_inst *inst);
+int snmp_usm_init_inst(struct snmp_agent *inst);
 
 /**
  * @brief Add a user to an agent instance's USM engine.
  */
-int snmp_usm_add_user_inst(struct snmp_agent_inst *inst, const struct snmp_usm_user *user);
+int snmp_usm_add_user_inst(struct snmp_agent *inst, const struct snmp_usm_user *user);
 
 /**
  * @brief Verify incoming v3 message against an agent instance.
  */
-int snmp_usm_verify_incoming_inst(struct snmp_agent_inst *inst, struct snmp_v3_msg *msg,
+int snmp_usm_verify_incoming_inst(struct snmp_agent *inst, struct snmp_v3_msg *msg,
 				  const uint8_t *raw_buf, size_t raw_len);
 
 /**
  * @brief Prepare outgoing v3 message using an agent instance's USM engine.
  */
-int snmp_usm_build_outgoing_inst(struct snmp_agent_inst *inst, struct snmp_v3_msg *msg);
+int snmp_usm_build_outgoing_inst(struct snmp_agent *inst, struct snmp_v3_msg *msg);
 
 /**
  * @brief Get engine ID for an agent instance.
  */
-int snmp_usm_get_engine_id_inst(struct snmp_agent_inst *inst, uint8_t *engine_id, uint8_t *len);
+int snmp_usm_get_engine_id_inst(struct snmp_agent *inst, uint8_t *engine_id, uint8_t *len);
 
 /**
  * @brief Set engine boots for an agent instance.
  */
-int snmp_usm_set_engine_boots_inst(struct snmp_agent_inst *inst, uint32_t boots);
+int snmp_usm_set_engine_boots_inst(struct snmp_agent *inst, uint32_t boots);
 
 /**
  * @brief Get engine boots for an agent instance.
  */
-uint32_t snmp_usm_get_engine_boots_inst(struct snmp_agent_inst *inst);
+uint32_t snmp_usm_get_engine_boots_inst(struct snmp_agent *inst);
 
 /* ---- Legacy API Facade (delegates to default agent) ---- */
 

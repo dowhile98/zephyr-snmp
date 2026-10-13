@@ -39,7 +39,7 @@ static int usm_settings_set(const char *name, size_t len,
 {
 	const char *next;
 	if (settings_name_steq(name, "boots", &next) && !next) {
-		struct snmp_agent_inst *def = snmp_agent_get_default();
+		struct snmp_agent *def = snmp_agent_get_default();
 		if (!def || len != sizeof(def->engine_boots)) {
 			return -EINVAL;
 		}
@@ -411,7 +411,7 @@ static int build_scopedpdu_plaintext(const struct snmp_v3_msg *msg,
 
 /* ---- User lookup ---- */
 
-static struct snmp_usm_user *usm_find_user(struct snmp_agent_inst *inst, const char *name)
+static struct snmp_usm_user *usm_find_user(struct snmp_agent *inst, const char *name)
 {
 	if (!inst || !name)
 		return NULL;
@@ -462,7 +462,7 @@ static int usm_verify_auth(const struct snmp_v3_msg *msg,
 
 /* ---- Instance-based APIs ---- */
 
-int snmp_usm_add_user_inst(struct snmp_agent_inst *inst, const struct snmp_usm_user *user)
+int snmp_usm_add_user_inst(struct snmp_agent *inst, const struct snmp_usm_user *user)
 {
 	if (!inst || !user) {
 		return -EINVAL;
@@ -513,7 +513,7 @@ int snmp_usm_add_user_inst(struct snmp_agent_inst *inst, const struct snmp_usm_u
 	return -ENOMEM;
 }
 
-int snmp_usm_init_inst(struct snmp_agent_inst *inst)
+int snmp_usm_init_inst(struct snmp_agent *inst)
 {
 	if (!inst) {
 		return -EINVAL;
@@ -579,7 +579,7 @@ int snmp_usm_init_inst(struct snmp_agent_inst *inst)
 	return 0;
 }
 
-int snmp_usm_verify_incoming_inst(struct snmp_agent_inst *inst, struct snmp_v3_msg *msg,
+int snmp_usm_verify_incoming_inst(struct snmp_agent *inst, struct snmp_v3_msg *msg,
 				  const uint8_t *raw_buf, size_t raw_len)
 {
 	if (!inst || !msg || !raw_buf)
@@ -672,7 +672,7 @@ int snmp_usm_verify_incoming_inst(struct snmp_agent_inst *inst, struct snmp_v3_m
 	return 0;
 }
 
-int snmp_usm_build_outgoing_inst(struct snmp_agent_inst *inst, struct snmp_v3_msg *msg)
+int snmp_usm_build_outgoing_inst(struct snmp_agent *inst, struct snmp_v3_msg *msg)
 {
 	if (!inst || !msg)
 		return -EINVAL;
@@ -788,7 +788,7 @@ int snmp_usm_build_outgoing_inst(struct snmp_agent_inst *inst, struct snmp_v3_ms
 	return 0;
 }
 
-int snmp_usm_get_engine_id_inst(struct snmp_agent_inst *inst, uint8_t *engine_id, uint8_t *len)
+int snmp_usm_get_engine_id_inst(struct snmp_agent *inst, uint8_t *engine_id, uint8_t *len)
 {
 	if (!inst || !engine_id || !len) {
 		return -EINVAL;
@@ -801,7 +801,7 @@ int snmp_usm_get_engine_id_inst(struct snmp_agent_inst *inst, uint8_t *engine_id
 	return 0;
 }
 
-int snmp_usm_set_engine_boots_inst(struct snmp_agent_inst *inst, uint32_t boots)
+int snmp_usm_set_engine_boots_inst(struct snmp_agent *inst, uint32_t boots)
 {
 	if (!inst || boots > SNMP_ENGINE_BOOTS_MAX) {
 		return -EINVAL;
@@ -815,7 +815,7 @@ int snmp_usm_set_engine_boots_inst(struct snmp_agent_inst *inst, uint32_t boots)
 	return 0;
 }
 
-uint32_t snmp_usm_get_engine_boots_inst(struct snmp_agent_inst *inst)
+uint32_t snmp_usm_get_engine_boots_inst(struct snmp_agent *inst)
 {
 	return inst ? inst->engine_boots : 0;
 }

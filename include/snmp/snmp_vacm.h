@@ -56,7 +56,7 @@ extern "C" {
 #define SNMP_VACM_MASK_MAX_LEN 16
 
 /* Forward declaration of agent instance */
-struct snmp_agent_inst;
+struct snmp_agent;
 
 /* ---- Table Entry Structures ---- */
 
@@ -97,47 +97,46 @@ struct vacm_view_tree_entry {
 /**
  * @brief Initialize VACM state inside an agent instance with default RFC 3415 configuration.
  */
-int snmp_vacm_init_inst(struct snmp_agent_inst *inst);
+int snmp_vacm_init_inst(struct snmp_agent *inst);
 
 /**
  * @brief Register a context name in vacmContextTable for an agent instance.
  */
-int snmp_vacm_add_context_inst(struct snmp_agent_inst *inst, const char *context_name);
+int snmp_vacm_add_context_inst(struct snmp_agent *inst, const char *context_name);
 
 /**
  * @brief Map a security model and security name to a group name for an agent instance.
  */
-int snmp_vacm_add_group_mapping_inst(struct snmp_agent_inst *inst, int security_model,
+int snmp_vacm_add_group_mapping_inst(struct snmp_agent *inst, int security_model,
 				     const char *security_name, const char *group_name);
 
 /**
  * @brief Add an access rule in vacmAccessTable for an agent instance.
  */
-int snmp_vacm_add_access_rule_inst(struct snmp_agent_inst *inst, const char *group_name,
+int snmp_vacm_add_access_rule_inst(struct snmp_agent *inst, const char *group_name,
 				   const char *context_prefix, int security_model,
-				   int min_sec_level, const char *read_view,
-				   const char *write_view, const char *notify_view);
+				   int min_sec_level, const char *read_view, const char *write_view,
+				   const char *notify_view);
 
 /**
  * @brief Add a view tree family entry in vacmViewTreeFamilyTable for an agent instance.
  */
-int snmp_vacm_add_view_tree_inst(struct snmp_agent_inst *inst, const char *view_name,
+int snmp_vacm_add_view_tree_inst(struct snmp_agent *inst, const char *view_name,
 				 const struct snmp_oid *subtree, const uint8_t *mask,
 				 size_t mask_len, int type_included);
 
 /**
  * @brief Check access for a specific target OID per RFC 3415 §4 for an agent instance.
  */
-int snmp_vacm_check_access_ex_inst(struct snmp_agent_inst *inst, const char *context_name,
-				   int security_model, const char *security_name,
-				   int sec_level, int access_type,
-				   const struct snmp_oid *target_oid);
+int snmp_vacm_check_access_ex_inst(struct snmp_agent *inst, const char *context_name,
+				   int security_model, const char *security_name, int sec_level,
+				   int access_type, const struct snmp_oid *target_oid);
 
 /**
  * @brief Check access for incoming SNMPv3 message varbinds for an agent instance.
  */
-int snmp_vacm_check_access_inst(struct snmp_agent_inst *inst,
-				const struct snmp_v3_msg *msg, bool is_write);
+int snmp_vacm_check_access_inst(struct snmp_agent *inst, const struct snmp_v3_msg *msg,
+				bool is_write);
 
 /* ---- Legacy API Facade (delegates to default agent) ---- */
 

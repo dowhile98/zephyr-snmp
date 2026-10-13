@@ -688,19 +688,19 @@ static void test_multi_instance_independence(void)
 {
 	setup_2pc_test_nodes();
 
-	struct snmp_agent_inst inst1;
-	struct snmp_agent_inst inst2;
+	struct snmp_agent inst1;
+	struct snmp_agent inst2;
 
-	int ret1 = snmp_agent_inst_init(&inst1);
-	int ret2 = snmp_agent_inst_init(&inst2);
+	int ret1 = snmp_agent_inst_init(&inst1, NULL);
+	int ret2 = snmp_agent_inst_init(&inst2, NULL);
 	ASSERT_EQ(ret1, 0);
 	ASSERT_EQ(ret2, 0);
 
-	snmp_agent_inst_set_read_community(&inst1, "dept_alpha");
-	snmp_agent_inst_set_write_community(&inst1, "secret_alpha");
+	snmp_agent_set_read_community(&inst1, "dept_alpha");
+	snmp_agent_set_write_community(&inst1, "secret_alpha");
 
-	snmp_agent_inst_set_read_community(&inst2, "dept_beta");
-	snmp_agent_inst_set_write_community(&inst2, "secret_beta");
+	snmp_agent_set_read_community(&inst2, "dept_beta");
+	snmp_agent_set_write_community(&inst2, "secret_beta");
 
 	/* Build encoded SNMPv2c GET request for Node 1 with community 'dept_alpha' */
 	struct snmp_pdu req_pdu;
@@ -724,8 +724,8 @@ static void test_multi_instance_independence(void)
 	size_t resp_len = 0;
 
 	/* 1. Pass request with 'dept_alpha' to inst1 -> should succeed */
-	int proc_ret1 = snmp_agent_inst_process_pdu(&inst1, req_buf, req_len,
-						   resp_buf, sizeof(resp_buf), &resp_len);
+	int proc_ret1 =
+	    snmp_agent_process_pdu(&inst1, req_buf, req_len, resp_buf, sizeof(resp_buf), &resp_len);
 	ASSERT_EQ(proc_ret1, 0);
 	ASSERT(resp_len > 0);
 	ASSERT_EQ(inst1.counters.snmpInPkts, 1);
@@ -733,8 +733,8 @@ static void test_multi_instance_independence(void)
 
 	/* 2. Pass SAME request with 'dept_alpha' to inst2 -> rejected with -EACCES */
 	resp_len = 0;
-	int proc_ret2 = snmp_agent_inst_process_pdu(&inst2, req_buf, req_len,
-						   resp_buf, sizeof(resp_buf), &resp_len);
+	int proc_ret2 =
+	    snmp_agent_process_pdu(&inst2, req_buf, req_len, resp_buf, sizeof(resp_buf), &resp_len);
 	ASSERT_EQ(proc_ret2, -EACCES);
 	ASSERT_EQ(resp_len, 0);
 	ASSERT_EQ(inst2.counters.snmpInPkts, 1);
