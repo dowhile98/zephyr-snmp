@@ -25,22 +25,26 @@ static struct snmp_agent s_mib_agent;
 static int test_counter = 42;
 static int test_get_called = 0;
 
-static int my_get_cb(const struct snmp_mib_node *node, struct snmp_varbind *vb)
+static int my_get_cb(struct snmp_agent *agent, const struct snmp_mib_node *node,
+		     struct snmp_varbind *vb)
 {
-    (void)node;
-    test_get_called++;
-    vb->type = SNMP_TAG_COUNTER32;
-    vb->val.uint_val = test_counter;
-    return 0;
+	(void)agent;
+	(void)node;
+	test_get_called++;
+	vb->type = SNMP_TAG_COUNTER32;
+	vb->val.uint_val = test_counter;
+	return 0;
 }
 
-__attribute__((unused)) static int my_set_cb(struct snmp_mib_node *node, const struct snmp_varbind *vb)
+__attribute__((unused)) static int my_set_cb(struct snmp_agent *agent, struct snmp_mib_node *node,
+					     const struct snmp_varbind *vb)
 {
-    (void)node;
-    if (vb->type == SNMP_TAG_COUNTER32) {
-        test_counter = vb->val.uint_val;
-        return 0;
-    }
+	(void)agent;
+	(void)node;
+	if (vb->type == SNMP_TAG_COUNTER32) {
+		test_counter = vb->val.uint_val;
+		return 0;
+	}
     return -22;
 }
 
@@ -155,28 +159,34 @@ static int32_t g_test_table_data[3][3] = {
     {0, 201, 202}   /* row 2: col 1, col 2 */
 };
 
-static int test_col1_get(const struct snmp_table_row *row, uint8_t column, struct snmp_varbind *vb)
+static int test_col1_get(struct snmp_agent *agent, const struct snmp_table_row *row, uint8_t column,
+			 struct snmp_varbind *vb)
 {
-    (void)column;
-    vb->type = ASN1_TAG_INTEGER;
-    vb->val.int_val = g_test_table_data[row->index][1];
-    return 0;
+	(void)agent;
+	(void)column;
+	vb->type = ASN1_TAG_INTEGER;
+	vb->val.int_val = g_test_table_data[row->index][1];
+	return 0;
 }
 
-static int test_col2_get(const struct snmp_table_row *row, uint8_t column, struct snmp_varbind *vb)
+static int test_col2_get(struct snmp_agent *agent, const struct snmp_table_row *row, uint8_t column,
+			 struct snmp_varbind *vb)
 {
-    (void)column;
-    vb->type = ASN1_TAG_INTEGER;
-    vb->val.int_val = g_test_table_data[row->index][2];
-    return 0;
+	(void)agent;
+	(void)column;
+	vb->type = ASN1_TAG_INTEGER;
+	vb->val.int_val = g_test_table_data[row->index][2];
+	return 0;
 }
 
-static int test_col2_set(struct snmp_table_row *row, uint8_t column, const struct snmp_varbind *vb)
+static int test_col2_set(struct snmp_agent *agent, struct snmp_table_row *row, uint8_t column,
+			 const struct snmp_varbind *vb)
 {
-    (void)column;
-    if (vb->type != ASN1_TAG_INTEGER) {
-        return -EINVAL;
-    }
+	(void)agent;
+	(void)column;
+	if (vb->type != ASN1_TAG_INTEGER) {
+		return -EINVAL;
+	}
     g_test_table_data[row->index][2] = vb->val.int_val;
     return 0;
 }
@@ -333,16 +343,20 @@ void test_table_set(void)
 static int32_t s_legacy_val1 = 10;
 static int32_t s_legacy_val2 = 20;
 
-static int get_legacy_val1(const struct snmp_mib_node *node, struct snmp_varbind *vb)
+static int get_legacy_val1(struct snmp_agent *agent, const struct snmp_mib_node *node,
+			   struct snmp_varbind *vb)
 {
+	(void)agent;
 	(void)node;
 	vb->type = ASN1_TAG_INTEGER;
 	vb->val.int_val = s_legacy_val1;
 	return 0;
 }
 
-static int set_legacy_val1(struct snmp_mib_node *node, const struct snmp_varbind *vb)
+static int set_legacy_val1(struct snmp_agent *agent, struct snmp_mib_node *node,
+			   const struct snmp_varbind *vb)
 {
+	(void)agent;
 	(void)node;
 	if (vb->type != ASN1_TAG_INTEGER) {
 		return -EINVAL;
@@ -351,16 +365,20 @@ static int set_legacy_val1(struct snmp_mib_node *node, const struct snmp_varbind
 	return 0;
 }
 
-static int get_legacy_val2(const struct snmp_mib_node *node, struct snmp_varbind *vb)
+static int get_legacy_val2(struct snmp_agent *agent, const struct snmp_mib_node *node,
+			   struct snmp_varbind *vb)
 {
+	(void)agent;
 	(void)node;
 	vb->type = ASN1_TAG_INTEGER;
 	vb->val.int_val = s_legacy_val2;
 	return 0;
 }
 
-static int set_legacy_val2(struct snmp_mib_node *node, const struct snmp_varbind *vb)
+static int set_legacy_val2(struct snmp_agent *agent, struct snmp_mib_node *node,
+			   const struct snmp_varbind *vb)
 {
+	(void)agent;
 	(void)node;
 	if (vb->type != ASN1_TAG_INTEGER) {
 		return -EINVAL;
@@ -376,17 +394,20 @@ static bool s_tx_b_fail_commit = false;
 static bool s_tx_a_undo_called = false;
 static bool s_tx_a_cleanup_called = false;
 
-static int get_tx_val_a(const struct snmp_mib_node *node, struct snmp_varbind *vb)
+static int get_tx_val_a(struct snmp_agent *agent, const struct snmp_mib_node *node,
+			struct snmp_varbind *vb)
 {
+	(void)agent;
 	(void)node;
 	vb->type = ASN1_TAG_INTEGER;
 	vb->val.int_val = s_tx_val_a;
 	return 0;
 }
 
-static int set_tx_val_a(struct snmp_mib_node *node, const struct snmp_varbind *vb,
-			enum snmp_set_action action, void **tx_ctx)
+static int set_tx_val_a(struct snmp_agent *agent, struct snmp_mib_node *node,
+			const struct snmp_varbind *vb, enum snmp_set_action action, void **tx_ctx)
 {
+	(void)agent;
 	(void)node;
 	switch (action) {
 	case SNMP_SET_RESERVE:
@@ -410,17 +431,20 @@ static int set_tx_val_a(struct snmp_mib_node *node, const struct snmp_varbind *v
 	}
 }
 
-static int get_tx_val_b(const struct snmp_mib_node *node, struct snmp_varbind *vb)
+static int get_tx_val_b(struct snmp_agent *agent, const struct snmp_mib_node *node,
+			struct snmp_varbind *vb)
 {
+	(void)agent;
 	(void)node;
 	vb->type = ASN1_TAG_INTEGER;
 	vb->val.int_val = s_tx_val_b;
 	return 0;
 }
 
-static int set_tx_val_b(struct snmp_mib_node *node, const struct snmp_varbind *vb,
-			enum snmp_set_action action, void **tx_ctx)
+static int set_tx_val_b(struct snmp_agent *agent, struct snmp_mib_node *node,
+			const struct snmp_varbind *vb, enum snmp_set_action action, void **tx_ctx)
 {
+	(void)agent;
 	(void)node;
 	switch (action) {
 	case SNMP_SET_RESERVE:

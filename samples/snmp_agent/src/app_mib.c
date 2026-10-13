@@ -25,16 +25,20 @@ LOG_MODULE_REGISTER(app_mib, LOG_LEVEL_INF);
 /* -------------------------------------------------------------------------- */
 
 /* 1. sensorValue (1.3.6.1.4.1.<enterprise>.1.1.1.0) - INTEGER */
-static int cb_get_sensor_value(const struct snmp_mib_node *node, struct snmp_varbind *vb)
+static int cb_get_sensor_value(struct snmp_agent *agent, const struct snmp_mib_node *node,
+			       struct snmp_varbind *vb)
 {
+	ARG_UNUSED(agent);
 	ARG_UNUSED(node);
 	vb->type = ASN1_TAG_INTEGER;
 	vb->val.int_val = app_sensor_get_temp();
 	return 0;
 }
 
-static int cb_set_sensor_value(struct snmp_mib_node *node, const struct snmp_varbind *vb)
+static int cb_set_sensor_value(struct snmp_agent *agent, struct snmp_mib_node *node,
+			       const struct snmp_varbind *vb)
 {
+	ARG_UNUSED(agent);
 	ARG_UNUSED(node);
 	if (vb->type != ASN1_TAG_INTEGER) {
 		return -EINVAL;
@@ -44,16 +48,20 @@ static int cb_set_sensor_value(struct snmp_mib_node *node, const struct snmp_var
 }
 
 /* 2. ledState (1.3.6.1.4.1.<enterprise>.1.1.2.0) - INTEGER (0=OFF, 1=ON) */
-static int cb_get_led_state(const struct snmp_mib_node *node, struct snmp_varbind *vb)
+static int cb_get_led_state(struct snmp_agent *agent, const struct snmp_mib_node *node,
+			    struct snmp_varbind *vb)
 {
+	ARG_UNUSED(agent);
 	ARG_UNUSED(node);
 	vb->type = ASN1_TAG_INTEGER;
 	vb->val.int_val = app_led_get_state();
 	return 0;
 }
 
-static int cb_set_led_state(struct snmp_mib_node *node, const struct snmp_varbind *vb)
+static int cb_set_led_state(struct snmp_agent *agent, struct snmp_mib_node *node,
+			    const struct snmp_varbind *vb)
 {
+	ARG_UNUSED(agent);
 	ARG_UNUSED(node);
 	if (vb->type != ASN1_TAG_INTEGER) {
 		LOG_WRN("SNMP SET ledState rejected: invalid ASN.1 type 0x%02X", vb->type);
@@ -68,8 +76,10 @@ static int cb_set_led_state(struct snmp_mib_node *node, const struct snmp_varbin
 }
 
 /* 3. buttonCounter (1.3.6.1.4.1.<enterprise>.1.1.3.0) - Counter32 */
-static int cb_get_button_counter(const struct snmp_mib_node *node, struct snmp_varbind *vb)
+static int cb_get_button_counter(struct snmp_agent *agent, const struct snmp_mib_node *node,
+				 struct snmp_varbind *vb)
 {
+	ARG_UNUSED(agent);
 	ARG_UNUSED(node);
 	vb->type = SNMP_TAG_COUNTER32;
 	vb->val.uint_val = app_button_get_counter();
@@ -77,8 +87,10 @@ static int cb_get_button_counter(const struct snmp_mib_node *node, struct snmp_v
 }
 
 /* 4. sensorHumidity (1.3.6.1.4.1.<enterprise>.1.1.4.0) - Gauge32 */
-static int cb_get_sensor_humidity(const struct snmp_mib_node *node, struct snmp_varbind *vb)
+static int cb_get_sensor_humidity(struct snmp_agent *agent, const struct snmp_mib_node *node,
+				  struct snmp_varbind *vb)
 {
+	ARG_UNUSED(agent);
 	ARG_UNUSED(node);
 	vb->type = SNMP_TAG_GAUGE32;
 	vb->val.uint_val = app_sensor_get_humidity();
@@ -86,8 +98,10 @@ static int cb_get_sensor_humidity(const struct snmp_mib_node *node, struct snmp_
 }
 
 /* 5. sensorDescription (1.3.6.1.4.1.<enterprise>.1.1.5.0) - OCTET STRING */
-static int cb_get_sensor_desc(const struct snmp_mib_node *node, struct snmp_varbind *vb)
+static int cb_get_sensor_desc(struct snmp_agent *agent, const struct snmp_mib_node *node,
+			      struct snmp_varbind *vb)
 {
+	ARG_UNUSED(agent);
 	ARG_UNUSED(node);
 	vb->type = ASN1_TAG_OCTET_STRING;
 	const char *desc = app_sensor_get_description();
@@ -101,8 +115,10 @@ static int cb_get_sensor_desc(const struct snmp_mib_node *node, struct snmp_varb
 }
 
 /* 6. sensorStatusOid (1.3.6.1.4.1.<enterprise>.1.1.6.0) - OBJECT IDENTIFIER */
-static int cb_get_sensor_status_oid(const struct snmp_mib_node *node, struct snmp_varbind *vb)
+static int cb_get_sensor_status_oid(struct snmp_agent *agent, const struct snmp_mib_node *node,
+				    struct snmp_varbind *vb)
 {
+	ARG_UNUSED(agent);
 	ARG_UNUSED(node);
 	vb->type = ASN1_TAG_OID;
 	/* Points to sensorValue: 1.3.6.1.4.1.<enterprise>.1.1.1.0 */
@@ -125,18 +141,20 @@ static int cb_get_sensor_status_oid(const struct snmp_mib_node *node, struct snm
 /* Table Node Callbacks: sensorTable (1.3.6.1.4.1.<enterprise>.1.3.1)         */
 /* -------------------------------------------------------------------------- */
 
-static int cb_table_col1_get(const struct snmp_table_row *row, uint8_t column,
-			     struct snmp_varbind *vb)
+static int cb_table_col1_get(struct snmp_agent *agent, const struct snmp_table_row *row,
+			     uint8_t column, struct snmp_varbind *vb)
 {
+	ARG_UNUSED(agent);
 	ARG_UNUSED(column);
 	vb->type = ASN1_TAG_INTEGER;
 	vb->val.int_val = (int32_t)row->index;
 	return 0;
 }
 
-static int cb_table_col2_get(const struct snmp_table_row *row, uint8_t column,
-			     struct snmp_varbind *vb)
+static int cb_table_col2_get(struct snmp_agent *agent, const struct snmp_table_row *row,
+			     uint8_t column, struct snmp_varbind *vb)
 {
+	ARG_UNUSED(agent);
 	ARG_UNUSED(column);
 	const char *name = NULL;
 	int ret = app_sensor_get_table_entry(row->index, &name, NULL);
@@ -154,9 +172,10 @@ static int cb_table_col2_get(const struct snmp_table_row *row, uint8_t column,
 	return 0;
 }
 
-static int cb_table_col3_get(const struct snmp_table_row *row, uint8_t column,
-			     struct snmp_varbind *vb)
+static int cb_table_col3_get(struct snmp_agent *agent, const struct snmp_table_row *row,
+			     uint8_t column, struct snmp_varbind *vb)
 {
+	ARG_UNUSED(agent);
 	ARG_UNUSED(column);
 	int32_t val = 0;
 	int ret = app_sensor_get_table_entry(row->index, NULL, &val);

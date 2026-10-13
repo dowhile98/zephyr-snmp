@@ -30,8 +30,10 @@ void snmp_mib_unlock(struct snmp_agent *inst)
 }
 
 /* Callbacks for snmp MIB-II group counters */
-static int mib2_counter_get(const struct snmp_mib_node *node, struct snmp_varbind *vb)
+static int mib2_counter_get(struct snmp_agent *agent, const struct snmp_mib_node *node,
+			    struct snmp_varbind *vb)
 {
+	(void)agent;
 	if (!node || !vb || !node->user_data)
 		return -EINVAL;
 	uint32_t *counter_ptr = (uint32_t *)node->user_data;
@@ -40,8 +42,10 @@ static int mib2_counter_get(const struct snmp_mib_node *node, struct snmp_varbin
 	return 0;
 }
 
-static int mib2_enable_authen_traps_get(const struct snmp_mib_node *node, struct snmp_varbind *vb)
+static int mib2_enable_authen_traps_get(struct snmp_agent *agent, const struct snmp_mib_node *node,
+					struct snmp_varbind *vb)
 {
+	(void)agent;
 	if (!node || !vb)
 		return -EINVAL;
 	int32_t *val_ptr = (int32_t *)node->user_data;
@@ -50,8 +54,10 @@ static int mib2_enable_authen_traps_get(const struct snmp_mib_node *node, struct
 	return 0;
 }
 
-static int mib2_enable_authen_traps_set(struct snmp_mib_node *node, const struct snmp_varbind *vb)
+static int mib2_enable_authen_traps_set(struct snmp_agent *agent, struct snmp_mib_node *node,
+					const struct snmp_varbind *vb)
 {
+	(void)agent;
 	if (!node || !vb)
 		return -EINVAL;
 	if (vb->type != ASN1_TAG_INTEGER)
@@ -146,8 +152,10 @@ int snmp_mib2_set_syslocation(const char *location)
 }
 
 /* System Group Callbacks */
-static int sys_descr_get(const struct snmp_mib_node *node, struct snmp_varbind *vb)
+static int sys_descr_get(struct snmp_agent *agent, const struct snmp_mib_node *node,
+			 struct snmp_varbind *vb)
 {
+	(void)agent;
 	if (!node || !vb || !node->user_data)
 		return -EINVAL;
 	const char *descr = (const char *)node->user_data;
@@ -157,8 +165,10 @@ static int sys_descr_get(const struct snmp_mib_node *node, struct snmp_varbind *
 	return 0;
 }
 
-static int sys_object_id_get(const struct snmp_mib_node *node, struct snmp_varbind *vb)
+static int sys_object_id_get(struct snmp_agent *agent, const struct snmp_mib_node *node,
+			     struct snmp_varbind *vb)
 {
+	(void)agent;
 	if (!node || !vb || !node->user_data)
 		return -EINVAL;
 	const struct snmp_oid *oid_ptr = (const struct snmp_oid *)node->user_data;
@@ -167,9 +177,11 @@ static int sys_object_id_get(const struct snmp_mib_node *node, struct snmp_varbi
 	return 0;
 }
 
-static int sys_uptime_get(const struct snmp_mib_node *node, struct snmp_varbind *vb)
+static int sys_uptime_get(struct snmp_agent *agent, const struct snmp_mib_node *node,
+			  struct snmp_varbind *vb)
 {
 	(void)node;
+	(void)agent;
 	if (!vb)
 		return -EINVAL;
 	vb->type = SNMP_TAG_TIMETICKS;
@@ -177,8 +189,10 @@ static int sys_uptime_get(const struct snmp_mib_node *node, struct snmp_varbind 
 	return 0;
 }
 
-static int sys_string_get(const struct snmp_mib_node *node, struct snmp_varbind *vb)
+static int sys_string_get(struct snmp_agent *agent, const struct snmp_mib_node *node,
+			  struct snmp_varbind *vb)
 {
+	(void)agent;
 	if (!node || !vb || !node->user_data)
 		return -EINVAL;
 	const char *str = (const char *)node->user_data;
@@ -188,8 +202,10 @@ static int sys_string_get(const struct snmp_mib_node *node, struct snmp_varbind 
 	return 0;
 }
 
-static int sys_string_set(struct snmp_mib_node *node, const struct snmp_varbind *vb)
+static int sys_string_set(struct snmp_agent *agent, struct snmp_mib_node *node,
+			  const struct snmp_varbind *vb)
 {
+	(void)agent;
 	if (!node || !vb || !node->user_data)
 		return -EINVAL;
 	if (vb->type != ASN1_TAG_OCTET_STRING)
@@ -205,9 +221,11 @@ static int sys_string_set(struct snmp_mib_node *node, const struct snmp_varbind 
 	return 0;
 }
 
-static int sys_services_get(const struct snmp_mib_node *node, struct snmp_varbind *vb)
+static int sys_services_get(struct snmp_agent *agent, const struct snmp_mib_node *node,
+			    struct snmp_varbind *vb)
 {
 	(void)node;
+	(void)agent;
 	if (!vb)
 		return -EINVAL;
 	vb->type = ASN1_TAG_INTEGER;
@@ -483,7 +501,7 @@ int snmp_mib_get(struct snmp_agent *inst, const struct snmp_oid *oid, struct snm
 			for (struct snmp_table_row *r = tbl->rows; r; r = r->next) {
 				if (r->index == row_idx) {
 					vb->oid = *oid;
-					int ret = tbl->get_cbs[c](r, c, vb);
+					int ret = tbl->get_cbs[c](inst, r, c, vb);
 					snmp_mib_unlock(inst);
 					return ret;
 				}
@@ -501,7 +519,7 @@ int snmp_mib_get(struct snmp_agent *inst, const struct snmp_oid *oid, struct snm
 			vb->oid = *oid;
 			int ret = 0;
 			if (inst->mib_nodes[i].get_cb) {
-				ret = inst->mib_nodes[i].get_cb(&inst->mib_nodes[i], vb);
+				ret = inst->mib_nodes[i].get_cb(inst, &inst->mib_nodes[i], vb);
 			} else {
 				vb->type = inst->mib_nodes[i].type;
 			}
@@ -580,7 +598,7 @@ int snmp_mib_get_next(struct snmp_agent *inst, const struct snmp_oid *oid, struc
 	if (pick_table) {
 		vb->oid = best_table_oid;
 		if (best_row && best_tbl->get_cbs && best_tbl->get_cbs[best_col_idx]) {
-			int ret = best_tbl->get_cbs[best_col_idx](best_row, best_col_idx, vb);
+			int ret = best_tbl->get_cbs[best_col_idx](inst, best_row, best_col_idx, vb);
 			snmp_mib_unlock(inst);
 			return ret;
 		}
@@ -591,7 +609,8 @@ int snmp_mib_get_next(struct snmp_agent *inst, const struct snmp_oid *oid, struc
 		vb->oid = inst->mib_nodes[best_scalar_idx].oid;
 		int ret = 0;
 		if (inst->mib_nodes[best_scalar_idx].get_cb) {
-			ret = inst->mib_nodes[best_scalar_idx].get_cb(&inst->mib_nodes[best_scalar_idx], vb);
+			ret = inst->mib_nodes[best_scalar_idx].get_cb(
+			    inst, &inst->mib_nodes[best_scalar_idx], vb);
 		} else {
 			vb->type = inst->mib_nodes[best_scalar_idx].type;
 		}
@@ -726,7 +745,7 @@ int snmp_mib_set(struct snmp_agent *inst, const struct snmp_oid *oid, const stru
 
 			for (struct snmp_table_row *r = tbl->rows; r; r = r->next) {
 				if (r->index == row_idx) {
-					int ret = tbl->set_cbs[c](r, c, vb);
+					int ret = tbl->set_cbs[c](inst, r, c, vb);
 					snmp_mib_unlock(inst);
 					return ret;
 				}
@@ -743,13 +762,14 @@ int snmp_mib_set(struct snmp_agent *inst, const struct snmp_oid *oid, const stru
 		if (snmp_oid_equal(&inst->mib_nodes[i].oid, oid)) {
 			if (inst->mib_nodes[i].set_tx_cb) {
 				void *tx_ctx = NULL;
-				int ret = inst->mib_nodes[i].set_tx_cb(&inst->mib_nodes[i], vb,
-								       SNMP_SET_RESERVE, &tx_ctx);
+				int ret = inst->mib_nodes[i].set_tx_cb(
+				    inst, &inst->mib_nodes[i], vb, SNMP_SET_RESERVE, &tx_ctx);
 				if (ret == 0) {
-					ret = inst->mib_nodes[i].set_tx_cb(&inst->mib_nodes[i], vb,
-									   SNMP_SET_COMMIT, &tx_ctx);
+					ret = inst->mib_nodes[i].set_tx_cb(
+					    inst, &inst->mib_nodes[i], vb, SNMP_SET_COMMIT,
+					    &tx_ctx);
 				}
-				inst->mib_nodes[i].set_tx_cb(&inst->mib_nodes[i], vb,
+				inst->mib_nodes[i].set_tx_cb(inst, &inst->mib_nodes[i], vb,
 							     SNMP_SET_CLEANUP, &tx_ctx);
 				snmp_mib_unlock(inst);
 				return ret;
@@ -759,7 +779,7 @@ int snmp_mib_set(struct snmp_agent *inst, const struct snmp_oid *oid, const stru
 				MIB_COUNTER_INC(inst, snmpInReadOnlys);
 				return -EACCES;
 			}
-			int ret = inst->mib_nodes[i].set_cb(&inst->mib_nodes[i], vb);
+			int ret = inst->mib_nodes[i].set_cb(inst, &inst->mib_nodes[i], vb);
 			snmp_mib_unlock(inst);
 			return ret;
 		}
@@ -944,7 +964,8 @@ int snmp_mib_dispatch(struct snmp_agent *inst, struct snmp_pdu *pdu)
 
 					if (tbl->get_cbs && tbl->get_cbs[c]) {
 						item->old_vb.oid = vb->oid;
-						if (tbl->get_cbs[c](item->tbl_row, c, &item->old_vb) == 0) {
+						if (tbl->get_cbs[c](inst, item->tbl_row, c,
+								    &item->old_vb) == 0) {
 							item->has_old_vb = true;
 						}
 					}
@@ -987,7 +1008,8 @@ int snmp_mib_dispatch(struct snmp_agent *inst, struct snmp_pdu *pdu)
 				}
 
 				if (item->node->set_tx_cb) {
-					int rc = item->node->set_tx_cb(item->node, vb, SNMP_SET_RESERVE, &item->tx_ctx);
+					int rc = item->node->set_tx_cb(
+					    inst, item->node, vb, SNMP_SET_RESERVE, &item->tx_ctx);
 					if (rc != 0) {
 						error_status = snmp_map_error_to_version(rc, pdu->version);
 						error_index = i + 1;
@@ -997,7 +1019,8 @@ int snmp_mib_dispatch(struct snmp_agent *inst, struct snmp_pdu *pdu)
 				} else {
 					if (item->node->get_cb) {
 						item->old_vb.oid = item->node->oid;
-						if (item->node->get_cb(item->node, &item->old_vb) == 0) {
+						if (item->node->get_cb(inst, item->node,
+								       &item->old_vb) == 0) {
 							item->has_old_vb = true;
 						}
 					}
@@ -1010,8 +1033,9 @@ int snmp_mib_dispatch(struct snmp_agent *inst, struct snmp_pdu *pdu)
 		if (error_status != SNMP_ERR_NO_ERROR) {
 			for (uint8_t j = 0; j < pdu->varbind_cnt; j++) {
 				if (tx_items[j].reserved && tx_items[j].node && tx_items[j].node->set_tx_cb) {
-					tx_items[j].node->set_tx_cb(tx_items[j].node, &pdu->varbinds[j],
-								    SNMP_SET_CLEANUP, &tx_items[j].tx_ctx);
+					tx_items[j].node->set_tx_cb(
+					    inst, tx_items[j].node, &pdu->varbinds[j],
+					    SNMP_SET_CLEANUP, &tx_items[j].tx_ctx);
 				}
 			}
 			snmp_mib_unlock(inst);
@@ -1043,11 +1067,13 @@ int snmp_mib_dispatch(struct snmp_agent *inst, struct snmp_pdu *pdu)
 			int rc = 0;
 
 			if (item->node && item->node->set_tx_cb) {
-				rc = item->node->set_tx_cb(item->node, vb, SNMP_SET_COMMIT, &item->tx_ctx);
+				rc = item->node->set_tx_cb(inst, item->node, vb, SNMP_SET_COMMIT,
+							   &item->tx_ctx);
 			} else if (item->node && item->node->set_cb) {
-				rc = item->node->set_cb(item->node, vb);
+				rc = item->node->set_cb(inst, item->node, vb);
 			} else if (item->is_table && item->tbl && item->tbl->set_cbs[item->tbl_col]) {
-				rc = item->tbl->set_cbs[item->tbl_col](item->tbl_row, item->tbl_col, vb);
+				rc = item->tbl->set_cbs[item->tbl_col](inst, item->tbl_row,
+								       item->tbl_col, vb);
 			}
 
 			if (rc != 0) {
@@ -1062,14 +1088,15 @@ int snmp_mib_dispatch(struct snmp_agent *inst, struct snmp_pdu *pdu)
 			for (int u = (int)commit_fail_idx - 1; u >= 0; u--) {
 				struct snmp_set_tx_item *item = &tx_items[u];
 				if (item->node && item->node->set_tx_cb) {
-					item->node->set_tx_cb(item->node, &pdu->varbinds[u],
+					item->node->set_tx_cb(inst, item->node, &pdu->varbinds[u],
 							      SNMP_SET_UNDO, &item->tx_ctx);
 				} else if (item->has_old_vb) {
 					if (item->node && item->node->set_cb) {
-						item->node->set_cb(item->node, &item->old_vb);
+						item->node->set_cb(inst, item->node, &item->old_vb);
 					} else if (item->is_table && item->tbl && item->tbl->set_cbs[item->tbl_col]) {
-						item->tbl->set_cbs[item->tbl_col](item->tbl_row,
-										  item->tbl_col, &item->old_vb);
+						item->tbl->set_cbs[item->tbl_col](
+						    inst, item->tbl_row, item->tbl_col,
+						    &item->old_vb);
 					}
 				}
 			}
@@ -1077,8 +1104,9 @@ int snmp_mib_dispatch(struct snmp_agent *inst, struct snmp_pdu *pdu)
 			/* Cleanup all */
 			for (uint8_t j = 0; j < pdu->varbind_cnt; j++) {
 				if (tx_items[j].reserved && tx_items[j].node && tx_items[j].node->set_tx_cb) {
-					tx_items[j].node->set_tx_cb(tx_items[j].node, &pdu->varbinds[j],
-								    SNMP_SET_CLEANUP, &tx_items[j].tx_ctx);
+					tx_items[j].node->set_tx_cb(
+					    inst, tx_items[j].node, &pdu->varbinds[j],
+					    SNMP_SET_CLEANUP, &tx_items[j].tx_ctx);
 				}
 			}
 			snmp_mib_unlock(inst);
@@ -1095,8 +1123,9 @@ int snmp_mib_dispatch(struct snmp_agent *inst, struct snmp_pdu *pdu)
 		/* Phase 4: Commit Succeeded -> Cleanup & Read Back */
 		for (uint8_t j = 0; j < pdu->varbind_cnt; j++) {
 			if (tx_items[j].reserved && tx_items[j].node && tx_items[j].node->set_tx_cb) {
-				tx_items[j].node->set_tx_cb(tx_items[j].node, &pdu->varbinds[j],
-							    SNMP_SET_CLEANUP, &tx_items[j].tx_ctx);
+				tx_items[j].node->set_tx_cb(inst, tx_items[j].node,
+							    &pdu->varbinds[j], SNMP_SET_CLEANUP,
+							    &tx_items[j].tx_ctx);
 			}
 		}
 

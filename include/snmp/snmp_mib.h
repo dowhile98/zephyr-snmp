@@ -58,10 +58,34 @@ enum snmp_set_action {
 #define SNMP_ERR_NOT_WRITABLE          17
 #define SNMP_ERR_INCONSISTENT_NAME     18
 
-typedef int (*snmp_mib_get_cb_t)(const struct snmp_mib_node *node, struct snmp_varbind *vb);
-typedef int (*snmp_mib_set_cb_t)(struct snmp_mib_node *node, const struct snmp_varbind *vb);
-typedef int (*snmp_mib_set_tx_cb_t)(struct snmp_mib_node *node, const struct snmp_varbind *vb,
-				    enum snmp_set_action action, void **tx_ctx);
+/**
+ * @brief Read callback for a scalar MIB node.
+ *
+ * @param agent The instance that received the request. The agent is always the object
+ *              owning @p node's registration, so per-agent state (identity strings,
+ *              counters, scratch buffers) is reached through it.
+ * @param node  The node being read.
+ * @param vb    Variable binding to fill in.
+ * @return 0 on success, negative errno or a protocol error number otherwise.
+ */
+typedef int (*snmp_mib_get_cb_t)(struct snmp_agent *agent, const struct snmp_mib_node *node,
+				 struct snmp_varbind *vb);
+
+/** @brief Write callback for a scalar MIB node. See snmp_mib_get_cb_t for @p agent. */
+typedef int (*snmp_mib_set_cb_t)(struct snmp_agent *agent, struct snmp_mib_node *node,
+				 const struct snmp_varbind *vb);
+
+/**
+ * @brief Two-phase-commit write callback for a scalar MIB node (RFC 3416 section 4.2.5).
+ * @param agent   Instance that received the SET.
+ * @param node    Node being written.
+ * @param vb      Proposed value.
+ * @param action  Phase of the transaction.
+ * @param tx_ctx  Per-transaction context, private to the callback.
+ */
+typedef int (*snmp_mib_set_tx_cb_t)(struct snmp_agent *agent, struct snmp_mib_node *node,
+				    const struct snmp_varbind *vb, enum snmp_set_action action,
+				    void **tx_ctx);
 
 struct snmp_mib_node {
 	struct snmp_oid oid;
@@ -69,6 +93,14 @@ struct snmp_mib_node {
 	snmp_mib_get_cb_t get_cb;
 	snmp_mib_set_cb_t set_cb;
 	snmp_mib_set_tx_cb_t set_tx_cb;
+	/**
+	 * @brief Application context handed back to the callbacks.
+	 *
+	 * MUST point only at application-owned state (sensor records, device structs) or
+	 * at compile-time constants. It must NEVER point at a @ref struct snmp_agent or at
+	 * a field inside one: the owning agent is delivered as the first callback argument,
+	 * and instance recovery through the node would defeat the multi-instance model.
+	 */
 	void *user_data;
 };
 
@@ -121,12 +153,25 @@ static inline void snmp_counter_inc(uint32_t *counter)
 
 struct snmp_table_row;
 
-typedef int (*snmp_table_get_cb_t)(const struct snmp_table_row *row, uint8_t column, struct snmp_varbind *vb);
-typedef int (*snmp_table_set_cb_t)(struct snmp_table_row *row, uint8_t column, const struct snmp_varbind *vb);
+/**
+ * @brief Read callback for one table cell.
+ * @param agent  Instance that received the request.
+ * @param row    Row holding the cell.
+ * @param column Column index into struct snmp_mib_table.
+ * @param vb     Variable binding to fill in.
+ */
+typedef int (*snmp_table_get_cb_t)(struct snmp_agent *agent, const struct snmp_table_row *row,
+				   uint8_t column, struct snmp_varbind *vb);
+
+/** @brief Write callback for one table cell. See snmp_table_get_cb_t. */
+typedef int (*snmp_table_set_cb_t)(struct snmp_agent *agent, struct snmp_table_row *row,
+				   uint8_t column, const struct snmp_varbind *vb);
 
 struct snmp_table_row {
 	uint32_t index;
 	struct snmp_table_row *next;
+	/** @brief Application-owned row context. Same rule as struct snmp_mib_node::user_data:
+	 *         never a @ref struct snmp_agent or a pointer into one. */
 	void *user_data;
 };
 

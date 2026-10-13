@@ -23,16 +23,20 @@
 #define ASSERT_EQ(a, b) ASSERT((a) == (b))
 #define ASSERT_NE(a, b) ASSERT((a) != (b))
 
-static int get_val_1111(const struct snmp_mib_node *node, struct snmp_varbind *vb)
+static int get_val_1111(struct snmp_agent *agent, const struct snmp_mib_node *node,
+			struct snmp_varbind *vb)
 {
+	(void)agent;
 	(void)node;
 	vb->type = ASN1_TAG_INTEGER;
 	vb->val.int_val = 1234;
 	return 0;
 }
 
-static int get_val_2222(const struct snmp_mib_node *node, struct snmp_varbind *vb)
+static int get_val_2222(struct snmp_agent *agent, const struct snmp_mib_node *node,
+			struct snmp_varbind *vb)
 {
+	(void)agent;
 	(void)node;
 	vb->type = ASN1_TAG_INTEGER;
 	vb->val.int_val = 5678;
