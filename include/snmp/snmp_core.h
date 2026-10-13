@@ -117,6 +117,12 @@ struct snmp_agent {
 	uint8_t access_rule_cnt;
 	struct vacm_view_tree_entry views[CONFIG_SNMP_VACM_MAX_VIEW_TREES];
 	uint8_t view_cnt;
+
+	/**
+	 * @brief Settings key prefix that holds this engine's snmpEngineBoots, or NULL
+	 *        when the instance does not persist it. Set from struct snmp_agent_cfg.
+	 */
+	const char *settings_prefix;
 #endif /* CONFIG_SNMP_VERSION_3 */
 
 	/* MIB engine */
@@ -226,6 +232,27 @@ int snmp_agent_set_read_community(struct snmp_agent *agent, const char *communit
  * @return 0 on success, -EINVAL on invalid parameter.
  */
 int snmp_agent_set_write_community(struct snmp_agent *agent, const char *community);
+
+#if defined(CONFIG_SNMP_VERSION_3)
+/**
+ * @brief Load this engine's persisted snmpEngineBoots and advance it for the new boot.
+ *
+ * Reads @c "<agent settings_prefix>/boots" (see struct snmp_agent_cfg::settings_prefix)
+ * with a direct settings read: no global settings handler is registered, so several
+ * engines can persist their own replay window under different prefixes. Called by
+ * snmp_agent_inst_init() after the configuration is applied, and safe to call again
+ * before snmp_agent_start().
+ *
+ * RFC 3414 section 3.1.1 requires snmpEngineBoots to increase on every local
+ * reinitialization, so a value found on storage is incremented and written back.
+ *
+ * @param agent Target agent instance.
+ * @return 0 when a persisted value was loaded (and advanced), -EINVAL if @p agent is
+ *         NULL or has no settings prefix, -ENOENT when nothing is persisted yet,
+ *         -ENOTSUP when CONFIG_SETTINGS is disabled, negative errno on storage failure.
+ */
+int snmp_agent_load_engine_boots(struct snmp_agent *agent);
+#endif /* CONFIG_SNMP_VERSION_3 */
 
 /**
  * @brief Retrieve pointer to the default global agent instance.

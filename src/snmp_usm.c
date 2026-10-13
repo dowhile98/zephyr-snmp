@@ -42,26 +42,29 @@
 	} while (0)
 
 #if defined(CONFIG_SETTINGS)
-static int usm_settings_set(const char *name, size_t len,
-			    settings_read_cb read_cb, void *cb_arg)
-{
-	const char *next;
-	if (settings_name_steq(name, "boots", &next) && !next) {
-		struct snmp_agent *def = snmp_agent_get_default();
-		if (!def || len != sizeof(def->engine_boots)) {
-			return -EINVAL;
-		}
-		int ret = read_cb(cb_arg, &def->engine_boots, sizeof(def->engine_boots));
-		if (ret < 0) {
-			return ret;
-		}
-		return 0;
-	}
-	return -ENOENT;
-}
+/* Buffer for the composed "<prefix>/boots" key. */
+#define SNMP_USM_SETTINGS_KEY_MAX 64
 
-SETTINGS_STATIC_HANDLER_DEFINE(snmp_usm, "snmp", NULL, usm_settings_set, NULL, NULL);
-#endif
+/*
+ * Compose this engine's engineBoots key from its settings prefix.
+ * @return key length on success, -EINVAL without a prefix, -ENAMETOOLONG if it does not
+ *         fit. No global settings handler is involved (contract 3.7).
+ */
+static int usm_boots_key(const struct snmp_agent *inst, char *out, size_t out_sz)
+{
+	int len;
+
+	if (!inst->settings_prefix) {
+		return -EINVAL;
+	}
+
+	len = snprintk(out, out_sz, "%s/boots", inst->settings_prefix);
+	if (len < 0 || (size_t)len >= out_sz) {
+		return -ENAMETOOLONG;
+	}
+	return len;
+}
+#endif /* CONFIG_SETTINGS */
 
 /* ---- HMAC computation ---- */
 
@@ -536,14 +539,12 @@ int snmp_usm_init(struct snmp_agent *inst)
 		inst->engine_id_len = sizeof(default_engine_id);
 	}
 
-#if defined(CONFIG_SETTINGS)
-	settings_subsys_init();
-	settings_load_subtree("snmp");
-	if (inst->engine_boots < SNMP_ENGINE_BOOTS_MAX) {
-		inst->engine_boots++;
-		settings_save_one("snmp/boots", &inst->engine_boots, sizeof(inst->engine_boots));
-	}
-#else
+	/*
+	 * engineBoots comes from struct snmp_agent_cfg (applied by snmp_agent_inst_init
+	 * before calling us) or from Kconfig. Persistence is explicit and per instance:
+	 * snmp_agent_load_engine_boots() reads this engine's own key, instead of a
+	 * process-wide settings handler that could only ever feed the default agent.
+	 */
 	if (inst->engine_boots == 0) {
 #if defined(CONFIG_SNMP_V3_ENGINE_BOOTS)
 		inst->engine_boots = CONFIG_SNMP_V3_ENGINE_BOOTS;
@@ -551,7 +552,6 @@ int snmp_usm_init(struct snmp_agent *inst)
 		inst->engine_boots = 1;
 #endif
 	}
-#endif
 
 	if (inst->user_cnt == 0) {
 		struct snmp_usm_user default_user = {
@@ -816,11 +816,63 @@ int snmp_usm_set_engine_boots(struct snmp_agent *inst, uint32_t boots)
 	}
 	inst->engine_boots = boots;
 #if defined(CONFIG_SETTINGS)
-	if (inst == snmp_agent_get_default()) {
-		settings_save_one("snmp/boots", &inst->engine_boots, sizeof(inst->engine_boots));
+	/* Persist for whichever engine is configured to persist: the default-instance
+	 * guard is gone (contract 3.7). */
+	if (inst->settings_prefix != NULL) {
+		char key[SNMP_USM_SETTINGS_KEY_MAX];
+
+		if (usm_boots_key(inst, key, sizeof(key)) > 0) {
+			(void)settings_save_one(key, &inst->engine_boots,
+						sizeof(inst->engine_boots));
+		}
 	}
 #endif
 	return 0;
+}
+
+int snmp_agent_load_engine_boots(struct snmp_agent *agent)
+{
+	if (!agent) {
+		return -EINVAL;
+	}
+#if defined(CONFIG_SETTINGS)
+	if (!agent->settings_prefix) {
+		return -EINVAL;
+	}
+
+	char key[SNMP_USM_SETTINGS_KEY_MAX];
+	int klen = usm_boots_key(agent, key, sizeof(key));
+
+	if (klen < 0) {
+		return klen;
+	}
+
+	(void)settings_subsys_init();
+
+	uint32_t persisted = 0;
+	ssize_t rd = settings_load_one(key, &persisted, sizeof(persisted));
+
+	if (rd != (ssize_t)sizeof(persisted)) {
+		return (rd < 0) ? (int)rd : -ENOENT;
+	}
+
+	/*
+	 * RFC 3414 3.1.1: a reboot advances the window. The stored value is the boot
+	 * count at the end of the previous life, so take the larger of the two,
+	 * increment below the reportable maximum, and write the new one back.
+	 */
+	if (agent->engine_boots < persisted) {
+		agent->engine_boots = persisted;
+	}
+	if (agent->engine_boots < SNMP_ENGINE_BOOTS_MAX) {
+		agent->engine_boots++;
+	}
+	(void)settings_save_one(key, &agent->engine_boots, sizeof(agent->engine_boots));
+	return 0;
+#else
+	(void)agent;
+	return -ENOTSUP;
+#endif
 }
 
 uint32_t snmp_usm_get_engine_boots(struct snmp_agent *inst)

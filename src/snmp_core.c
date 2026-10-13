@@ -163,9 +163,15 @@ int snmp_agent_inst_init(struct snmp_agent *agent, const struct snmp_agent_cfg *
 		if (cfg->engine_boots != 0) {
 			agent->engine_boots = cfg->engine_boots;
 		}
+		agent->settings_prefix = cfg->settings_prefix;
 	}
 	snmp_usm_init(agent);
 	snmp_vacm_init(agent);
+
+	/* Contract 3.7 call order: defaults -> cfg.engine_boots -> persisted override. */
+	if (agent->settings_prefix != NULL) {
+		(void)snmp_agent_load_engine_boots(agent);
+	}
 #endif
 
 	agent->state = SNMP_AGENT_INITIALIZED;
