@@ -69,8 +69,9 @@ int snmp_ber_decode_header(const uint8_t *buf, size_t buf_len, size_t *off, uint
 	}
 	else
 	{
+		/* RFC 1157 §3.2.1 & RFC 3416 §3: Indefinite length (0x80) prohibited */
 		uint8_t num_bytes = len_byte & 0x7F;
-		if (num_bytes > 4 || (*off + num_bytes) > buf_len)
+		if (num_bytes == 0 || num_bytes > 4 || (*off + num_bytes) > buf_len)
 		{
 			return -EBADMSG;
 		}

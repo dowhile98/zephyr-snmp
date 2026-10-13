@@ -1,0 +1,12 @@
+# Copyright (c) 2026 StructCore Embedded
+# SPDX-License-Identifier: Apache-2.0
+
+mainmenu "DGUS2 Protocol Unit Tests"
+
+config ZTEST_NEW_API
+	bool "Compatibility symbol for Ztest New API"
+	default y
+	help
+	  Compatibility symbol for legacy ZTEST_NEW_API configuration.
+
+source "Kconfig.zephyr"

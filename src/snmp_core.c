@@ -226,11 +226,9 @@ static int process_v3(const uint8_t *req_buf, size_t req_len,
 	if (ret < 0)
 		return ret;
 
-	/* Set response metadata */
+	/* Set response metadata (RFC 3412 §7.1: echo request's contextEngineID and contextName) */
 	msg.global.msg_max_size       = 1500;
 	msg.global.msg_security_model = 3;
-	msg.scoped.context_engine_id_len = 0;
-	msg.scoped.context_name_len      = 0;
 
 	/* Build outgoing USM */
 	ret = snmp_usm_build_outgoing(&msg);

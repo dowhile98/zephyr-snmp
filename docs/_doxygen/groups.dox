@@ -1,0 +1,21 @@
+/**
+ * @defgroup dgus2_api DGUS II Display Driver API
+ * @{
+ * @brief Public interface and high-level control functions for DGUS II displays.
+ * @}
+ */
+
+/**
+ * @defgroup dgus2_protocol DGUS II Protocol Layer
+ * @{
+ * @brief Hardware-independent frame encoders, decoders, CRC-16, and FSM parser.
+ * @}
+ */
+
+/**
+ * @defgroup dgus2_sys_regs DGUS II System Registers and Addresses
+ * @ingroup dgus2_api
+ * @{
+ * @brief Variable Pointer (VP) addresses and system register constants.
+ * @}
+ */

@@ -85,30 +85,38 @@ static int usm_password_to_key(psa_algorithm_t hash_alg,
 	if (!password || !pw_len || !ku || !ku_len)
 		return -EINVAL;
 
-	uint8_t buf[64];
-	for (size_t i = 0; i < 64; i++)
-		buf[i] = (uint8_t)password[i % pw_len];
-
-	psa_status_t status = psa_hash_compute(hash_alg, buf, 64, ku, ku_sz, ku_len);
+	psa_hash_operation_t op = psa_hash_operation_init();
+	psa_status_t status = psa_hash_setup(&op, hash_alg);
 	if (status != PSA_SUCCESS)
 		return -EIO;
 
-	size_t hash_size = *ku_len;
-	uint8_t tmp[128];
+	uint8_t buf[64];
+	size_t password_index = 0;
+	size_t count = 0;
 
-	for (uint32_t i = 0; i < 1000000; i++) {
-		memcpy(tmp, ku, hash_size);
-		memcpy(tmp + hash_size, password, pw_len);
-		status = psa_hash_compute(hash_alg, tmp, hash_size + pw_len,
-					  ku, ku_sz, ku_len);
-		if (status != PSA_SUCCESS)
+	/* RFC 3414 A.2.1: Process 1,048,576 octets of password cycling in 64-byte chunks */
+	while (count < 1048576) {
+		for (size_t i = 0; i < 64; i++) {
+			buf[i] = (uint8_t)password[password_index++ % pw_len];
+		}
+		status = psa_hash_update(&op, buf, 64);
+		if (status != PSA_SUCCESS) {
+			psa_hash_abort(&op);
 			return -EIO;
+		}
+		count += 64;
+	}
+
+	status = psa_hash_finish(&op, ku, ku_sz, ku_len);
+	if (status != PSA_SUCCESS) {
+		psa_hash_abort(&op);
+		return -EIO;
 	}
 
 	return 0;
 }
 
-/* ---- Key localization (RFC 3414 A.2) ---- */
+/* ---- Key localization (RFC 3414 A.2.2 & RFC 3826 §2.4) ---- */
 
 static int usm_key_localize(uint8_t *out_key, uint16_t *out_len,
 			    const char *password, uint8_t algo,
@@ -119,36 +127,42 @@ static int usm_key_localize(uint8_t *out_key, uint16_t *out_len,
 		return -EINVAL;
 
 	psa_algorithm_t hash_alg = (algo == 1) ? PSA_ALG_SHA_1 : PSA_ALG_MD5;
-	size_t hash_size = (algo == 1) ? 20 : 16;
 
 	uint8_t ku[64];
-	size_t ku_len;
+	size_t ku_len = 0;
 	int ret = usm_password_to_key(hash_alg, password, strlen(password),
 				      ku, sizeof(ku), &ku_len);
 	if (ret < 0)
 		return ret;
 
+	/* RFC 3414 A.2.2: Buffer = Ku (hash_size) || engine_id (engine_id_len) || Ku (hash_size) */
+	size_t total_len = ku_len + engine_id_len + ku_len;
+	uint8_t buffer[128];
+	if (total_len > sizeof(buffer))
+		return -ENOBUFS;
+
+	memcpy(buffer, ku, ku_len);
+	memcpy(buffer + ku_len, engine_id, engine_id_len);
+	memcpy(buffer + ku_len + engine_id_len, ku, ku_len);
+
 	uint8_t kul[64];
-	size_t kul_len;
-	hmac_compute(hash_alg, ku, ku_len, engine_id, engine_id_len,
-		     kul, sizeof(kul), &kul_len);
+	size_t kul_len = 0;
+	psa_status_t status = psa_hash_compute(hash_alg, buffer, total_len,
+					       kul, sizeof(kul), &kul_len);
+	if (status != PSA_SUCCESS)
+		return -EIO;
 
-	static const uint8_t auth_const[] = {
-		0x01, 'a', 'u', 't', 'h', 'e', 'n', 't', 'i', 'c', 'a',
-		't', 'i', 'o', 'n', ' ', 'k', 'e', 'y', 0x00};
-	static const uint8_t priv_const[] = {
-		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-		'p', 'r', 'i', 'v', 'a', 'c', 'y', ' ', 'k', 'e', 'y', 0x00};
-
-	const uint8_t *c = is_priv ? priv_const : auth_const;
-	size_t clen = 20;
-
-	hmac_compute(hash_alg, kul, kul_len, c, clen, out_key, 64, &hash_size);
-
-	if (is_priv)
+	if (is_priv) {
+		/* RFC 3826 §2.4: AES-128 priv key uses first 16 octets (128 bits) */
+		if (kul_len < 16)
+			return -EIO;
+		memcpy(out_key, kul, 16);
 		*out_len = 16;
-	else
-		*out_len = (algo == 1) ? HMAC_SHA1_LEN : HMAC_MD5_LEN;
+	} else {
+		/* RFC 3414 §6.2.4 / §7.2.4: localized auth key (20 octets for SHA-1, 16 for MD5) */
+		memcpy(out_key, kul, kul_len);
+		*out_len = (uint16_t)kul_len;
+	}
 
 	return 0;
 }
@@ -161,7 +175,7 @@ static int aes128_cfb_encrypt(const uint8_t *key, const uint8_t *iv,
 {
 	psa_key_attributes_t attrs = PSA_KEY_ATTRIBUTES_INIT;
 	psa_set_key_usage_flags(&attrs, PSA_KEY_USAGE_ENCRYPT);
-	psa_set_key_algorithm(&attrs, PSA_ALG_CFB_NO_PADDING);
+	psa_set_key_algorithm(&attrs, PSA_ALG_CFB);
 	psa_set_key_type(&attrs, PSA_KEY_TYPE_AES);
 	psa_set_key_bits(&attrs, 128);
 
@@ -171,7 +185,7 @@ static int aes128_cfb_encrypt(const uint8_t *key, const uint8_t *iv,
 		return -EIO;
 
 	psa_cipher_operation_t op = PSA_CIPHER_OPERATION_INIT;
-	status = psa_cipher_encrypt_setup(&op, key_id, PSA_ALG_CFB_NO_PADDING);
+	status = psa_cipher_encrypt_setup(&op, key_id, PSA_ALG_CFB);
 	if (status != PSA_SUCCESS) {
 		psa_cipher_abort(&op);
 		psa_destroy_key(key_id);
@@ -213,7 +227,7 @@ static int aes128_cfb_decrypt(const uint8_t *key, const uint8_t *iv,
 {
 	psa_key_attributes_t attrs = PSA_KEY_ATTRIBUTES_INIT;
 	psa_set_key_usage_flags(&attrs, PSA_KEY_USAGE_DECRYPT);
-	psa_set_key_algorithm(&attrs, PSA_ALG_CFB_NO_PADDING);
+	psa_set_key_algorithm(&attrs, PSA_ALG_CFB);
 	psa_set_key_type(&attrs, PSA_KEY_TYPE_AES);
 	psa_set_key_bits(&attrs, 128);
 
@@ -223,7 +237,7 @@ static int aes128_cfb_decrypt(const uint8_t *key, const uint8_t *iv,
 		return -EIO;
 
 	psa_cipher_operation_t op = PSA_CIPHER_OPERATION_INIT;
-	status = psa_cipher_decrypt_setup(&op, key_id, PSA_ALG_CFB_NO_PADDING);
+	status = psa_cipher_decrypt_setup(&op, key_id, PSA_ALG_CFB);
 	if (status != PSA_SUCCESS) {
 		psa_cipher_abort(&op);
 		psa_destroy_key(key_id);
@@ -402,7 +416,6 @@ static int usm_verify_auth(const struct snmp_v3_msg *msg,
 	struct snmp_v3_msg hash_msg = *msg;
 	memset(hash_msg.usm.auth_params, 0, sizeof(hash_msg.usm.auth_params));
 	hash_msg.usm.auth_params_len = (user->auth_protocol == 1) ? HMAC_SHA1_LEN : HMAC_MD5_LEN;
-	hash_msg.usm.priv_params_len = (user->priv_protocol > 0) ? AES_IV_LEN : 0;
 
 	uint8_t encoded[CONFIG_SNMP_MAX_PDU_SIZE];
 	size_t encoded_len = 0;
@@ -483,6 +496,12 @@ int snmp_usm_verify_incoming(struct snmp_v3_msg *msg, const uint8_t *raw_buf, si
 			return -EACCES;
 		}
 
+		/* RFC 3826 §3.1.2: msgPrivacyParameters is strictly 8 octets (salt) */
+		if (msg->usm.priv_params_len != 8) {
+			snmp_counter_inc(&g_snmp_counters.snmpSilentDrops);
+			return -EBADMSG;
+		}
+
 		const uint8_t *ct_data;
 		size_t ct_len;
 		ret = find_encrypted_scopedpdu(raw_buf, raw_len, &ct_data, &ct_len);
@@ -491,8 +510,17 @@ int snmp_usm_verify_incoming(struct snmp_v3_msg *msg, const uint8_t *raw_buf, si
 			return ret;
 		}
 
+		/* RFC 3826 §3.1.1.1 & §3.1.4: 16-byte IV = boots (4 BE) || time (4 BE) || salt (8) */
 		uint8_t iv[AES_IV_LEN];
-		memcpy(iv, msg->usm.priv_params, AES_IV_LEN);
+		iv[0] = (uint8_t)(msg->usm.engine_boots >> 24);
+		iv[1] = (uint8_t)(msg->usm.engine_boots >> 16);
+		iv[2] = (uint8_t)(msg->usm.engine_boots >> 8);
+		iv[3] = (uint8_t)(msg->usm.engine_boots);
+		iv[4] = (uint8_t)(msg->usm.engine_time >> 24);
+		iv[5] = (uint8_t)(msg->usm.engine_time >> 16);
+		iv[6] = (uint8_t)(msg->usm.engine_time >> 8);
+		iv[7] = (uint8_t)(msg->usm.engine_time);
+		memcpy(&iv[8], msg->usm.priv_params, 8);
 
 		uint8_t pt[CONFIG_SNMP_MAX_PDU_SIZE];
 		size_t pt_len;
@@ -563,27 +591,31 @@ int snmp_usm_build_outgoing(struct snmp_v3_msg *msg)
 	}
 	if (user->priv_protocol > 0) {
 		msg->global.msg_flags |= 0x02;
-		msg->usm.priv_params_len = AES_IV_LEN;
 
-		msg->usm.priv_params[0] = (uint8_t)(msg->usm.engine_boots >> 24);
-		msg->usm.priv_params[1] = (uint8_t)(msg->usm.engine_boots >> 16);
-		msg->usm.priv_params[2] = (uint8_t)(msg->usm.engine_boots >> 8);
-		msg->usm.priv_params[3] = (uint8_t)(msg->usm.engine_boots);
-		msg->usm.priv_params[4] = (uint8_t)(msg->usm.engine_time >> 24);
-		msg->usm.priv_params[5] = (uint8_t)(msg->usm.engine_time >> 16);
-		msg->usm.priv_params[6] = (uint8_t)(msg->usm.engine_time >> 8);
-		msg->usm.priv_params[7] = (uint8_t)(msg->usm.engine_time);
+		/* RFC 3826 §3.1.1.3 & §3.1.2: msgPrivacyParameters is strictly 8 octets (salt) */
+		uint32_t salt_hi = sys_rand32_get();
+		uint32_t salt_lo = sys_rand32_get();
+		msg->usm.priv_params[0] = (uint8_t)(salt_hi >> 24);
+		msg->usm.priv_params[1] = (uint8_t)(salt_hi >> 16);
+		msg->usm.priv_params[2] = (uint8_t)(salt_hi >> 8);
+		msg->usm.priv_params[3] = (uint8_t)(salt_hi);
+		msg->usm.priv_params[4] = (uint8_t)(salt_lo >> 24);
+		msg->usm.priv_params[5] = (uint8_t)(salt_lo >> 16);
+		msg->usm.priv_params[6] = (uint8_t)(salt_lo >> 8);
+		msg->usm.priv_params[7] = (uint8_t)(salt_lo);
+		msg->usm.priv_params_len = 8;
 
-		uint32_t salt = (uint32_t)sys_rand32_get();
-		msg->usm.priv_params[8] = (uint8_t)(salt >> 24);
-		msg->usm.priv_params[9] = (uint8_t)(salt >> 16);
-		msg->usm.priv_params[10] = (uint8_t)(salt >> 8);
-		msg->usm.priv_params[11] = (uint8_t)(salt);
-		salt = sys_rand32_get();
-		msg->usm.priv_params[12] = (uint8_t)(salt >> 24);
-		msg->usm.priv_params[13] = (uint8_t)(salt >> 16);
-		msg->usm.priv_params[14] = (uint8_t)(salt >> 8);
-		msg->usm.priv_params[15] = (uint8_t)(salt);
+		/* RFC 3826 §3.1.1.1: 16-byte IV = boots (4 BE) || time (4 BE) || salt (8) */
+		uint8_t iv[AES_IV_LEN];
+		iv[0] = (uint8_t)(msg->usm.engine_boots >> 24);
+		iv[1] = (uint8_t)(msg->usm.engine_boots >> 16);
+		iv[2] = (uint8_t)(msg->usm.engine_boots >> 8);
+		iv[3] = (uint8_t)(msg->usm.engine_boots);
+		iv[4] = (uint8_t)(msg->usm.engine_time >> 24);
+		iv[5] = (uint8_t)(msg->usm.engine_time >> 16);
+		iv[6] = (uint8_t)(msg->usm.engine_time >> 8);
+		iv[7] = (uint8_t)(msg->usm.engine_time);
+		memcpy(&iv[8], msg->usm.priv_params, 8);
 
 		uint8_t plaintext[CONFIG_SNMP_MAX_PDU_SIZE];
 		size_t pt_len;
@@ -593,7 +625,7 @@ int snmp_usm_build_outgoing(struct snmp_v3_msg *msg)
 
 		uint8_t ciphertext[CONFIG_SNMP_MAX_PDU_SIZE];
 		size_t ct_len;
-		ret = aes128_cfb_encrypt(user->priv_key, msg->usm.priv_params,
+		ret = aes128_cfb_encrypt(user->priv_key, iv,
 					 plaintext, pt_len,
 					 ciphertext, sizeof(ciphertext), &ct_len);
 		if (ret < 0)
@@ -604,7 +636,6 @@ int snmp_usm_build_outgoing(struct snmp_v3_msg *msg)
 		}
 		memcpy(msg->scoped.priv_ciphertext, ciphertext, ct_len);
 		msg->scoped.priv_ciphertext_len = ct_len;
-		msg->scoped.context_name_len = 0;
 		memset(&msg->scoped.pdu, 0, sizeof(msg->scoped.pdu));
 	}
 

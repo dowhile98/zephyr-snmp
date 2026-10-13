@@ -158,14 +158,43 @@ void test_ber_decode_malformed_header(void)
     int ret = snmp_ber_decode_header(NULL, 0, &off, &tag, &len);
     ASSERT_EQ(ret, -EINVAL);
 
+    /* Indefinite length 0x80 is prohibited per RFC 1157 §3.2.1 & RFC 3416 §3 */
+    uint8_t indef_buf[] = {0x30, 0x80, 0x00, 0x00};
+    off = 0;
+    ret = snmp_ber_decode_header(indef_buf, sizeof(indef_buf), &off, &tag, &len);
+    ASSERT_EQ(ret, -EBADMSG);
+
     uint8_t short_buf[] = {0x02, 0x82};
     off = 0;
     ret = snmp_ber_decode_header(short_buf, 2, &off, &tag, &len);
     ASSERT_EQ(ret, -EBADMSG);
 
+    uint8_t trunc_len_buf[] = {0x30, 0x82, 0x01};
+    off = 0;
+    ret = snmp_ber_decode_header(trunc_len_buf, sizeof(trunc_len_buf), &off, &tag, &len);
+    ASSERT_EQ(ret, -EBADMSG);
+
     uint8_t long_form_buf[] = {0x02, 0x85, 0x01, 0x02, 0x03, 0x04, 0x05};
     off = 0;
     ret = snmp_ber_decode_header(long_form_buf, 7, &off, &tag, &len);
+    ASSERT_EQ(ret, -EBADMSG);
+
+    /* Tag only: missing length byte entirely */
+    uint8_t tag_only_buf[] = {0x30};
+    off = 0;
+    ret = snmp_ber_decode_header(tag_only_buf, 1, &off, &tag, &len);
+    ASSERT_EQ(ret, -EINVAL);
+
+    /* 0x80 indefinite length with minimal 2-byte buffer */
+    uint8_t indef_2byte[] = {0x02, 0x80};
+    off = 0;
+    ret = snmp_ber_decode_header(indef_2byte, 2, &off, &tag, &len);
+    ASSERT_EQ(ret, -EBADMSG);
+
+    /* 0x83 specifies 3 length octets, but only 2 present in buffer */
+    uint8_t trunc_len_3[] = {0x30, 0x83, 0x01, 0x02};
+    off = 0;
+    ret = snmp_ber_decode_header(trunc_len_3, sizeof(trunc_len_3), &off, &tag, &len);
     ASSERT_EQ(ret, -EBADMSG);
 }
 
@@ -177,6 +206,12 @@ void test_ber_decode_truncated_packet(void)
     size_t len;
 
     int ret = snmp_ber_decode_header(truncated, 4, &off, &tag, &len);
+    ASSERT_EQ(ret, -EBADMSG);
+
+    /* Octet string claiming 5 bytes with only 2 bytes payload */
+    uint8_t trunc_payload[] = {0x04, 0x05, 0x01, 0x02};
+    off = 0;
+    ret = snmp_ber_decode_header(trunc_payload, sizeof(trunc_payload), &off, &tag, &len);
     ASSERT_EQ(ret, -EBADMSG);
 }
 

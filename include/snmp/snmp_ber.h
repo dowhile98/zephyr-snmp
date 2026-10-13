@@ -41,6 +41,7 @@ extern "C" {
 #define SNMP_PDU_GET_REQ           0xA0
 #define SNMP_PDU_GET_NEXT_REQ      0xA1
 #define SNMP_PDU_GET_RESP          0xA2
+#define SNMP_PDU_RESPONSE          SNMP_PDU_GET_RESP
 #define SNMP_PDU_SET_REQ           0xA3
 #define SNMP_PDU_TRAP_V1           0xA4
 #define SNMP_PDU_GET_BULK_REQ      0xA5

@@ -66,6 +66,11 @@ config SNMP_VERSION_3
 	select PSA_CRYPTO
 	select MBEDTLS
 	select PSA_WANT_KEY_TYPE_AES
+	select PSA_WANT_ALG_CFB
+	select PSA_WANT_ALG_HMAC
+	select PSA_WANT_KEY_TYPE_HMAC
+	select PSA_WANT_ALG_SHA_1
+	select PSA_WANT_ALG_MD5
 	help
 	  SNMPv3 (RFC 3412/3414/3415) — User-based Security Model (USM)
 	  with HMAC-SHA1 authentication and AES-128-CFB privacy.
