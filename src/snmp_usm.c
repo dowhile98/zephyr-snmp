@@ -13,6 +13,10 @@
 #include <errno.h>
 #include <zephyr/random/random.h>
 
+#if defined(CONFIG_SNMP_VERSION_3)
+#include <psa/crypto.h>
+#endif
+
 #if defined(CONFIG_SNMP_AGENT) && defined(CONFIG_SNMP_VERSION_3)
 
 #if defined(CONFIG_SETTINGS)
