@@ -22,6 +22,26 @@
 #define CONFIG_SNMP_TRAP_PORT 162
 #endif
 
+/*
+ * Is the v3 notification builder reachable from snmp_trap_send_inst()?
+ *
+ * That function picks the wire format with an #if/#elif ladder in which the explicit
+ * SNMP_TRAP_FORMAT_V1/V2C choices and the SNMP_VERSION_2C fallback are tested before
+ * the SNMP_VERSION_3 branch, so enabling v3 while selecting a v2c trap format (the
+ * Kconfig default whenever v2c is enabled) leaves the builder unreferenced. Compiling
+ * it anyway trips -Wunused-function, so it is compiled exactly when the ladder can
+ * reach it. This mirrors the ladder below; keep the two in sync.
+ */
+#if defined(CONFIG_SNMP_VERSION_3)
+#if !defined(CONFIG_SNMP_TRAP_FORMAT_V1) && !defined(CONFIG_SNMP_TRAP_FORMAT_V2C) &&               \
+    !defined(CONFIG_SNMP_VERSION_2C)
+#define SNMP_TRAP_V3_REACHED 1
+#endif
+#if defined(CONFIG_SNMP_TRAP_FORMAT_V3) || defined(SNMP_TRAP_V3_REACHED)
+#define SNMP_TRAP_HAVE_V3 1
+#endif
+#endif
+
 int snmp_trap_add_destination_inst(struct snmp_agent *inst, const char *addr)
 {
 	if (!inst || !addr)
@@ -42,7 +62,7 @@ int snmp_trap_add_destination_inst(struct snmp_agent *inst, const char *addr)
 	return 0;
 }
 
-#if defined(CONFIG_SNMP_VERSION_3)
+#if defined(SNMP_TRAP_HAVE_V3)
 static int snmp_trap_send_v3_inst(struct snmp_agent *inst, const struct snmp_oid *trap_oid,
 				  const struct snmp_varbind *varbinds, uint8_t varbind_cnt,
 				  bool is_inform)
@@ -179,7 +199,7 @@ static int snmp_trap_send_v3_inst(struct snmp_agent *inst, const struct snmp_oid
 	k_mutex_unlock(&inst->lock);
 	return 0;
 }
-#endif
+#endif /* SNMP_TRAP_HAVE_V3 */
 
 int snmp_trap_send_inst(struct snmp_agent *inst, const struct snmp_oid *trap_oid,
 			const struct snmp_varbind *varbinds, uint8_t varbind_cnt, bool is_inform)
