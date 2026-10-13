@@ -108,6 +108,23 @@ int snmp_service_attach(struct snmp_agent *agent);
  */
 int snmp_service_detach(struct snmp_agent *agent);
 
+/* --------------------------------------------------------------------------
+ * Socket helpers (implemented by the adapter, shared with the trap engine)
+ * ------------------------------------------------------------------------ */
+
+/**
+ * @brief Restrict a socket to an interface with SO_BINDTODEVICE (struct net_ifreq).
+ *
+ * Used by both the RX listener and trap egress so multi-homed notifications leave on
+ * the same interface the agent listens on (contract 4.5).
+ *
+ * @param sock Socket file descriptor.
+ * @param iface Interface to bind to, may be NULL (then a no-op returning 0).
+ * @return 0 on success, negative errno otherwise (-ENOTSUP on configs without
+ *         SO_BINDTODEVICE, where callers fall back to address binding).
+ */
+int snmp_sock_bind_to_iface(int sock, struct net_if *iface);
+
 #endif /* CONFIG_SNMP_AGENT */
 
 #endif /* ZEPHYR_MODULES_SNMP_SRC_SNMP_INTERNAL_H_ */

@@ -164,14 +164,17 @@ static bool snmp_rate_check(struct snmp_agent *agent)
  * Binding helpers (contract 4.5)
  * ------------------------------------------------------------------------ */
 
-/* SO_BINDTODEVICE for an AF_INET/AF_INET6 socket, using struct net_ifreq. */
-static int snmp_bind_sock_to_iface(int sock, struct net_if *iface)
+/* Shared with the trap engine (declared in src/snmp_internal.h). */
+int snmp_sock_bind_to_iface(int sock, struct net_if *iface)
 {
 	struct net_ifreq ifr;
 	const char *name;
 
-	if (sock < 0 || iface == NULL) {
+	if (sock < 0) {
 		return -EINVAL;
+	}
+	if (iface == NULL) {
+		return 0;
 	}
 
 	memset(&ifr, 0, sizeof(ifr));
@@ -219,7 +222,7 @@ static int snmp_open_bind_v4(struct snmp_agent *agent)
 		return -errno;
 	}
 
-	if (agent->bound_iface != NULL && snmp_bind_sock_to_iface(sock, agent->bound_iface) < 0) {
+	if (agent->bound_iface != NULL && snmp_sock_bind_to_iface(sock, agent->bound_iface) < 0) {
 		/* Not fatal: binding to the interface's own address below is the fallback. */
 		LOG_DBG("IPv4 SO_BINDTODEVICE failed (%d), falling back to addr bind", -errno);
 	}
@@ -257,7 +260,7 @@ static int snmp_open_bind_v6(struct snmp_agent *agent)
 		return -errno;
 	}
 
-	if (agent->bound_iface != NULL && snmp_bind_sock_to_iface(sock, agent->bound_iface) < 0) {
+	if (agent->bound_iface != NULL && snmp_sock_bind_to_iface(sock, agent->bound_iface) < 0) {
 		err = -errno;
 		LOG_DBG("IPv6 SO_BINDTODEVICE failed (%d)", err);
 	}

@@ -48,20 +48,33 @@ static int snmp_trap_send_v3_inst(struct snmp_agent *inst, const struct snmp_oid
 				  bool is_inform)
 {
 	struct snmp_v3_msg msg;
-	uint8_t tx_buf[CONFIG_SNMP_MAX_PDU_SIZE];
 	size_t tx_len = 0;
+	int sock;
+	int err;
+	int ret;
 
 	if (!inst || !trap_oid) {
 		return -EINVAL;
 	}
 
 #if defined(CONFIG_NET_IPV4)
-	struct net_if *iface = inst->bound_iface ? (struct net_if *)inst->bound_iface : net_if_get_default();
+	struct net_if *iface = inst->bound_iface ? inst->bound_iface : net_if_get_default();
 	if (!iface || !net_if_is_up(iface) || !iface->config.ip.ipv4 ||
 	    iface->config.ip.ipv4->unicast[0].ipv4.address.in_addr.s_addr == 0) {
 		return -ENETDOWN;
 	}
 #endif
+
+	/*
+	 * Uniform locking (contract 9.1): the whole notification build reads shared
+	 * instance state (the security name of the first USM user, the engine ID, the
+	 * destination list) and then uses the instance tx_buf, so it runs with
+	 * inst->lock held, exactly like the v1/v2c path below. Zephyr's k_mutex is
+	 * recursive for its owner (kernel/mutex.c, lock_count), so an authFailure trap
+	 * raised from inside snmp_agent_process_pdu() - which the service callback
+	 * already calls under this same lock - cannot self-deadlock.
+	 */
+	k_mutex_lock(&inst->lock, K_FOREVER);
 
 	memset(&msg, 0, sizeof(msg));
 
@@ -112,41 +125,58 @@ static int snmp_trap_send_v3_inst(struct snmp_agent *inst, const struct snmp_oid
 	}
 	msg.scoped.context_name_len = 0;
 
-	int ret = snmp_usm_build_outgoing(inst, &msg);
-	if (ret < 0)
+	ret = snmp_usm_build_outgoing(inst, &msg);
+	if (ret < 0) {
+		k_mutex_unlock(&inst->lock);
 		return ret;
+	}
 
-	ret = snmp_ber_encode_v3_msg(tx_buf, sizeof(tx_buf), &tx_len, &msg);
-	if (ret < 0)
+	/*
+	 * Encode into the instance's own tx_buf instead of the previous second
+	 * CONFIG_SNMP_MAX_PDU_SIZE stack buffer: this path already needs several KiB of
+	 * stack for struct snmp_v3_msg, so dropping the extra 1 KiB matters for
+	 * CONFIG_NET_SOCKETS_SERVICE_STACK_SIZE / main-stack sizing (contract 8.3).
+	 */
+	ret = snmp_ber_encode_v3_msg(inst->tx_buf, sizeof(inst->tx_buf), &tx_len, &msg);
+	if (ret < 0) {
+		k_mutex_unlock(&inst->lock);
 		return ret;
+	}
 
 	struct sockaddr_in dest;
 	memset(&dest, 0, sizeof(dest));
 	dest.sin_family = AF_INET;
-	dest.sin_port = htons(162);
+	dest.sin_port = htons(CONFIG_SNMP_TRAP_PORT);
 	dest.sin_addr.s_addr = INADDR_BROADCAST;
 
-	int sock = zsock_socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-	if (sock < 0)
-		return -errno;
+	sock = zsock_socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+	if (sock < 0) {
+		err = -errno;
+		k_mutex_unlock(&inst->lock);
+		return err;
+	}
 
 	int broadcast_enable = 1;
-	zsock_setsockopt(sock, SOL_SOCKET, SO_BROADCAST, &broadcast_enable, sizeof(broadcast_enable));
+	(void)zsock_setsockopt(sock, SOL_SOCKET, SO_BROADCAST, &broadcast_enable,
+			       sizeof(broadcast_enable));
+	/* Multi-homed egress: leave through the interface this agent is bound to. */
+	(void)snmp_sock_bind_to_iface(sock, inst->bound_iface);
 
 	if (inst->trap_dest_cnt > 0) {
 		for (uint8_t d = 0; d < inst->trap_dest_cnt; d++) {
-			zsock_sendto(sock, tx_buf, tx_len, 0,
-				     (struct sockaddr *)&inst->trap_dests[d],
-				     sizeof(inst->trap_dests[d]));
+			(void)zsock_sendto(sock, inst->tx_buf, tx_len, 0,
+					   (struct sockaddr *)&inst->trap_dests[d],
+					   sizeof(inst->trap_dests[d]));
 		}
 	} else {
-		zsock_sendto(sock, tx_buf, tx_len, 0,
-			     (struct sockaddr *)&dest, sizeof(dest));
+		(void)zsock_sendto(sock, inst->tx_buf, tx_len, 0, (const struct sockaddr *)&dest,
+				   sizeof(dest));
 	}
 
 	/* One PDU sent = one increment, on the sending agent (contract 6.2). */
 	snmp_counter_inc(&inst->counters.snmpOutTraps);
 	zsock_close(sock);
+	k_mutex_unlock(&inst->lock);
 	return 0;
 }
 #endif
@@ -174,7 +204,7 @@ int snmp_trap_send_inst(struct snmp_agent *inst, const struct snmp_oid *trap_oid
 #endif
 
 #if defined(CONFIG_NET_IPV4)
-	struct net_if *iface = inst->bound_iface ? (struct net_if *)inst->bound_iface : net_if_get_default();
+	struct net_if *iface = inst->bound_iface ? inst->bound_iface : net_if_get_default();
 	if (!iface || !net_if_is_up(iface) || !iface->config.ip.ipv4 ||
 		iface->config.ip.ipv4->unicast[0].ipv4.address.in_addr.s_addr == 0)
 	{
@@ -193,6 +223,8 @@ int snmp_trap_send_inst(struct snmp_agent *inst, const struct snmp_oid *trap_oid
 
 	int broadcast_enable = 1;
 	zsock_setsockopt(sock, SOL_SOCKET, SO_BROADCAST, &broadcast_enable, sizeof(broadcast_enable));
+	/* Multi-homed egress: leave through the interface this agent is bound to. */
+	(void)snmp_sock_bind_to_iface(sock, inst->bound_iface);
 
 	memset(&inst->current_pdu, 0, sizeof(inst->current_pdu));
 
@@ -212,7 +244,7 @@ int snmp_trap_send_inst(struct snmp_agent *inst, const struct snmp_oid *trap_oid
 	inst->current_pdu.timestamp = (uint32_t)(k_uptime_get() / 10);
 
 #if defined(CONFIG_NET_IPV4)
-	struct net_if *iface_v1 = inst->bound_iface ? (struct net_if *)inst->bound_iface : net_if_get_default();
+	struct net_if *iface_v1 = inst->bound_iface ? inst->bound_iface : net_if_get_default();
 	if (iface_v1 && iface_v1->config.ip.ipv4) {
 		memcpy(inst->current_pdu.agent_addr, &iface_v1->config.ip.ipv4->unicast[0].ipv4.address.in_addr, 4);
 	}
