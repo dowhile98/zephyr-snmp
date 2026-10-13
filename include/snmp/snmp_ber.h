@@ -109,7 +109,7 @@ struct snmp_pdu {
 /* --- SNMPv3 Message Structures (RFC 3412) --- */
 
 #define SNMP_V3_ENGINE_ID_MAX_LEN 32
-#define SNMP_V3_AUTH_PARAMS_LEN 12 /* HMAC-SHA1 or HMAC-MD5 */
+#define SNMP_V3_AUTH_PARAMS_LEN 32 /* HMAC-SHA1 (12), HMAC-MD5 (12), SHA-256 (16) */
 #define SNMP_V3_PRIV_PARAMS_LEN 16 /* AES-128-CFB IV */
 
 struct snmp_v3_global_data {

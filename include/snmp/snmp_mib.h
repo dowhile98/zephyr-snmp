@@ -168,6 +168,11 @@ static inline void snmp_counter_inc(uint32_t *counter)
 
 /* --- MIB Table Support --- */
 
+struct snmp_table_index {
+	uint8_t len;
+	uint32_t subids[CONFIG_SNMP_MAX_OID_LEN];
+};
+
 struct snmp_table_row;
 
 /**
@@ -185,7 +190,8 @@ typedef int (*snmp_table_set_cb_t)(struct snmp_agent *agent, struct snmp_table_r
 				   uint8_t column, const struct snmp_varbind *vb);
 
 struct snmp_table_row {
-	uint32_t index;
+	uint32_t index;			   /* Legacy single index (backward compatible) */
+	struct snmp_table_index index_oid; /* Generalized / Compound index suffix */
 	struct snmp_table_row *next;
 	/** @brief Application-owned row context. Same rule as struct snmp_mib_node::user_data:
 	 *         never a @ref struct snmp_agent or a pointer into one. */
@@ -228,6 +234,16 @@ int snmp_mib_table_add_row(struct snmp_agent *inst, struct snmp_mib_table *table
  */
 int snmp_mib_table_remove_row(struct snmp_agent *inst, struct snmp_mib_table *table,
 			      uint32_t index);
+
+/**
+ * @brief Unlink the row with @p idx from an application-owned table's row list.
+ * @param inst Agent whose MIB walks must not observe a torn row list.
+ * @param table Application-owned table descriptor.
+ * @param idx Generalized row index suffix to remove.
+ * @return 0 on success, -EINVAL on bad arguments, -ENOENT when no row matches.
+ */
+int snmp_mib_table_remove_row_by_index(struct snmp_agent *inst, struct snmp_mib_table *table,
+				       const struct snmp_table_index *idx);
 
 /* --- Instance-based MIB APIs --- */
 

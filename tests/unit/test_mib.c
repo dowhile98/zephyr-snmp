@@ -1241,3 +1241,213 @@ void test_getbulk_response_pruning_on_buffer_limit(void)
 	ASSERT_EQ(resp_pdu.varbind_cnt, 0);
 	ASSERT_GT(agent.counters.snmpOutTooBigs, too_bigs_before);
 }
+
+static int32_t g_ip_table_data[2][3] = {
+    {0, 10, 100}, /* row 0: col 1 = 10, col 2 = 100 */
+    {0, 20, 200}  /* row 1: col 1 = 20, col 2 = 200 */
+};
+
+static int test_ip_col1_get(struct snmp_agent *agent, const struct snmp_table_row *row,
+			    uint8_t column, struct snmp_varbind *vb)
+{
+	(void)agent;
+	(void)column;
+	int32_t *data = (int32_t *)row->user_data;
+	vb->type = ASN1_TAG_INTEGER;
+	vb->val.int_val = data[1];
+	return 0;
+}
+
+static int test_ip_col2_get(struct snmp_agent *agent, const struct snmp_table_row *row,
+			    uint8_t column, struct snmp_varbind *vb)
+{
+	(void)agent;
+	(void)column;
+	int32_t *data = (int32_t *)row->user_data;
+	vb->type = ASN1_TAG_INTEGER;
+	vb->val.int_val = data[2];
+	return 0;
+}
+
+static int test_ip_col2_set(struct snmp_agent *agent, struct snmp_table_row *row, uint8_t column,
+			    const struct snmp_varbind *vb)
+{
+	(void)agent;
+	(void)column;
+	if (vb->type != ASN1_TAG_INTEGER) {
+		return -EINVAL;
+	}
+	int32_t *data = (int32_t *)row->user_data;
+	data[2] = vb->val.int_val;
+	return 0;
+}
+
+static const uint8_t g_ip_cols[] = {1, 2};
+static const uint8_t g_ip_types[] = {ASN1_TAG_INTEGER, ASN1_TAG_INTEGER};
+static snmp_table_get_cb_t g_ip_get_cbs[] = {test_ip_col1_get, test_ip_col2_get};
+static snmp_table_set_cb_t g_ip_set_cbs[] = {NULL, test_ip_col2_set};
+
+void test_table_compound_index(void)
+{
+	snmp_mib_init(&s_mib_agent);
+
+	g_ip_table_data[0][1] = 10;
+	g_ip_table_data[0][2] = 100;
+	g_ip_table_data[1][1] = 20;
+	g_ip_table_data[1][2] = 200;
+
+	struct snmp_mib_table ip_tbl = {
+	    .table_oid = {.len = 9, .ids = {1, 3, 6, 1, 4, 1, 99, 20, 1}},
+	    .column_cnt = 2,
+	    .column_subids = g_ip_cols,
+	    .column_types = g_ip_types,
+	    .get_cbs = g_ip_get_cbs,
+	    .set_cbs = g_ip_set_cbs,
+	    .rows = NULL,
+	    .user_data = NULL};
+
+	struct snmp_table_row row1 = {.index = 0,
+				      .index_oid = {.len = 4, .subids = {192, 168, 1, 10}},
+				      .next = NULL,
+				      .user_data = g_ip_table_data[0]};
+
+	struct snmp_table_row row2 = {.index = 0,
+				      .index_oid = {.len = 4, .subids = {192, 168, 1, 20}},
+				      .next = NULL,
+				      .user_data = g_ip_table_data[1]};
+
+	int ret = snmp_mib_register_table(&s_mib_agent, &ip_tbl);
+	ASSERT_EQ(ret, 0);
+
+	ret = snmp_mib_table_add_row(&s_mib_agent, &ip_tbl, &row1);
+	ASSERT_EQ(ret, 0);
+	ret = snmp_mib_table_add_row(&s_mib_agent, &ip_tbl, &row2);
+	ASSERT_EQ(ret, 0);
+
+	/* 1. GET on exact compound OID: col 1, row 1 (192.168.1.10) */
+	struct snmp_oid oid_c1_r1 = {.len = 14,
+				     .ids = {1, 3, 6, 1, 4, 1, 99, 20, 1, 1, 192, 168, 1, 10}};
+	struct snmp_varbind vb = {0};
+	ret = snmp_mib_get(&s_mib_agent, &oid_c1_r1, &vb);
+	ASSERT_EQ(ret, 0);
+	ASSERT_EQ(vb.type, ASN1_TAG_INTEGER);
+	ASSERT_EQ(vb.val.int_val, 10);
+
+	/* GET on exact compound OID: col 2, row 2 (192.168.1.20) */
+	struct snmp_oid oid_c2_r2 = {.len = 14,
+				     .ids = {1, 3, 6, 1, 4, 1, 99, 20, 1, 2, 192, 168, 1, 20}};
+	memset(&vb, 0, sizeof(vb));
+	ret = snmp_mib_get(&s_mib_agent, &oid_c2_r2, &vb);
+	ASSERT_EQ(ret, 0);
+	ASSERT_EQ(vb.type, ASN1_TAG_INTEGER);
+	ASSERT_EQ(vb.val.int_val, 200);
+
+	/* 2. GET on non-existent IP returns SNMP_TAG_EXCEPT_NO_SUCH_INST */
+	struct snmp_oid oid_no_such_inst = {
+	    .len = 14, .ids = {1, 3, 6, 1, 4, 1, 99, 20, 1, 1, 192, 168, 1, 99}};
+	memset(&vb, 0, sizeof(vb));
+	ret = snmp_mib_get(&s_mib_agent, &oid_no_such_inst, &vb);
+	ASSERT_EQ(ret, 0);
+	ASSERT_EQ(vb.type, SNMP_TAG_EXCEPT_NO_SUCH_INST);
+
+	/* GET on non-existent column returns SNMP_TAG_EXCEPT_NO_SUCH_OBJ */
+	struct snmp_oid oid_no_such_col = {
+	    .len = 14, .ids = {1, 3, 6, 1, 4, 1, 99, 20, 1, 3, 192, 168, 1, 10}};
+	memset(&vb, 0, sizeof(vb));
+	ret = snmp_mib_get(&s_mib_agent, &oid_no_such_col, &vb);
+	ASSERT_EQ(ret, 0);
+	ASSERT_EQ(vb.type, SNMP_TAG_EXCEPT_NO_SUCH_OBJ);
+
+	/* 3. GETNEXT order across compound rows and columns */
+	/* Query before table: 1.3.6.1.4.1.99.20.0 */
+	struct snmp_oid query = {.len = 9, .ids = {1, 3, 6, 1, 4, 1, 99, 20, 0}};
+	memset(&vb, 0, sizeof(vb));
+	ret = snmp_mib_get_next(&s_mib_agent, &query, &vb);
+	ASSERT_EQ(ret, 0);
+	ASSERT_EQ(vb.oid.len, 14);
+	ASSERT_EQ(vb.oid.ids[9], 1);   /* col 1 */
+	ASSERT_EQ(vb.oid.ids[13], 10); /* row 1 (.10) */
+	ASSERT_EQ(vb.val.int_val, 10);
+
+	/* Next from col 1, row 1 -> col 1, row 2 (.20) */
+	query = vb.oid;
+	memset(&vb, 0, sizeof(vb));
+	ret = snmp_mib_get_next(&s_mib_agent, &query, &vb);
+	ASSERT_EQ(ret, 0);
+	ASSERT_EQ(vb.oid.len, 14);
+	ASSERT_EQ(vb.oid.ids[9], 1);   /* col 1 */
+	ASSERT_EQ(vb.oid.ids[13], 20); /* row 2 (.20) */
+	ASSERT_EQ(vb.val.int_val, 20);
+
+	/* Next from col 1, row 2 -> col 2, row 1 (.10) */
+	query = vb.oid;
+	memset(&vb, 0, sizeof(vb));
+	ret = snmp_mib_get_next(&s_mib_agent, &query, &vb);
+	ASSERT_EQ(ret, 0);
+	ASSERT_EQ(vb.oid.len, 14);
+	ASSERT_EQ(vb.oid.ids[9], 2);   /* col 2 */
+	ASSERT_EQ(vb.oid.ids[13], 10); /* row 1 (.10) */
+	ASSERT_EQ(vb.val.int_val, 100);
+
+	/* Next from col 2, row 1 -> col 2, row 2 (.20) */
+	query = vb.oid;
+	memset(&vb, 0, sizeof(vb));
+	ret = snmp_mib_get_next(&s_mib_agent, &query, &vb);
+	ASSERT_EQ(ret, 0);
+	ASSERT_EQ(vb.oid.len, 14);
+	ASSERT_EQ(vb.oid.ids[9], 2);   /* col 2 */
+	ASSERT_EQ(vb.oid.ids[13], 20); /* row 2 (.20) */
+	ASSERT_EQ(vb.val.int_val, 200);
+
+	/* Next from col 2, row 2 -> end of MIB view */
+	query = vb.oid;
+	memset(&vb, 0, sizeof(vb));
+	ret = snmp_mib_get_next(&s_mib_agent, &query, &vb);
+	ASSERT_EQ(ret, 0);
+	ASSERT_EQ(vb.type, SNMP_TAG_EXCEPT_END_MIB_VIEW);
+
+	/* 4. SET on compound indexed row */
+	struct snmp_varbind vb_set = {
+	    .oid = {.len = 14, .ids = {1, 3, 6, 1, 4, 1, 99, 20, 1, 2, 192, 168, 1, 10}},
+	    .type = ASN1_TAG_INTEGER,
+	    .val = {.int_val = 555}};
+	ret = snmp_mib_set(&s_mib_agent, &vb_set.oid, &vb_set);
+	ASSERT_EQ(ret, 0);
+	ASSERT_EQ(g_ip_table_data[0][2], 555);
+
+	/* Verify via GET */
+	memset(&vb, 0, sizeof(vb));
+	ret = snmp_mib_get(&s_mib_agent, &vb_set.oid, &vb);
+	ASSERT_EQ(ret, 0);
+	ASSERT_EQ(vb.val.int_val, 555);
+
+	/* 5. 2PC SET dispatch on compound indexed row */
+	struct snmp_pdu set_pdu;
+	memset(&set_pdu, 0, sizeof(set_pdu));
+	set_pdu.version = 1; /* SNMPv2c */
+	set_pdu.type = SNMP_PDU_SET_REQ;
+	set_pdu.varbind_cnt = 1;
+	set_pdu.varbinds[0].oid = oid_c2_r2;
+	set_pdu.varbinds[0].type = ASN1_TAG_INTEGER;
+	set_pdu.varbinds[0].val.int_val = 777;
+
+	ret = snmp_mib_dispatch(&s_mib_agent, &set_pdu);
+	ASSERT_EQ(ret, 0);
+	ASSERT_EQ(set_pdu.error_status, SNMP_ERR_NO_ERROR);
+	ASSERT_EQ(g_ip_table_data[1][2], 777);
+
+	/* 6. Remove row by compound index */
+	struct snmp_table_index del_idx = {.len = 4, .subids = {192, 168, 1, 10}};
+	ret = snmp_mib_table_remove_row_by_index(&s_mib_agent, &ip_tbl, &del_idx);
+	ASSERT_EQ(ret, 0);
+
+	/* GET on removed row returns noSuchInstance */
+	memset(&vb, 0, sizeof(vb));
+	ret = snmp_mib_get(&s_mib_agent, &oid_c1_r1, &vb);
+	ASSERT_EQ(ret, 0);
+	ASSERT_EQ(vb.type, SNMP_TAG_EXCEPT_NO_SUCH_INST);
+
+	/* Removing it again returns -ENOENT */
+	ret = snmp_mib_table_remove_row_by_index(&s_mib_agent, &ip_tbl, &del_idx);
+	ASSERT_EQ(ret, -ENOENT);
+}

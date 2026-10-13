@@ -14,9 +14,11 @@ add_executable(snmp_unit_tests
     test_mib.c
     test_multi_instance.c
     test_set_2pc.c
+    test_mib2.c
     ../../src/snmp_ber.c
     ../../src/snmp_mib.c
     ../../src/snmp_core.c
+    ../../src/snmp_mib2.c
 )
 
 target_include_directories(snmp_unit_tests PRIVATE
@@ -32,6 +34,7 @@ target_compile_definitions(snmp_unit_tests PRIVATE
     CONFIG_SNMP_MAX_VARBINDS=32
     CONFIG_SNMP_MAX_PDU_SIZE=1024
     CONFIG_SNMP_MAX_MIB_NODES=128
+    CONFIG_SNMP_MAX_IFACES=8
 )
 
 target_compile_options(snmp_unit_tests PRIVATE -Wall -Wextra -Werror)
@@ -57,6 +60,7 @@ target_compile_definitions(vacm_unit_tests PRIVATE
     CONFIG_SNMP_MAX_VARBINDS=32
     CONFIG_SNMP_MAX_PDU_SIZE=1024
     CONFIG_SNMP_MAX_MIB_NODES=128
+    CONFIG_SNMP_MAX_IFACES=8
 )
 
 target_compile_options(vacm_unit_tests PRIVATE -Wall -Wextra -Werror)

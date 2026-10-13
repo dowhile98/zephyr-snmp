@@ -57,6 +57,7 @@ extern void test_mib_duplicate_oid(void);
 extern void test_table_register_get(void);
 extern void test_table_get_next_order(void);
 extern void test_table_set(void);
+extern void test_table_compound_index(void);
 extern void test_interleaved_scalar_and_table_walk(void);
 extern void test_multi_instance_coexistence(void);
 extern void test_multi_instance_counter_isolation(void);
@@ -69,6 +70,10 @@ extern void test_multi_instance_independence(void);
 extern void test_mib_bsearch_lookup(void);
 extern void test_mib_no_such_object_vs_instance(void);
 extern void test_getbulk_response_pruning_on_buffer_limit(void);
+extern void test_mib2_interfaces_group(void);
+extern void test_mib2_ip_group(void);
+extern void test_mib2_icmp_group(void);
+extern void test_mib2_tcp_udp_groups(void);
 
 int main(void)
 {
@@ -100,10 +105,17 @@ int main(void)
 	RUN_TEST(test_table_register_get);
 	RUN_TEST(test_table_get_next_order);
 	RUN_TEST(test_table_set);
+	RUN_TEST(test_table_compound_index);
 	RUN_TEST(test_interleaved_scalar_and_table_walk);
 	RUN_TEST(test_mib_bsearch_lookup);
 	RUN_TEST(test_mib_no_such_object_vs_instance);
 	RUN_TEST(test_getbulk_response_pruning_on_buffer_limit);
+
+	printf("\nMIB-II Network Subsystem:\n");
+	RUN_TEST(test_mib2_interfaces_group);
+	RUN_TEST(test_mib2_ip_group);
+	RUN_TEST(test_mib2_icmp_group);
+	RUN_TEST(test_mib2_tcp_udp_groups);
 
 	printf("\nMulti-Instance Engine:\n");
 	RUN_TEST(test_multi_instance_coexistence);

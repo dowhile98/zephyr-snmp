@@ -512,6 +512,17 @@ int snmp_mib_register_nodes(struct snmp_agent *inst, const struct snmp_mib_node 
 	return 0;
 }
 
+static void get_row_index_suffix(const struct snmp_table_row *r, struct snmp_table_index *out)
+{
+	if (r->index_oid.len > 0) {
+		*out = r->index_oid;
+	} else {
+		memset(out, 0, sizeof(*out));
+		out->len = 1;
+		out->subids[0] = r->index;
+	}
+}
+
 static bool snmp_table_find_next_entry(const struct snmp_mib_table *tbl, const struct snmp_oid *oid,
 				       uint8_t *best_col_idx, struct snmp_table_row **best_row_ptr,
 				       struct snmp_oid *best_entry_oid)
@@ -527,13 +538,22 @@ static bool snmp_table_find_next_entry(const struct snmp_mib_table *tbl, const s
 	for (uint8_t c = 0; c < tbl->column_cnt; c++) {
 		uint8_t col_subid = tbl->column_subids[c];
 		for (struct snmp_table_row *r = tbl->rows; r; r = r->next) {
+			struct snmp_table_index idx;
+			get_row_index_suffix(r, &idx);
+
+			if (tbl->table_oid.len + 1 + idx.len > CONFIG_SNMP_MAX_OID_LEN) {
+				continue;
+			}
+
 			struct snmp_oid entry_oid;
-			entry_oid.len = tbl->table_oid.len + 2;
+			entry_oid.len = tbl->table_oid.len + 1 + idx.len;
 			for (uint8_t k = 0; k < tbl->table_oid.len; k++) {
 				entry_oid.ids[k] = tbl->table_oid.ids[k];
 			}
 			entry_oid.ids[tbl->table_oid.len] = col_subid;
-			entry_oid.ids[tbl->table_oid.len + 1] = r->index;
+			for (uint8_t k = 0; k < idx.len; k++) {
+				entry_oid.ids[tbl->table_oid.len + 1 + k] = idx.subids[k];
+			}
 
 			if (snmp_oid_compare(&entry_oid, oid) > 0) {
 				if (!found || snmp_oid_compare(&entry_oid, &best_oid) < 0) {
@@ -581,12 +601,20 @@ int snmp_mib_get(struct snmp_agent *inst, const struct snmp_oid *oid, struct snm
 				}
 
 				if (col_found) {
-					if (oid->len == tbl->table_oid.len + 2) {
-						uint32_t row_idx =
-						    (uint32_t)oid->ids[tbl->table_oid.len + 1];
+					if (oid->len > tbl->table_oid.len + 1) {
+						uint8_t req_idx_len =
+						    oid->len - (tbl->table_oid.len + 1);
+						const uint32_t *req_idx_subids =
+						    &oid->ids[tbl->table_oid.len + 1];
+
 						for (struct snmp_table_row *r = tbl->rows; r;
 						     r = r->next) {
-							if (r->index == row_idx) {
+							struct snmp_table_index r_idx;
+							get_row_index_suffix(r, &r_idx);
+							if (r_idx.len == req_idx_len &&
+							    memcmp(r_idx.subids, req_idx_subids,
+								   req_idx_len *
+								       sizeof(uint32_t)) == 0) {
 								vb->oid = *oid;
 								int ret = tbl->get_cbs[col_idx](
 								    inst, r, col_idx, vb);
@@ -838,41 +866,32 @@ int snmp_mib_set(struct snmp_agent *inst, const struct snmp_oid *oid, const stru
 	/* Check tables first */
 	for (size_t t = 0; t < inst->mib_table_cnt; t++) {
 		struct snmp_mib_table *tbl = inst->mib_tables[t];
-
-		if (oid->len != tbl->table_oid.len + 2)
+		if (oid->len <= tbl->table_oid.len + 1)
 			continue;
-
-		bool match = true;
-		for (uint8_t i = 0; i < tbl->table_oid.len; i++) {
-			if (oid->ids[i] != tbl->table_oid.ids[i]) {
-				match = false;
-				break;
-			}
-		}
-		if (!match)
+		if (!snmp_oid_prefix_match(oid, &tbl->table_oid, tbl->table_oid.len))
 			continue;
-
 		uint8_t col_subid = (uint8_t)oid->ids[tbl->table_oid.len];
-		uint32_t row_idx = (uint32_t)oid->ids[tbl->table_oid.len + 1];
-
+		uint8_t req_idx_len = oid->len - (tbl->table_oid.len + 1);
+		const uint32_t *req_idx_subids = &oid->ids[tbl->table_oid.len + 1];
 		for (uint8_t c = 0; c < tbl->column_cnt; c++) {
 			if (tbl->column_subids[c] != col_subid)
 				continue;
-
 			if (!tbl->set_cbs || !tbl->set_cbs[c]) {
 				snmp_mib_unlock(inst);
 				MIB_COUNTER_INC(inst, snmpInReadOnlys);
 				return -EACCES;
 			}
-
 			for (struct snmp_table_row *r = tbl->rows; r; r = r->next) {
-				if (r->index == row_idx) {
+				struct snmp_table_index r_idx;
+				get_row_index_suffix(r, &r_idx);
+				if (r_idx.len == req_idx_len &&
+				    memcmp(r_idx.subids, req_idx_subids,
+					   req_idx_len * sizeof(uint32_t)) == 0) {
 					int ret = tbl->set_cbs[c](inst, r, c, vb);
 					snmp_mib_unlock(inst);
 					return ret;
 				}
 			}
-
 			snmp_mib_unlock(inst);
 			MIB_COUNTER_INC(inst, snmpInNoSuchNames);
 			return -ENOENT;
@@ -1028,31 +1047,22 @@ int snmp_mib_dispatch(struct snmp_agent *inst, struct snmp_pdu *pdu)
 			/* 1. Check table */
 			for (size_t t = 0; t < inst->mib_table_cnt; t++) {
 				struct snmp_mib_table *tbl = inst->mib_tables[t];
-				if (vb->oid.len != tbl->table_oid.len + 2) {
+				if (vb->oid.len <= tbl->table_oid.len + 1)
 					continue;
-				}
-				bool match = true;
-				for (uint8_t k = 0; k < tbl->table_oid.len; k++) {
-					if (vb->oid.ids[k] != tbl->table_oid.ids[k]) {
-						match = false;
-						break;
-					}
-				}
-				if (!match)
+				if (!snmp_oid_prefix_match(&vb->oid, &tbl->table_oid,
+							   tbl->table_oid.len))
 					continue;
-
 				uint8_t col_subid = (uint8_t)vb->oid.ids[tbl->table_oid.len];
-				uint32_t row_idx = (uint32_t)vb->oid.ids[tbl->table_oid.len + 1];
-
+				uint8_t req_idx_len = vb->oid.len - (tbl->table_oid.len + 1);
+				const uint32_t *req_idx_subids =
+				    &vb->oid.ids[tbl->table_oid.len + 1];
 				for (uint8_t c = 0; c < tbl->column_cnt; c++) {
-					if (tbl->column_subids[c] != col_subid) {
+					if (tbl->column_subids[c] != col_subid)
 						continue;
-					}
 					found = true;
 					item->is_table = true;
 					item->tbl = tbl;
 					item->tbl_col = c;
-
 					if (!tbl->set_cbs || !tbl->set_cbs[c]) {
 						error_status = (pdu->version == 0)
 								   ? SNMP_ERR_READ_ONLY
@@ -1060,7 +1070,6 @@ int snmp_mib_dispatch(struct snmp_agent *inst, struct snmp_pdu *pdu)
 						error_index = i + 1;
 						break;
 					}
-
 					if (tbl->column_types[c] != vb->type) {
 						error_status = (pdu->version == 0)
 								   ? SNMP_ERR_BAD_VALUE
@@ -1068,9 +1077,12 @@ int snmp_mib_dispatch(struct snmp_agent *inst, struct snmp_pdu *pdu)
 						error_index = i + 1;
 						break;
 					}
-
 					for (struct snmp_table_row *r = tbl->rows; r; r = r->next) {
-						if (r->index == row_idx) {
+						struct snmp_table_index r_idx;
+						get_row_index_suffix(r, &r_idx);
+						if (r_idx.len == req_idx_len &&
+						    memcmp(r_idx.subids, req_idx_subids,
+							   req_idx_len * sizeof(uint32_t)) == 0) {
 							item->tbl_row = r;
 							break;
 						}
@@ -1082,7 +1094,6 @@ int snmp_mib_dispatch(struct snmp_agent *inst, struct snmp_pdu *pdu)
 						error_index = i + 1;
 						break;
 					}
-
 					if (tbl->get_cbs && tbl->get_cbs[c]) {
 						item->old_vb.oid = vb->oid;
 						if (tbl->get_cbs[c](inst, item->tbl_row, c,
@@ -1322,9 +1333,10 @@ int snmp_mib_table_add_row(struct snmp_agent *inst, struct snmp_mib_table *table
 	return 0;
 }
 
-int snmp_mib_table_remove_row(struct snmp_agent *inst, struct snmp_mib_table *table, uint32_t index)
+int snmp_mib_table_remove_row_by_index(struct snmp_agent *inst, struct snmp_mib_table *table,
+				       const struct snmp_table_index *idx)
 {
-	if (!table)
+	if (!table || !idx)
 		return -EINVAL;
 
 	snmp_mib_lock(inst);
@@ -1333,7 +1345,10 @@ int snmp_mib_table_remove_row(struct snmp_agent *inst, struct snmp_mib_table *ta
 	struct snmp_table_row *cur = table->rows;
 
 	while (cur) {
-		if (cur->index == index) {
+		struct snmp_table_index cur_idx;
+		get_row_index_suffix(cur, &cur_idx);
+		if (cur_idx.len == idx->len &&
+		    memcmp(cur_idx.subids, idx->subids, idx->len * sizeof(uint32_t)) == 0) {
 			if (prev)
 				prev->next = cur->next;
 			else
@@ -1347,6 +1362,15 @@ int snmp_mib_table_remove_row(struct snmp_agent *inst, struct snmp_mib_table *ta
 
 	snmp_mib_unlock(inst);
 	return -ENOENT;
+}
+
+int snmp_mib_table_remove_row(struct snmp_agent *inst, struct snmp_mib_table *table, uint32_t index)
+{
+	struct snmp_table_index idx;
+	memset(&idx, 0, sizeof(idx));
+	idx.len = 1;
+	idx.subids[0] = index;
+	return snmp_mib_table_remove_row_by_index(inst, table, &idx);
 }
 
 /* --- Statistics snapshot (design contract 3.5) --- */

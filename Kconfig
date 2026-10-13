@@ -95,9 +95,10 @@ config SNMP_VERSION_3
 	select PSA_WANT_KEY_TYPE_HMAC
 	select PSA_WANT_ALG_SHA_1
 	select PSA_WANT_ALG_MD5
+	select PSA_WANT_ALG_SHA_256
 	help
 	  SNMPv3 (RFC 3412/3414/3415) — User-based Security Model (USM)
-	  with HMAC-SHA1 authentication and AES-128-CFB privacy.
+	  with HMAC-SHA1/SHA256 authentication and AES-128-CFB privacy.
 	  Requires PSA Crypto / mbedtls. Adds ~8 KB FLASH, ~3 KB RAM.
 	  Supports engine discovery (Report-PDU), timeliness check (150 s
 	  window), and View-based Access Control (VACM) with admin/readonly
@@ -148,6 +149,14 @@ config SNMP_USM_AUTH_SHA
 	help
 	  Enable SHA-1 based HMAC authentication for SNMPv3 (RFC 3414).
 	  Produces a 12-byte authentication tag. Recommended over MD5.
+
+config SNMP_USM_AUTH_SHA256
+	bool "Enable HMAC-SHA-256 authentication (RFC 7860)"
+	default y
+	select PSA_WANT_ALG_SHA_256
+	help
+	  Enable SHA-256 based HMAC authentication for SNMPv3 (RFC 7860).
+	  Produces a 16-byte authentication tag.
 
 config SNMP_USM_AUTH_MD5
 	bool "Enable HMAC-MD5 authentication (Insecure)"
@@ -248,6 +257,14 @@ config SNMP_MAX_TABLES
 	help
 	  Maximum number of MIB tables that can be registered. Each table
 	  supports single-integer indexing with per-column get/set callbacks.
+
+config SNMP_MAX_IFACES
+	int "Maximum registered network interfaces for MIB-II ifTable"
+	default 8
+	range 1 32
+	help
+	  Maximum number of network interfaces tracked in MIB-II ifTable
+	  (RFC 2863 / RFC 1213).
 
 config SNMP_TRAP_ENABLED
 	bool "Enable SNMP Trap & Inform notification engine"

@@ -24,18 +24,29 @@ extern "C" {
 #define CONFIG_SNMP_V3_MAX_USERS 4
 #endif
 
+/* Authentication Protocols (RFC 3414, RFC 7860) */
+#define SNMP_USM_AUTH_NONE 0
+#define SNMP_USM_AUTH_SHA1 1
+#define SNMP_USM_AUTH_MD5 2
+#define SNMP_USM_AUTH_SHA256 3
+
+/* Privacy Protocols (RFC 3414, RFC 3826) */
+#define SNMP_USM_PRIV_NONE 0
+#define SNMP_USM_PRIV_AES 1
+#define SNMP_USM_PRIV_DES 2
+
 /* Forward declaration of agent instance */
 struct snmp_agent;
 
 struct snmp_usm_user {
 	char user_name[32];
-	uint8_t auth_protocol; /* 0=none, 1=SHA, 2=MD5 */
+	uint8_t auth_protocol; /* SNMP_USM_AUTH_* */
 	char auth_pass[64];
-	uint8_t priv_protocol; /* 0=none, 1=AES, 2=DES */
+	uint8_t priv_protocol; /* SNMP_USM_PRIV_* */
 	char priv_pass[64];
 
 	/* Localized keys (derived at init) */
-	uint8_t auth_key[20]; /* SHA1=20, MD5=16 */
+	uint8_t auth_key[32]; /* SHA1=20, MD5=16, SHA256=32 */
 	uint16_t auth_key_len;
 	uint8_t priv_key[20]; /* AES=16, DES=16 */
 	uint16_t priv_key_len;
@@ -84,6 +95,21 @@ int snmp_usm_set_engine_boots(struct snmp_agent *inst, uint32_t boots);
  * @return Current engineBoots, 0 if @p inst is NULL.
  */
 uint32_t snmp_usm_get_engine_boots(struct snmp_agent *inst);
+
+/**
+ * @brief Read snmpEngineTime of an agent instance (RFC 3414 §2.2). Safe to call from any context.
+ * @param inst Target agent instance.
+ * @return Current engineTime in seconds, 0 if @p inst is NULL.
+ */
+uint32_t snmp_usm_get_engine_time(struct snmp_agent *inst);
+
+/**
+ * @brief Set snmpEngineTime epoch base for an agent instance (RFC 3414 §2.2).
+ * @param inst Target agent instance.
+ * @param time New engineTime value in seconds.
+ * @return 0 on success, -EINVAL if @p inst is NULL.
+ */
+int snmp_usm_set_engine_time(struct snmp_agent *inst, uint32_t time);
 
 /*
  * snmp_usm_verify_incoming() and snmp_usm_build_outgoing() are module-internal:

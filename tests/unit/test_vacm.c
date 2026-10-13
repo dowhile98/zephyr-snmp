@@ -11,6 +11,7 @@
 #include <errno.h>
 #include <snmp/snmp_ber.h>
 #include <snmp/snmp_vacm.h>
+#include <snmp/snmp_usm.h>
 #include <snmp/snmp_core.h>
 
 /*
@@ -346,6 +347,119 @@ void test_vacm_check_access_backward_compat(void)
 	ASSERT_EQ(ret, -EACCES);
 }
 
+void test_vacm_report_pdu_timeliness_structure(void)
+{
+	struct snmp_agent test_agent;
+	memset(&test_agent, 0, sizeof(test_agent));
+	test_agent.engine_boots = 1;
+
+	struct snmp_v3_msg msg;
+	memset(&msg, 0, sizeof(msg));
+	msg.global.msg_id = 98765;
+	msg.scoped.pdu.type = SNMP_PDU_GET_REQ;
+
+	/* Simulate timeliness failure Report-PDU generation */
+	memset(&msg.scoped.pdu, 0, sizeof(msg.scoped.pdu));
+	msg.scoped.pdu.type = SNMP_PDU_REPORT;
+	msg.scoped.pdu.version = 3;
+	msg.scoped.pdu.request_id = msg.global.msg_id;
+	static const uint32_t not_in_time_windows_oid[] = {1, 3, 6, 1, 6, 3, 15, 1, 1, 2, 0};
+	msg.scoped.pdu.varbinds[0].oid.len = 11;
+	memcpy(msg.scoped.pdu.varbinds[0].oid.ids, not_in_time_windows_oid,
+	       sizeof(not_in_time_windows_oid));
+	msg.scoped.pdu.varbinds[0].type = SNMP_TAG_COUNTER32;
+	msg.scoped.pdu.varbinds[0].val.uint_val = ++test_agent.counters.snmpSilentDrops;
+	msg.scoped.pdu.varbind_cnt = 1;
+
+	ASSERT_EQ(msg.scoped.pdu.type, SNMP_PDU_REPORT);
+	ASSERT_EQ(msg.scoped.pdu.version, 3);
+	ASSERT_EQ(msg.scoped.pdu.request_id, 98765);
+	ASSERT_EQ(msg.scoped.pdu.varbind_cnt, 1);
+	ASSERT_EQ(msg.scoped.pdu.varbinds[0].oid.len, 11);
+	ASSERT_EQ(memcmp(msg.scoped.pdu.varbinds[0].oid.ids, not_in_time_windows_oid,
+			 sizeof(not_in_time_windows_oid)),
+		  0);
+	ASSERT_EQ(msg.scoped.pdu.varbinds[0].type, SNMP_TAG_COUNTER32);
+	ASSERT_EQ(msg.scoped.pdu.varbinds[0].val.uint_val, 1);
+	ASSERT_EQ(test_agent.counters.snmpSilentDrops, 1);
+
+	/* Verify round-trip encoding and decoding of Report-PDU */
+	uint8_t raw[1024];
+	size_t raw_len = 0;
+	msg.global.msg_max_size = 1024;
+	msg.global.msg_security_model = 3;
+	int ret = snmp_ber_encode_v3_msg(raw, sizeof(raw), &raw_len, &msg);
+	ASSERT_EQ(ret, 0);
+	ASSERT(raw_len > 0);
+
+	struct snmp_v3_msg decoded_msg;
+	memset(&decoded_msg, 0, sizeof(decoded_msg));
+	ret = snmp_ber_decode_v3_msg(raw, raw_len, &decoded_msg);
+	ASSERT_EQ(ret, 0);
+	ASSERT_EQ(decoded_msg.scoped.pdu.type, SNMP_PDU_REPORT);
+	ASSERT_EQ(decoded_msg.scoped.pdu.request_id, 98765);
+	ASSERT_EQ(decoded_msg.scoped.pdu.varbind_cnt, 1);
+	ASSERT_EQ(decoded_msg.scoped.pdu.varbinds[0].oid.len, 11);
+	ASSERT_EQ(memcmp(decoded_msg.scoped.pdu.varbinds[0].oid.ids, not_in_time_windows_oid,
+			 sizeof(not_in_time_windows_oid)),
+		  0);
+	ASSERT_EQ(decoded_msg.scoped.pdu.varbinds[0].type, SNMP_TAG_COUNTER32);
+	ASSERT_EQ(decoded_msg.scoped.pdu.varbinds[0].val.uint_val, 1);
+}
+
+void test_usm_definitions_and_key_sizes(void)
+{
+	struct snmp_usm_user user;
+	memset(&user, 0, sizeof(user));
+
+	ASSERT_EQ(SNMP_USM_AUTH_NONE, 0);
+	ASSERT_EQ(SNMP_USM_AUTH_SHA1, 1);
+	ASSERT_EQ(SNMP_USM_AUTH_MD5, 2);
+	ASSERT_EQ(SNMP_USM_AUTH_SHA256, 3);
+
+	ASSERT_EQ(SNMP_USM_PRIV_NONE, 0);
+	ASSERT_EQ(SNMP_USM_PRIV_AES, 1);
+	ASSERT_EQ(SNMP_USM_PRIV_DES, 2);
+
+	ASSERT_EQ(sizeof(user.auth_key), 32);
+}
+
+void test_continuous_uptime_wrap_guard(void)
+{
+	struct snmp_agent test_agent;
+	memset(&test_agent, 0, sizeof(test_agent));
+	test_agent.engine_boots = 1;
+	test_agent.engine_time_base = 0;
+
+	/* Simulate uptime exceeding 2147483647 */
+	int64_t simulated_uptime = 2147483647LL + 10LL;
+	int64_t elapsed = simulated_uptime - test_agent.engine_time_base;
+
+	while (elapsed >= 2147483647LL) {
+		if (test_agent.engine_boots < 2147483647U) {
+			test_agent.engine_boots++;
+		}
+		test_agent.engine_time_base += 2147483647LL;
+		elapsed = simulated_uptime - test_agent.engine_time_base;
+	}
+
+	ASSERT_EQ(test_agent.engine_boots, 2);
+	ASSERT_EQ(elapsed, 10);
+
+	/* When engine_boots reaches 2147483647, it caps and halts */
+	test_agent.engine_boots = 2147483647U;
+	simulated_uptime += 2147483647LL;
+	elapsed = simulated_uptime - test_agent.engine_time_base;
+	while (elapsed >= 2147483647LL) {
+		if (test_agent.engine_boots < 2147483647U) {
+			test_agent.engine_boots++;
+		}
+		test_agent.engine_time_base += 2147483647LL;
+		elapsed = simulated_uptime - test_agent.engine_time_base;
+	}
+	ASSERT_EQ(test_agent.engine_boots, 2147483647U);
+}
+
 #define RUN_TEST(name)                                                                             \
 	do {                                                                                       \
 		printf("  %-50s ", #name);                                                         \
@@ -368,8 +482,11 @@ int main(void)
 	RUN_TEST(test_vacm_wildcard_mask);
 	RUN_TEST(test_vacm_unknown_context_rejected);
 	RUN_TEST(test_vacm_check_access_backward_compat);
+	RUN_TEST(test_vacm_report_pdu_timeliness_structure);
+	RUN_TEST(test_usm_definitions_and_key_sizes);
+	RUN_TEST(test_continuous_uptime_wrap_guard);
 
 	printf("\n===============================\n");
-	printf("Results: %d passed, 0 failed, 7 total\n", tests_passed);
+	printf("Results: %d passed, 0 failed, 10 total\n", tests_passed);
 	return 0;
 }

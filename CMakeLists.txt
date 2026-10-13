@@ -11,6 +11,7 @@ if(CONFIG_SNMP_AGENT)
         src/snmp_mib.c
         src/snmp_core.c
         src/snmp_service.c
+        src/snmp_mib2.c
     )
 
     if(CONFIG_SNMP_VERSION_3)

@@ -17,22 +17,20 @@ LOG_MODULE_REGISTER(app_button, LOG_LEVEL_INF);
 #define CONFIG_SNMP_SAMPLE_ENTERPRISE_ID 54321
 #endif
 
-#if DT_NODE_EXISTS(DT_ALIAS(sw0))
-static const struct gpio_dt_spec s_btn = GPIO_DT_SPEC_GET(DT_ALIAS(sw0), gpios);
-static struct gpio_callback s_btn_cb_data;
-static bool s_hardware_available = false;
-#endif
-
 static uint32_t s_button_counter = 0;
-static int64_t s_last_press_time = 0;
 
 /* Agent to notify through; set by app_button_init() from main.c's storage. */
 static struct snmp_agent *s_trap_agent;
 
+#if DT_NODE_EXISTS(DT_ALIAS(sw0))
+static const struct gpio_dt_spec s_btn = GPIO_DT_SPEC_GET(DT_ALIAS(sw0), gpios);
+static struct gpio_callback s_btn_cb_data;
+static bool s_hardware_available = false;
+static int64_t s_last_press_time = 0;
+
 static void button_work_handler(struct k_work *work);
 static K_WORK_DEFINE(s_button_work, button_work_handler);
 
-#if DT_NODE_EXISTS(DT_ALIAS(sw0))
 static void button_isr(const struct device *dev, struct gpio_callback *cb, uint32_t pins)
 {
 	ARG_UNUSED(dev);
@@ -45,7 +43,6 @@ static void button_isr(const struct device *dev, struct gpio_callback *cb, uint3
 		k_work_submit(&s_button_work);
 	}
 }
-#endif
 
 static void button_work_handler(struct k_work *work)
 {
@@ -62,6 +59,7 @@ static void button_work_handler(struct k_work *work)
 	LOG_INF("SNMP Traps disabled in Kconfig (CONFIG_SNMP_TRAP_ENABLED=n)");
 #endif
 }
+#endif
 
 int app_button_init(struct snmp_agent *agent)
 {

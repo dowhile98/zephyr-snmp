@@ -106,6 +106,7 @@
 #include <snmp/snmp_ber.h>
 #include <snmp/snmp_mib.h>
 #include <snmp/snmp_core.h>
+#include <snmp/snmp_mib2.h>
 
 #ifdef __cplusplus
 extern "C" {

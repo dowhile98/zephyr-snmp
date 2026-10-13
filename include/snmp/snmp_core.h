@@ -105,6 +105,7 @@ struct snmp_agent {
 	uint8_t engine_id[SNMP_V3_ENGINE_ID_MAX_LEN];
 	uint8_t engine_id_len;
 	uint32_t engine_boots;
+	int64_t engine_time_base;
 	struct snmp_usm_user users[CONFIG_SNMP_V3_MAX_USERS];
 	uint8_t user_cnt;
 
@@ -130,6 +131,8 @@ struct snmp_agent {
 	size_t mib_node_cnt;
 	struct snmp_mib_table *mib_tables[CONFIG_SNMP_MAX_TABLES];
 	size_t mib_table_cnt;
+	struct snmp_mib_table if_table;
+	struct snmp_table_row if_rows[CONFIG_SNMP_MAX_IFACES];
 	char sys_descr[128];
 	char sys_contact[64];
 	char sys_name[64];

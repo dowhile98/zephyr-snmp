@@ -26,8 +26,36 @@
 
 #define HMAC_SHA1_LEN 12
 #define HMAC_MD5_LEN 12
+#define HMAC_SHA256_LEN 16
 #define AES_IV_LEN 16
 #define SNMP_ENGINE_BOOTS_MAX 2147483647U
+
+static inline uint8_t usm_auth_mac_len(uint8_t auth_protocol)
+{
+	switch (auth_protocol) {
+	case SNMP_USM_AUTH_SHA256:
+		return HMAC_SHA256_LEN;
+	case SNMP_USM_AUTH_SHA1:
+		return HMAC_SHA1_LEN;
+	case SNMP_USM_AUTH_MD5:
+		return HMAC_MD5_LEN;
+	default:
+		return 0;
+	}
+}
+
+static inline psa_algorithm_t usm_auth_alg(uint8_t auth_protocol)
+{
+	switch (auth_protocol) {
+	case SNMP_USM_AUTH_SHA256:
+		return PSA_ALG_HMAC(PSA_ALG_SHA_256);
+	case SNMP_USM_AUTH_SHA1:
+		return PSA_ALG_HMAC(PSA_ALG_SHA_1);
+	case SNMP_USM_AUTH_MD5:
+	default:
+		return PSA_ALG_HMAC(PSA_ALG_MD5);
+	}
+}
 
 /*
  * Security-model events increment the counters of the agent that received the message,
@@ -153,7 +181,14 @@ static int usm_key_localize(uint8_t *out_key, uint16_t *out_len, const char *pas
 	if (!out_key || !out_len || !password || !engine_id)
 		return -EINVAL;
 
-	psa_algorithm_t hash_alg = (algo == 1) ? PSA_ALG_SHA_1 : PSA_ALG_MD5;
+	psa_algorithm_t hash_alg;
+	if (algo == SNMP_USM_AUTH_SHA256) {
+		hash_alg = PSA_ALG_SHA_256;
+	} else if (algo == SNMP_USM_AUTH_SHA1) {
+		hash_alg = PSA_ALG_SHA_1;
+	} else {
+		hash_alg = PSA_ALG_MD5;
+	}
 
 	uint8_t ku[64];
 	size_t ku_len = 0;
@@ -162,7 +197,8 @@ static int usm_key_localize(uint8_t *out_key, uint16_t *out_len, const char *pas
 	if (ret < 0)
 		return ret;
 
-	/* RFC 3414 A.2.2: Buffer = Ku (hash_size) || engine_id (engine_id_len) || Ku (hash_size) */
+	/* RFC 3414 A.2.2 / RFC 7860: Buffer = Ku (hash_size) || engine_id (engine_id_len) || Ku
+	 * (hash_size) */
 	size_t total_len = ku_len + engine_id_len + ku_len;
 	uint8_t buffer[128];
 	if (total_len > sizeof(buffer))
@@ -186,7 +222,8 @@ static int usm_key_localize(uint8_t *out_key, uint16_t *out_len, const char *pas
 		memcpy(out_key, kul, 16);
 		*out_len = 16;
 	} else {
-		/* RFC 3414 §6.2.4 / §7.2.4: localized auth key (20 octets for SHA-1, 16 for MD5) */
+		/* RFC 3414 §6.2.4 / §7.2.4 / RFC 7860: localized auth key (SHA1=20, MD5=16,
+		 * SHA256=32) */
 		memcpy(out_key, kul, kul_len);
 		*out_len = (uint16_t)kul_len;
 	}
@@ -430,15 +467,17 @@ static struct snmp_usm_user *usm_find_user(struct snmp_agent *inst, const char *
 
 static int usm_verify_auth(const struct snmp_v3_msg *msg, struct snmp_usm_user *user)
 {
-	if (!msg || !user || user->auth_protocol == 0)
+	if (!msg || !user || user->auth_protocol == SNMP_USM_AUTH_NONE)
 		return 0;
 
-	psa_algorithm_t alg =
-	    (user->auth_protocol == 1) ? PSA_ALG_HMAC(PSA_ALG_SHA_1) : PSA_ALG_HMAC(PSA_ALG_MD5);
+	psa_algorithm_t alg = usm_auth_alg(user->auth_protocol);
+	uint8_t trunc = usm_auth_mac_len(user->auth_protocol);
+	if (trunc == 0)
+		return -EINVAL;
 
 	struct snmp_v3_msg hash_msg = *msg;
 	memset(hash_msg.usm.auth_params, 0, sizeof(hash_msg.usm.auth_params));
-	hash_msg.usm.auth_params_len = (user->auth_protocol == 1) ? HMAC_SHA1_LEN : HMAC_MD5_LEN;
+	hash_msg.usm.auth_params_len = trunc;
 
 	uint8_t encoded[CONFIG_SNMP_MAX_PDU_SIZE];
 	size_t encoded_len = 0;
@@ -446,14 +485,13 @@ static int usm_verify_auth(const struct snmp_v3_msg *msg, struct snmp_usm_user *
 	if (ret < 0)
 		return ret;
 
-	uint8_t computed_hash[20];
+	uint8_t computed_hash[64];
 	size_t hash_len;
 	ret = hmac_compute(alg, user->auth_key, user->auth_key_len, encoded, encoded_len,
 			   computed_hash, sizeof(computed_hash), &hash_len);
 	if (ret < 0)
 		return ret;
 
-	uint8_t trunc = (user->auth_protocol == 1) ? HMAC_SHA1_LEN : HMAC_MD5_LEN;
 	if (hash_len < trunc)
 		return -EACCES;
 	if (memcmp(computed_hash, msg->usm.auth_params, trunc) != 0)
@@ -669,15 +707,22 @@ int snmp_usm_verify_incoming(struct snmp_agent *inst, struct snmp_v3_msg *msg,
 		}
 	}
 
-	int32_t local_time = (int32_t)(k_uptime_get() / 1000);
+	int32_t local_time = (int32_t)snmp_usm_get_engine_time(inst);
 	int32_t diff = (int32_t)msg->usm.engine_time - local_time;
-	if (diff < -150 || diff > 150) {
-		INC_STAT(inst, snmpSilentDrops);
-		return -EACCES;
-	}
-	if (msg->usm.engine_boots != inst->engine_boots) {
-		INC_STAT(inst, snmpSilentDrops);
-		return -EACCES;
+	if (diff < -150 || diff > 150 || msg->usm.engine_boots != inst->engine_boots) {
+		memset(&msg->scoped.pdu, 0, sizeof(msg->scoped.pdu));
+		msg->scoped.pdu.type = SNMP_PDU_REPORT;
+		msg->scoped.pdu.version = 3;
+		msg->scoped.pdu.request_id = msg->global.msg_id;
+		static const uint32_t not_in_time_windows_oid[] = {1,  3, 6, 1, 6, 3,
+								   15, 1, 1, 2, 0};
+		msg->scoped.pdu.varbinds[0].oid.len = 11;
+		memcpy(msg->scoped.pdu.varbinds[0].oid.ids, not_in_time_windows_oid,
+		       sizeof(not_in_time_windows_oid));
+		msg->scoped.pdu.varbinds[0].type = SNMP_TAG_COUNTER32;
+		msg->scoped.pdu.varbinds[0].val.uint_val = ++inst->counters.snmpSilentDrops;
+		msg->scoped.pdu.varbind_cnt = 1;
+		return 0;
 	}
 
 	return 0;
@@ -697,7 +742,7 @@ int snmp_usm_build_outgoing(struct snmp_agent *inst, struct snmp_v3_msg *msg)
 		memcpy(msg->usm.engine_id, inst->engine_id, inst->engine_id_len);
 		msg->usm.engine_id_len = inst->engine_id_len;
 		msg->usm.engine_boots = inst->engine_boots;
-		msg->usm.engine_time = (uint32_t)(k_uptime_get() / 1000);
+		msg->usm.engine_time = snmp_usm_get_engine_time(inst);
 		msg->global.msg_flags = 0x00;
 		msg->usm.auth_params_len = 0;
 		msg->usm.priv_params_len = 0;
@@ -711,7 +756,7 @@ int snmp_usm_build_outgoing(struct snmp_agent *inst, struct snmp_v3_msg *msg)
 	memcpy(msg->usm.engine_id, inst->engine_id, inst->engine_id_len);
 	msg->usm.engine_id_len = inst->engine_id_len;
 	msg->usm.engine_boots = inst->engine_boots;
-	msg->usm.engine_time = (uint32_t)(k_uptime_get() / 1000);
+	msg->usm.engine_time = snmp_usm_get_engine_time(inst);
 
 	uint8_t pdu_type = msg->scoped.pdu.type;
 	if (pdu_type == SNMP_PDU_TRAP_V2 || pdu_type == SNMP_PDU_RESPONSE ||
@@ -722,8 +767,7 @@ int snmp_usm_build_outgoing(struct snmp_agent *inst, struct snmp_v3_msg *msg)
 	}
 	if (user->auth_protocol > 0) {
 		msg->global.msg_flags |= 0x01;
-		msg->usm.auth_params_len =
-		    (user->auth_protocol == 1) ? HMAC_SHA1_LEN : HMAC_MD5_LEN;
+		msg->usm.auth_params_len = usm_auth_mac_len(user->auth_protocol);
 	}
 	if (user->priv_protocol > 0) {
 		msg->global.msg_flags |= 0x02;
@@ -783,16 +827,15 @@ int snmp_usm_build_outgoing(struct snmp_agent *inst, struct snmp_v3_msg *msg)
 		return ret;
 
 	if (user->auth_protocol > 0) {
-		psa_algorithm_t alg = (user->auth_protocol == 1) ? PSA_ALG_HMAC(PSA_ALG_SHA_1)
-								 : PSA_ALG_HMAC(PSA_ALG_MD5);
-		uint8_t full_hash[20];
+		psa_algorithm_t alg = usm_auth_alg(user->auth_protocol);
+		uint8_t full_hash[64];
 		size_t fh_len;
 		ret = hmac_compute(alg, user->auth_key, user->auth_key_len, hash_target, hash_len,
 				   full_hash, sizeof(full_hash), &fh_len);
 		if (ret < 0)
 			return ret;
 
-		uint8_t trunc = (user->auth_protocol == 1) ? HMAC_SHA1_LEN : HMAC_MD5_LEN;
+		uint8_t trunc = usm_auth_mac_len(user->auth_protocol);
 		memcpy(msg->usm.auth_params, full_hash, trunc);
 	}
 
@@ -881,6 +924,47 @@ int snmp_agent_load_engine_boots(struct snmp_agent *agent)
 uint32_t snmp_usm_get_engine_boots(struct snmp_agent *inst)
 {
 	return inst ? inst->engine_boots : 0;
+}
+
+uint32_t snmp_usm_get_engine_time(struct snmp_agent *inst)
+{
+	if (!inst) {
+		return 0;
+	}
+
+	int64_t uptime_sec = k_uptime_get() / 1000;
+	int64_t elapsed = uptime_sec - inst->engine_time_base;
+
+	while (elapsed >= (int64_t)SNMP_ENGINE_BOOTS_MAX) {
+		if (inst->engine_boots < SNMP_ENGINE_BOOTS_MAX) {
+			inst->engine_boots++;
+#if defined(CONFIG_SETTINGS)
+			if (inst->settings_prefix != NULL) {
+				char key[SNMP_USM_SETTINGS_KEY_MAX];
+
+				if (usm_boots_key(inst, key, sizeof(key)) > 0) {
+					(void)settings_save_one(key, &inst->engine_boots,
+								sizeof(inst->engine_boots));
+				}
+			}
+#endif
+		}
+		inst->engine_time_base += (int64_t)SNMP_ENGINE_BOOTS_MAX;
+		elapsed = uptime_sec - inst->engine_time_base;
+	}
+
+	return (uint32_t)elapsed;
+}
+
+int snmp_usm_set_engine_time(struct snmp_agent *inst, uint32_t time)
+{
+	if (!inst || time > SNMP_ENGINE_BOOTS_MAX) {
+		return -EINVAL;
+	}
+
+	int64_t uptime_sec = k_uptime_get() / 1000;
+	inst->engine_time_base = uptime_sec - (int64_t)time;
+	return 0;
 }
 
 #endif /* CONFIG_SNMP_AGENT && CONFIG_SNMP_VERSION_3 */

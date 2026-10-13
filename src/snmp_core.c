@@ -484,14 +484,16 @@ static int process_v3(struct snmp_agent *agent, const uint8_t *req_buf, size_t r
 		msg.scoped.pdu.request_id = msg.global.msg_id;
 
 		/* RFC 3414 §7: Report-PDUs must include a counter varbind */
-		static const uint32_t unknown_engine_oid[] = {
-		    1, 3, 6, 1, 6, 3, 15, 1, 1, 3, 0}; /* snmpUnknownEngineIDs.0 */
-		msg.scoped.pdu.varbinds[0].oid.len = 11;
-		memcpy(msg.scoped.pdu.varbinds[0].oid.ids, unknown_engine_oid,
-		       sizeof(unknown_engine_oid));
-		msg.scoped.pdu.varbinds[0].type = SNMP_TAG_COUNTER32;
-		msg.scoped.pdu.varbinds[0].val.uint_val = 0;
-		msg.scoped.pdu.varbind_cnt = 1;
+		if (msg.scoped.pdu.varbind_cnt == 0) {
+			static const uint32_t unknown_engine_oid[] = {
+			    1, 3, 6, 1, 6, 3, 15, 1, 1, 3, 0}; /* snmpUnknownEngineIDs.0 */
+			msg.scoped.pdu.varbinds[0].oid.len = 11;
+			memcpy(msg.scoped.pdu.varbinds[0].oid.ids, unknown_engine_oid,
+			       sizeof(unknown_engine_oid));
+			msg.scoped.pdu.varbinds[0].type = SNMP_TAG_COUNTER32;
+			msg.scoped.pdu.varbinds[0].val.uint_val = 0;
+			msg.scoped.pdu.varbind_cnt = 1;
+		}
 
 		msg.global.msg_max_size = CONFIG_SNMP_MAX_PDU_SIZE;
 		msg.global.msg_security_model = 3;
