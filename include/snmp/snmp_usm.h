@@ -15,6 +15,11 @@ extern "C" {
 
 #ifdef CONFIG_SNMP_AGENT
 
+/*
+ * Maximum USM users per instance. Normally provided by Kconfig (SNMP_V3_MAX_USERS,
+ * depends on SNMP_VERSION_3); the fallback keeps the header usable in host builds
+ * (tests/unit) that do not run the Kconfig preprocessing step.
+ */
 #ifndef CONFIG_SNMP_V3_MAX_USERS
 #define CONFIG_SNMP_V3_MAX_USERS 4
 #endif

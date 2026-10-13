@@ -149,6 +149,15 @@ config SNMP_USM_PRIV_DES
 	  (RFC 3414). DES is deprecated and should only be used for
 	  legacy NMS compatibility.
 
+config SNMP_V3_MAX_USERS
+	int "Maximum USM users per agent instance"
+	default 4
+	help
+	  Size of the snmpEngineID-localised user table inside every struct
+	  snmp_agent. Each entry costs ~208 bytes, so the table is one of the
+	  largest per-instance contributors (~832 bytes at the default of 4).
+	  Raised from a compile-time #define to a Kconfig symbol in phase 8.
+
 config SNMP_VACM_MAX_CONTEXTS
 	int "Maximum VACM contexts"
 	default 8

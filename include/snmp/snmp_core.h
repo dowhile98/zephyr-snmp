@@ -93,6 +93,14 @@ struct snmp_agent {
 	char read_community[64];
 	char write_community[64];
 
+	/*
+	 * USM and VACM engines. Guarded because a v1/v2c-only build must not pay for the
+	 * security model it cannot speak: these members are only ever touched from code
+	 * that is itself under CONFIG_SNMP_VERSION_3 (snmp_usm.c, snmp_vacm.c, the v3
+	 * dispatch path in snmp_core.c and the v3 notification path in snmp_trap.c).
+	 * Layout is unchanged when v3 is enabled; disabling v3 saves ~9.2 KiB/instance.
+	 */
+#if defined(CONFIG_SNMP_VERSION_3)
 	/* USM engine */
 	uint8_t engine_id[SNMP_V3_ENGINE_ID_MAX_LEN];
 	uint8_t engine_id_len;
@@ -109,6 +117,7 @@ struct snmp_agent {
 	uint8_t access_rule_cnt;
 	struct vacm_view_tree_entry views[CONFIG_SNMP_VACM_MAX_VIEW_TREES];
 	uint8_t view_cnt;
+#endif /* CONFIG_SNMP_VERSION_3 */
 
 	/* MIB engine */
 	struct snmp_mib_node mib_nodes[CONFIG_SNMP_MAX_MIB_NODES];
