@@ -178,6 +178,83 @@ int snmp_agent_inst_init(struct snmp_agent *agent, const struct snmp_agent_cfg *
 	return 0;
 }
 
+int snmp_agent_start(struct snmp_agent *agent)
+{
+	if (!agent) {
+		return -EINVAL;
+	}
+	if (agent->state == SNMP_AGENT_UNINIT) {
+		return -EPERM;
+	}
+	if (agent->state == SNMP_AGENT_RUNNING || agent->state == SNMP_AGENT_STOPPING) {
+		return -EPERM;
+	}
+
+#if !defined(__ZEPHYR__)
+	/* The socket-service adapter is Zephyr-only; host builds keep the protocol logic
+	 * testable by injecting frames through snmp_agent_process_pdu().
+	 */
+	return -ENOTSUP;
+#else
+	enum snmp_agent_state prev;
+	int ret;
+
+	/*
+	 * Publish RUNNING *before* attaching: the adapter registers its descriptors last,
+	 * so from the moment an fd becomes pollable the callback's post-lock state check
+	 * already accepts it and no early request is dropped. The previous state is
+	 * restored under the lock if attaching fails.
+	 */
+	prev = agent->state;
+
+	k_mutex_lock(&agent->lock, K_FOREVER);
+	agent->state = SNMP_AGENT_RUNNING;
+	k_mutex_unlock(&agent->lock);
+
+	ret = snmp_service_attach(agent);
+	if (ret < 0) {
+		k_mutex_lock(&agent->lock, K_FOREVER);
+		agent->state = prev;
+		k_mutex_unlock(&agent->lock);
+	}
+	return ret;
+#endif
+}
+
+int snmp_agent_stop(struct snmp_agent *agent)
+{
+	if (!agent) {
+		return -EINVAL;
+	}
+
+	switch (agent->state) {
+	case SNMP_AGENT_UNINIT:
+		return -EPERM;
+	case SNMP_AGENT_INITIALIZED:
+	case SNMP_AGENT_STOPPED:
+		/* Never started, or already stopped: stopping is safe and a no-op. */
+		return 0;
+	case SNMP_AGENT_RUNNING:
+	case SNMP_AGENT_STOPPING:
+	default:
+		break;
+	}
+
+#if !defined(__ZEPHYR__)
+	k_mutex_lock(&agent->lock, K_FOREVER);
+	agent->state = SNMP_AGENT_STOPPED;
+	k_mutex_unlock(&agent->lock);
+	return 0;
+#else
+	/* Step 1 of the documented teardown ordering: publish STOPPING before the
+	 * descriptor is deregistered, so a callback that already raced in is discarded by
+	 * its own post-lock state check (contract 4.4).
+	 */
+	agent->state = SNMP_AGENT_STOPPING;
+	return snmp_service_detach(agent);
+#endif
+}
+
 int snmp_agent_deinit(struct snmp_agent *agent)
 {
 	if (!agent) {
@@ -187,10 +264,16 @@ int snmp_agent_deinit(struct snmp_agent *agent)
 		return -EPERM;
 	}
 
-	/*
-	 * TODO(8b): snmp_agent_stop() the transport first. Until the per-instance
-	 * adapter lands, deinit() only resets the domain state.
+	/* Tear the transport down first: resetting the tree while the sockets are live
+	 * would let an in-flight request observe a half-cleared instance.
 	 */
+	if (agent->state == SNMP_AGENT_RUNNING || agent->state == SNMP_AGENT_STOPPING) {
+		int ret = snmp_agent_stop(agent);
+
+		if (ret < 0) {
+			return ret;
+		}
+	}
 
 	k_mutex_lock(&agent->lock, K_FOREVER);
 
@@ -528,7 +611,27 @@ int snmp_agent_process_pdu(struct snmp_agent *agent, const uint8_t *req_buf, siz
 	}
 }
 
-/* ---- Legacy facade (delegates to default agent) ---- */
+/* ---- Legacy facades (delegate to the default agent; removed in sub-phase 8c) ---- */
+
+/**
+ * @brief Deprecated no-parameter facade: initialise the default agent and open its
+ *        listener on the Kconfig port.
+ *
+ * @deprecated Removed in sub-phase 8c. Own a @ref struct snmp_agent, then call
+ *             snmp_agent_inst_init(agent, cfg) and snmp_agent_start(agent). Sending the
+ *             cold-start trap once the interface has an address remains the
+ *             application's job, exactly as before.
+ *
+ * @return 0 on success, negative errno on failure.
+ */
+int snmp_agent_init(void)
+{
+	/* snmp_agent_get_default() has already run snmp_agent_inst_init() with the
+	 * Kconfig defaults; starting it attaches the transport the way the old
+	 * snmp_service_init() did, so registrations made afterwards still take effect.
+	 */
+	return snmp_agent_start(snmp_agent_get_default());
+}
 
 int snmp_set_read_community(const char *community)
 {

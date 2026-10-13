@@ -197,6 +197,35 @@ int snmp_agent_inst_init(struct snmp_agent *agent, const struct snmp_agent_cfg *
 int snmp_agent_deinit(struct snmp_agent *agent);
 
 /**
+ * @brief Open and bind this agent's sockets and attach them to the socket service.
+ *
+ * The instance must be #SNMP_AGENT_INITIALIZED or #SNMP_AGENT_STOPPED. Each started
+ * agent owns one compile-time socket-service slot (CONFIG_SNMP_MAX_INSTANCES) and binds
+ * to @c agent->port / @c agent->bound_iface. Two RUNNING agents with the same port and
+ * no interface binding make the second one fail with -EADDRINUSE (normal socket
+ * semantics). On non-Zephyr (host) builds this returns -ENOTSUP: inject frames with
+ * snmp_agent_process_pdu() instead.
+ *
+ * @param agent Target agent instance.
+ * @return 0 on success, -EINVAL if @p agent is NULL, -EPERM in the wrong state,
+ *         -EBUSY when all slots are taken, or a socket/bind errno.
+ */
+int snmp_agent_start(struct snmp_agent *agent);
+
+/**
+ * @brief Detach the socket service, close the sockets and release the slot.
+ *
+ * Safe to call on an instance that was never started (no-op). Ordering is documented in
+ * the adapter: the descriptor is deregistered first, then the agent mutex is taken as a
+ * quiesce barrier so no callback can still be touching this instance's buffers when the
+ * call returns, which is what makes re-init or restart on the same storage safe.
+ *
+ * @param agent Target agent instance.
+ * @return 0 on success, -EINVAL if @p agent is NULL, -EPERM if never initialized.
+ */
+int snmp_agent_stop(struct snmp_agent *agent);
+
+/**
  * @brief Process raw SNMP packet payload using an explicit agent instance context.
  *
  * This is the protocol entry point: it is used by the transport adapter and is also

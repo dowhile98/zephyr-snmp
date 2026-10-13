@@ -14,12 +14,22 @@ extern "C" {
 
 #ifdef CONFIG_SNMP_AGENT
 
-/**
- * @brief Initialize UDP socket on port 161 and register with Zephyr Socket Service API.
+/*
+ * There is no process-wide transport entry point any more. The socket-service adapter is
+ * per instance and is driven exclusively by the lifecycle API:
  *
- * @return 0 on success, negative errno on failure.
+ *   snmp_agent_inst_init(agent, cfg)   -> reserves nothing yet
+ *   snmp_agent_start(agent)            -> binds agent->port / agent->bound_iface and
+ *                                         attaches one socket-service descriptor slot
+ *   snmp_agent_stop(agent)             -> deregisters, quiesces, closes, frees the slot
+ *
+ * The adapter itself (snmp_service_attach/snmp_service_detach) is module-internal and
+ * declared in src/snmp_internal.h, so including this header is no longer required by
+ * applications.
+ *
+ * @deprecated This header will be removed in sub-phase 8d once the no-parameter facades
+ *             are gone; keep it empty until then so existing #includes still compile.
  */
-int snmp_service_init(void);
 
 #endif /* CONFIG_SNMP_AGENT */
 

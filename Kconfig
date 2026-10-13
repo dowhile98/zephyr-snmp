@@ -20,12 +20,36 @@ config SNMP_AGENT
 
 if SNMP_AGENT
 
+config SNMP_MAX_INSTANCES
+	int "Maximum number of concurrently RUNNING SNMP agent instances"
+	range 1 8
+	default 1
+	help
+	  Compile-time bound on simultaneously RUNNING struct snmp_agent instances.
+	  Each instance costs ~30 KiB RAM at the default sizing (~21 KiB once v3 is
+	  disabled), so size this against your budget, not against the port count.
+
+	  Transport side effects, all enforced by BUILD_ASSERT in
+	  src/snmp_service.c:
+	    - reserves exactly this many net_socket_service descriptors, and
+	    - reserves this many * (1, or 2 with CONFIG_NET_IPV6) entries of
+	      CONFIG_ZVFS_POLL_MAX (plus one for the service thread's eventfd).
+	  Raise CONFIG_ZVFS_POLL_MAX accordingly if other socket services are in use.
+
+	  Stack note: the service thread runs the whole recv/process/send section, and
+	  the GETBULK and SNMPv3 encode paths use several KiB of stack, so
+	  CONFIG_NET_SOCKETS_SERVICE_STACK_SIZE must be sized >= 12 KiB whenever
+	  SNMPv3 or GetBulk is enabled.
+
 config SNMP_AGENT_PORT
-	int "SNMP Agent UDP listening port"
+	int "Default UDP listening port"
 	default 161
 	range 1 65535
 	help
-	  UDP port on which the SNMP agent listens for incoming queries (default: 161).
+	  Default port used when struct snmp_agent_cfg.port is 0. The effective
+	  per-instance port is cfg.port (stored in agent->port): the agent struct, not
+	  Kconfig, is the source of truth at runtime. Different instances may therefore
+	  listen on different ports.
 
 config SNMP_COMMUNITY_READ
 	string "Default read community string (SNMPv1/v2c)"
