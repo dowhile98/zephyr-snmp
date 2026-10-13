@@ -53,6 +53,7 @@ jobs:
         uses: zephyrproject-rtos/action-zephyr-setup@v1
         with:
           app-path: zephyr-snmp
+          toolchains: ""
       - name: Run Twister Unit Tests
         working-directory: zephyr-snmp
         run: |
