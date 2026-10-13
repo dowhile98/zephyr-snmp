@@ -25,41 +25,59 @@ struct snmp_agent;
 /* ---- Instance-based APIs ---- */
 
 /**
- * @brief Add a destination IP address for trap notifications on a specific agent instance.
+ * @brief Add a destination IPv4 address for trap notifications on one agent.
+ * @param inst Target agent instance.
+ * @param addr Dotted-quad destination; port is CONFIG_SNMP_TRAP_PORT.
+ * @return 0 on success, -EINVAL on bad arguments, -ENOMEM if the destination table
+ *         (CONFIG_SNMP_TRAP_DEST_COUNT) is full.
  */
 int snmp_trap_add_destination_inst(struct snmp_agent *inst, const char *addr);
 
 /**
- * @brief Send an SNMP Trap or Inform notification from a specific agent instance.
+ * @brief Send an SNMP Trap or Inform notification from one agent.
+ *
+ * The wire format is selected by Kconfig (v1 / v2c / v3). Thread context required:
+ * takes the agent lock, so never call from an ISR and never from a MIB callback.
+ *
+ * @param inst Target agent instance.
+ * @param trap_oid Notification OID (becomes snmpTrapOID.0).
+ * @param varbinds Optional extra varbinds (may be NULL).
+ * @param varbind_cnt Number of entries in @p varbinds.
+ * @param is_inform True to send an Inform request instead of a Trap.
+ * @return 0 on success, -EINVAL on bad arguments, -ENETDOWN when the bound interface
+ *         has no address, other negative errno on socket failure.
  */
 int snmp_trap_send_inst(struct snmp_agent *inst, const struct snmp_oid *trap_oid,
 			const struct snmp_varbind *varbinds, uint8_t varbind_cnt, bool is_inform);
 
 /**
- * @brief Send standard Cold Start Trap from a specific agent instance.
+ * @brief Send the standard coldStart (1.3.6.1.6.3.1.1.5.1) notification from one agent.
+ * @param inst Target agent instance.
+ * @return 0 on success, negative errno as for snmp_trap_send_inst().
  */
 int snmp_trap_send_coldstart_inst(struct snmp_agent *inst);
 
 /**
- * @brief Send standard Authentication Failure Trap from a specific agent instance.
+ * @brief Send the standard authFailure (1.3.6.1.6.3.1.1.5.5) notification from one agent.
+ *
+ * Silently returns 0 when the instance's snmpEnableAuthenTraps counter is not enabled
+ * (RFC 3418).
+ *
+ * @param inst Target agent instance.
+ * @return 0 when sent or suppressed, negative errno on socket failure.
  */
-int snmp_trap_send_auth_failure_inst(struct snmp_agent *inst);
+int snmp_trap_send_auth_failure(struct snmp_agent *inst);
 
-/* ---- Legacy API Facade (delegates to default agent) ---- */
-
+/*
+ * --- Transitional legacy facades (removed in sub-phase 8c) ---------------------
+ * No-parameter entry points delegating to snmp_agent_get_default(); kept only so
+ * samples/snmp_agent still builds. snmp_trap_send_v3() is gone: the notification
+ * format is selected by Kconfig inside snmp_trap_send_inst().
+ */
 int snmp_trap_add_destination(const char *addr);
-int snmp_trap_send(const struct snmp_oid *trap_oid,
-		   const struct snmp_varbind *varbinds,
-		   uint8_t varbind_cnt,
-		   bool is_inform);
-#if defined(CONFIG_SNMP_VERSION_3)
-int snmp_trap_send_v3(const struct snmp_oid *trap_oid,
-		      const struct snmp_varbind *varbinds,
-		      uint8_t varbind_cnt,
-		      bool is_inform);
-#endif
+int snmp_trap_send(const struct snmp_oid *trap_oid, const struct snmp_varbind *varbinds,
+		   uint8_t varbind_cnt, bool is_inform);
 int snmp_trap_send_coldstart(void);
-int snmp_trap_send_auth_failure(void);
 
 #endif /* CONFIG_SNMP_AGENT */
 

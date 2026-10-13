@@ -6,6 +6,7 @@
 #include <snmp/snmp_trap.h>
 #include <snmp/snmp_mib.h>
 #include <snmp/snmp_core.h>
+#include "snmp_internal.h"
 #include <zephyr/net/net_if.h>
 #include <zephyr/net/socket.h>
 #include <string.h>
@@ -106,12 +107,12 @@ static int snmp_trap_send_v3_inst(struct snmp_agent *inst, const struct snmp_oid
 	}
 
 	uint8_t eng_len = sizeof(msg.scoped.context_engine_id);
-	if (snmp_usm_get_engine_id_inst(inst, msg.scoped.context_engine_id, &eng_len) == 0) {
+	if (snmp_usm_get_engine_id(inst, msg.scoped.context_engine_id, &eng_len) == 0) {
 		msg.scoped.context_engine_id_len = eng_len;
 	}
 	msg.scoped.context_name_len = 0;
 
-	int ret = snmp_usm_build_outgoing_inst(inst, &msg);
+	int ret = snmp_usm_build_outgoing(inst, &msg);
 	if (ret < 0)
 		return ret;
 
@@ -295,7 +296,7 @@ int snmp_trap_send_coldstart_inst(struct snmp_agent *inst)
 	return snmp_trap_send_inst(inst, &cold_start_oid, NULL, 0, false);
 }
 
-int snmp_trap_send_auth_failure_inst(struct snmp_agent *inst)
+int snmp_trap_send_auth_failure(struct snmp_agent *inst)
 {
 	if (!inst) {
 		return -EINVAL;
@@ -325,24 +326,9 @@ int snmp_trap_send(const struct snmp_oid *trap_oid,
 	return snmp_trap_send_inst(snmp_agent_get_default(), trap_oid, varbinds, varbind_cnt, is_inform);
 }
 
-#if defined(CONFIG_SNMP_VERSION_3)
-int snmp_trap_send_v3(const struct snmp_oid *trap_oid,
-		      const struct snmp_varbind *varbinds,
-		      uint8_t varbind_cnt,
-		      bool is_inform)
-{
-	return snmp_trap_send_v3_inst(snmp_agent_get_default(), trap_oid, varbinds, varbind_cnt, is_inform);
-}
-#endif
-
 int snmp_trap_send_coldstart(void)
 {
 	return snmp_trap_send_coldstart_inst(snmp_agent_get_default());
-}
-
-int snmp_trap_send_auth_failure(void)
-{
-	return snmp_trap_send_auth_failure_inst(snmp_agent_get_default());
 }
 
 #endif /* CONFIG_SNMP_AGENT && CONFIG_SNMP_TRAP_ENABLED */

@@ -12,6 +12,7 @@
 #include <snmp/snmp_core.h>
 #include <snmp/snmp_trap.h>
 #include <snmp/snmp_mib.h>
+#include "snmp_internal.h"
 #include <zephyr/sys/atomic.h>
 #include <string.h>
 #include <errno.h>
@@ -149,8 +150,8 @@ int snmp_agent_inst_init(struct snmp_agent *agent, const struct snmp_agent_cfg *
 	}
 
 	/* MIB tree: always fresh on init (defaults are instance-scoped). */
-	snmp_mib_init_inst(agent);
-	snmp_mib_register_defaults_inst(agent);
+	snmp_mib_init(agent);
+	snmp_mib_register_defaults(agent);
 
 #if defined(CONFIG_SNMP_VERSION_3)
 	if (cfg) {
@@ -163,8 +164,8 @@ int snmp_agent_inst_init(struct snmp_agent *agent, const struct snmp_agent_cfg *
 			agent->engine_boots = cfg->engine_boots;
 		}
 	}
-	snmp_usm_init_inst(agent);
-	snmp_vacm_init_inst(agent);
+	snmp_usm_init(agent);
+	snmp_vacm_init(agent);
 #endif
 
 	agent->state = SNMP_AGENT_INITIALIZED;
@@ -193,8 +194,8 @@ int snmp_agent_deinit(struct snmp_agent *agent)
 	memset(&agent->counters, 0, sizeof(agent->counters));
 	agent->counters.snmpEnableAuthenTraps = 1;
 
-	snmp_mib_init_inst(agent);
-	snmp_mib_register_defaults_inst(agent);
+	snmp_mib_init(agent);
+	snmp_mib_register_defaults(agent);
 
 #if defined(CONFIG_SNMP_VERSION_3)
 	/* Drop credentials/access tables, keep this engine's identity. */
@@ -208,8 +209,8 @@ int snmp_agent_deinit(struct snmp_agent *agent)
 	agent->access_rule_cnt = 0;
 	memset(agent->views, 0, sizeof(agent->views));
 	agent->view_cnt = 0;
-	snmp_usm_init_inst(agent);
-	snmp_vacm_init_inst(agent);
+	snmp_usm_init(agent);
+	snmp_vacm_init(agent);
 #endif
 
 	agent->state = SNMP_AGENT_INITIALIZED;
@@ -313,7 +314,7 @@ static int process_v1v2c(struct snmp_agent *agent, const uint8_t *req_buf, size_
 				INST_COUNTER_INC(agent, snmpInBadCommunityNames);
 			}
 #if defined(CONFIG_SNMP_TRAP_ENABLED)
-			snmp_trap_send_auth_failure_inst(agent);
+			snmp_trap_send_auth_failure(agent);
 #endif
 			return -EACCES;
 		}
@@ -325,14 +326,14 @@ static int process_v1v2c(struct snmp_agent *agent, const uint8_t *req_buf, size_
 			0) {
 			INST_COUNTER_INC(agent, snmpInBadCommunityNames);
 #if defined(CONFIG_SNMP_TRAP_ENABLED)
-			snmp_trap_send_auth_failure_inst(agent);
+			snmp_trap_send_auth_failure(agent);
 #endif
 			return -EACCES;
 		}
 	}
 
 	/* Dispatch to MIB engine with instance context */
-	ret = snmp_mib_dispatch_inst(agent, &agent->current_pdu);
+	ret = snmp_mib_dispatch(agent, &agent->current_pdu);
 	if (ret < 0) {
 		return ret;
 	}
@@ -369,7 +370,7 @@ static int process_v3(struct snmp_agent *agent, const uint8_t *req_buf, size_t r
 	}
 
 	/* USM verify */
-	ret = snmp_usm_verify_incoming_inst(agent, &msg, req_buf, req_len);
+	ret = snmp_usm_verify_incoming(agent, &msg, req_buf, req_len);
 	if (ret < 0) {
 		if (ret == -EACCES) {
 			INST_COUNTER_INC(agent, snmpSilentDrops);
@@ -395,13 +396,12 @@ static int process_v3(struct snmp_agent *agent, const uint8_t *req_buf, size_t r
 		msg.global.msg_max_size = CONFIG_SNMP_MAX_PDU_SIZE;
 		msg.global.msg_security_model = 3;
 		uint8_t eng_len = sizeof(msg.scoped.context_engine_id);
-		if (snmp_usm_get_engine_id_inst(agent, msg.scoped.context_engine_id, &eng_len) ==
-		    0) {
+		if (snmp_usm_get_engine_id(agent, msg.scoped.context_engine_id, &eng_len) == 0) {
 			msg.scoped.context_engine_id_len = eng_len;
 		}
 		msg.scoped.context_name_len = 0;
 
-		ret = snmp_usm_build_outgoing_inst(agent, &msg);
+		ret = snmp_usm_build_outgoing(agent, &msg);
 		if (ret < 0) {
 			return ret;
 		}
@@ -435,16 +435,16 @@ static int process_v3(struct snmp_agent *agent, const uint8_t *req_buf, size_t r
 	user_name[name_len] = '\0';
 
 	if (msg.scoped.pdu.varbind_cnt == 0) {
-		ret = snmp_vacm_check_access_ex_inst(agent, (const char *)msg.scoped.context_name,
-						     msg.global.msg_security_model, user_name,
-						     sec_level, access_type, NULL);
+		ret = snmp_vacm_check_access_ex(agent, (const char *)msg.scoped.context_name,
+						msg.global.msg_security_model, user_name, sec_level,
+						access_type, NULL);
 		if (ret < 0) {
 			INST_COUNTER_INC(agent, snmpSilentDrops);
 			return ret;
 		}
 	} else {
 		for (size_t i = 0; i < msg.scoped.pdu.varbind_cnt; i++) {
-			ret = snmp_vacm_check_access_ex_inst(
+			ret = snmp_vacm_check_access_ex(
 			    agent, (const char *)msg.scoped.context_name,
 			    msg.global.msg_security_model, user_name, sec_level, access_type,
 			    &msg.scoped.pdu.varbinds[i].oid);
@@ -456,7 +456,7 @@ static int process_v3(struct snmp_agent *agent, const uint8_t *req_buf, size_t r
 	}
 
 	/* Dispatch to MIB */
-	ret = snmp_mib_dispatch_inst(agent, &msg.scoped.pdu);
+	ret = snmp_mib_dispatch(agent, &msg.scoped.pdu);
 	if (ret < 0) {
 		return ret;
 	}
@@ -466,7 +466,7 @@ static int process_v3(struct snmp_agent *agent, const uint8_t *req_buf, size_t r
 	msg.global.msg_security_model = 3;
 
 	/* Build outgoing USM */
-	ret = snmp_usm_build_outgoing_inst(agent, &msg);
+	ret = snmp_usm_build_outgoing(agent, &msg);
 	if (ret < 0) {
 		return ret;
 	}

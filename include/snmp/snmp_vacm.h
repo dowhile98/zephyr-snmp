@@ -95,66 +95,86 @@ struct vacm_view_tree_entry {
 /* ---- Instance-based APIs ---- */
 
 /**
- * @brief Initialize VACM state inside an agent instance with default RFC 3415 configuration.
+ * @brief Initialize VACM for an agent instance with the RFC 3415 default views,
+ *        groups, access rules and context entries.
+ * @param inst Target agent instance.
+ * @return 0 on success, -EINVAL if @p inst is NULL.
  */
-int snmp_vacm_init_inst(struct snmp_agent *inst);
+int snmp_vacm_init(struct snmp_agent *inst);
 
 /**
- * @brief Register a context name in vacmContextTable for an agent instance.
+ * @brief Register a context name in the instance's vacmContextTable.
+ * @param inst Target agent instance.
+ * @param context_name Context to add; the empty string is always valid.
+ * @return 0 on success, -EINVAL on bad arguments, -ENOMEM if the table is full.
  */
-int snmp_vacm_add_context_inst(struct snmp_agent *inst, const char *context_name);
+int snmp_vacm_add_context(struct snmp_agent *inst, const char *context_name);
 
 /**
- * @brief Map a security model and security name to a group name for an agent instance.
+ * @brief Map security model + security name to a group (vacmSecurityToGroupTable).
+ * @param inst Target agent instance.
+ * @param security_model One of SNMP_SEC_MODEL_*.
+ * @param security_name Security name (community or USM user).
+ * @param group_name Group name.
+ * @return 0 on success, -EINVAL on bad arguments, -ENOMEM if the table is full.
  */
-int snmp_vacm_add_group_mapping_inst(struct snmp_agent *inst, int security_model,
-				     const char *security_name, const char *group_name);
+int snmp_vacm_add_group_mapping(struct snmp_agent *inst, int security_model,
+				const char *security_name, const char *group_name);
 
 /**
- * @brief Add an access rule in vacmAccessTable for an agent instance.
+ * @brief Add a row to the instance's vacmAccessTable.
+ * @param inst Target agent instance.
+ * @param group_name Group the rule applies to.
+ * @param context_prefix Context prefix ("" matches the default context).
+ * @param security_model One of SNMP_SEC_MODEL_*, or SNMP_SEC_MODEL_ANY.
+ * @param min_sec_level Minimum SNMP_SEC_LEVEL_* required.
+ * @param read_view Name of the readable view.
+ * @param write_view Name of the writable view.
+ * @param notify_view Name of the notification view.
+ * @return 0 on success, -EINVAL on bad arguments, -ENOMEM if the table is full.
  */
-int snmp_vacm_add_access_rule_inst(struct snmp_agent *inst, const char *group_name,
-				   const char *context_prefix, int security_model,
-				   int min_sec_level, const char *read_view, const char *write_view,
-				   const char *notify_view);
-
-/**
- * @brief Add a view tree family entry in vacmViewTreeFamilyTable for an agent instance.
- */
-int snmp_vacm_add_view_tree_inst(struct snmp_agent *inst, const char *view_name,
-				 const struct snmp_oid *subtree, const uint8_t *mask,
-				 size_t mask_len, int type_included);
-
-/**
- * @brief Check access for a specific target OID per RFC 3415 §4 for an agent instance.
- */
-int snmp_vacm_check_access_ex_inst(struct snmp_agent *inst, const char *context_name,
-				   int security_model, const char *security_name, int sec_level,
-				   int access_type, const struct snmp_oid *target_oid);
-
-/**
- * @brief Check access for incoming SNMPv3 message varbinds for an agent instance.
- */
-int snmp_vacm_check_access_inst(struct snmp_agent *inst, const struct snmp_v3_msg *msg,
-				bool is_write);
-
-/* ---- Legacy API Facade (delegates to default agent) ---- */
-
-int snmp_vacm_init(void);
-int snmp_vacm_add_context(const char *context_name);
-int snmp_vacm_add_group_mapping(int security_model, const char *security_name,
-				const char *group_name);
-int snmp_vacm_add_access_rule(const char *group_name, const char *context_prefix,
-			      int security_model, int min_sec_level,
+int snmp_vacm_add_access_rule(struct snmp_agent *inst, const char *group_name,
+			      const char *context_prefix, int security_model, int min_sec_level,
 			      const char *read_view, const char *write_view,
 			      const char *notify_view);
-int snmp_vacm_add_view_tree(const char *view_name, const struct snmp_oid *subtree,
-			    const uint8_t *mask, size_t mask_len, int type_included);
-int snmp_vacm_check_access_ex(const char *context_name, int security_model,
-			      const char *security_name, int sec_level,
-			      int access_type, const struct snmp_oid *target_oid);
-int snmp_vacm_check_access(const struct snmp_v3_msg *msg, bool is_write);
-int snmp_vacm_add_user(const char *user_name, const char *group_name);
+
+/**
+ * @brief Add a subtree to vacmViewTreeFamilyTable.
+ * @param inst Target agent instance.
+ * @param view_name View the entry belongs to.
+ * @param subtree Subtree OID.
+ * @param mask Optional bitmask, NULL for exact/prefix matching.
+ * @param mask_len Length of @p mask.
+ * @param type_included SNMP_VACM_VIEW_INCLUDED or SNMP_VACM_VIEW_EXCLUDED.
+ * @return 0 on success, -EINVAL on bad arguments, -ENOMEM if the table is full.
+ */
+int snmp_vacm_add_view_tree(struct snmp_agent *inst, const char *view_name,
+			    const struct snmp_oid *subtree, const uint8_t *mask, size_t mask_len,
+			    int type_included);
+
+/**
+ * @brief RFC 3415 section 4 access decision for one target OID.
+ * @param inst Target agent instance.
+ * @param context_name Context of the request.
+ * @param security_model One of SNMP_SEC_MODEL_*.
+ * @param security_name Security name of the requester.
+ * @param sec_level Requested SNMP_SEC_LEVEL_*.
+ * @param access_type SNMP_VACM_ACCESS_READ, _WRITE or _NOTIFY.
+ * @param target_oid OID to test, NULL for a whole-context decision.
+ * @return 0 when access is granted, -EACCES otherwise.
+ */
+int snmp_vacm_check_access_ex(struct snmp_agent *inst, const char *context_name, int security_model,
+			      const char *security_name, int sec_level, int access_type,
+			      const struct snmp_oid *target_oid);
+
+/**
+ * @brief Check every varbind of an incoming v3 message against the instance's tables.
+ * @param inst Target agent instance.
+ * @param msg Incoming v3 message.
+ * @param is_write True when the scoped PDU is a SET request.
+ * @return 0 when all varbinds are accessible, -EACCES on the first denial.
+ */
+int snmp_vacm_check_access(struct snmp_agent *inst, const struct snmp_v3_msg *msg, bool is_write);
 
 #endif /* CONFIG_SNMP_AGENT */
 

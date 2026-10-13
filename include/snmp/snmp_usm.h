@@ -40,50 +40,51 @@ struct snmp_usm_user {
 /* ---- Instance-based APIs ---- */
 
 /**
- * @brief Initialize USM engine inside an agent instance.
+ * @brief Initialize the USM engine of an agent instance (engine ID, engineBoots,
+ *        and localization of any pre-loaded user keys).
+ * @param inst Target agent instance.
+ * @return 0 on success, -EINVAL if @p inst is NULL.
  */
-int snmp_usm_init_inst(struct snmp_agent *inst);
+int snmp_usm_init(struct snmp_agent *inst);
 
 /**
- * @brief Add a user to an agent instance's USM engine.
+ * @brief Add or update a USM user in the agent's local keys table.
+ * @param inst Target agent instance.
+ * @param user User record; passwords are localized against the instance engine ID.
+ * @return 0 on success, -EINVAL on bad arguments, -ENOMEM if the table is full.
  */
-int snmp_usm_add_user_inst(struct snmp_agent *inst, const struct snmp_usm_user *user);
+int snmp_usm_add_user(struct snmp_agent *inst, const struct snmp_usm_user *user);
 
 /**
- * @brief Verify incoming v3 message against an agent instance.
+ * @brief Copy the agent's snmpEngineID.
+ * @param inst Target agent instance.
+ * @param engine_id Output buffer.
+ * @param len In: capacity, out: written length.
+ * @return 0 on success, -EINVAL on bad arguments, -ENOBUFS if the buffer is too small.
  */
-int snmp_usm_verify_incoming_inst(struct snmp_agent *inst, struct snmp_v3_msg *msg,
-				  const uint8_t *raw_buf, size_t raw_len);
+int snmp_usm_get_engine_id(struct snmp_agent *inst, uint8_t *engine_id, uint8_t *len);
 
 /**
- * @brief Prepare outgoing v3 message using an agent instance's USM engine.
+ * @brief Set snmpEngineBoots (RFC 3414 section 5.2.5). Persisted per instance when a
+ *        settings prefix is configured.
+ * @param inst Target agent instance.
+ * @param boots New value, not above 2147483647.
+ * @return 0 on success, -EINVAL on bad arguments.
  */
-int snmp_usm_build_outgoing_inst(struct snmp_agent *inst, struct snmp_v3_msg *msg);
+int snmp_usm_set_engine_boots(struct snmp_agent *inst, uint32_t boots);
 
 /**
- * @brief Get engine ID for an agent instance.
+ * @brief Read snmpEngineBoots of an agent instance. Safe to call from any context.
+ * @param inst Target agent instance.
+ * @return Current engineBoots, 0 if @p inst is NULL.
  */
-int snmp_usm_get_engine_id_inst(struct snmp_agent *inst, uint8_t *engine_id, uint8_t *len);
+uint32_t snmp_usm_get_engine_boots(struct snmp_agent *inst);
 
-/**
- * @brief Set engine boots for an agent instance.
+/*
+ * snmp_usm_verify_incoming() and snmp_usm_build_outgoing() are module-internal:
+ * they are called across translation units (snmp_core.c, snmp_trap.c) and are
+ * declared in src/snmp_internal.h, not here.
  */
-int snmp_usm_set_engine_boots_inst(struct snmp_agent *inst, uint32_t boots);
-
-/**
- * @brief Get engine boots for an agent instance.
- */
-uint32_t snmp_usm_get_engine_boots_inst(struct snmp_agent *inst);
-
-/* ---- Legacy API Facade (delegates to default agent) ---- */
-
-int snmp_usm_init(void);
-int snmp_usm_add_user(const struct snmp_usm_user *user);
-int snmp_usm_get_engine_id(uint8_t *engine_id, uint8_t *len);
-int snmp_usm_verify_incoming(struct snmp_v3_msg *msg, const uint8_t *raw_buf, size_t raw_len);
-int snmp_usm_build_outgoing(struct snmp_v3_msg *msg);
-int snmp_usm_set_engine_boots(uint32_t boots);
-uint32_t snmp_usm_get_engine_boots(void);
 
 #endif /* CONFIG_SNMP_AGENT */
 

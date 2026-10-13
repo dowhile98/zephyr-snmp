@@ -146,21 +146,96 @@ int snmp_mib_table_remove_row(struct snmp_mib_table *table, uint32_t index);
 
 /* --- Instance-based MIB APIs --- */
 
-int snmp_mib_init_inst(struct snmp_agent *inst);
-int snmp_mib_register_defaults_inst(struct snmp_agent *inst);
+/**
+ * @brief Reset the agent's MIB tree and table registry.
+ * @param inst Target agent instance.
+ * @return 0 on success, -EINVAL if @p inst is NULL.
+ */
+int snmp_mib_init(struct snmp_agent *inst);
+
+/**
+ * @brief Register the MIB-II system group and snmp (1.3.6.1.2.1.11) counter group
+ *        into the agent's own tree.
+ * @param inst Target agent instance.
+ * @return 0 on success, -EINVAL if @p inst is NULL, -ENOMEM if the tree is full.
+ */
+int snmp_mib_register_defaults(struct snmp_agent *inst);
+
+/**
+ * @brief Register a single MIB node in the agent's tree (lexicographically sorted).
+ * @param inst Target agent instance.
+ * @param node Node definition to copy in.
+ * @return 0 on success, -EINVAL on bad arguments, -ENOMEM if the tree is full.
+ */
 int snmp_mib_register_inst(struct snmp_agent *inst, const struct snmp_mib_node *node);
-int snmp_mib_register_nodes_inst(struct snmp_agent *inst, const struct snmp_mib_node *nodes,
-				 size_t count);
-int snmp_mib_get_inst(struct snmp_agent *inst, const struct snmp_oid *oid, struct snmp_varbind *vb);
-int snmp_mib_get_next_inst(struct snmp_agent *inst, const struct snmp_oid *oid,
-			   struct snmp_varbind *vb);
-int snmp_mib_set_inst(struct snmp_agent *inst, const struct snmp_oid *oid,
-		      const struct snmp_varbind *vb);
-int snmp_mib_dispatch_inst(struct snmp_agent *inst, struct snmp_pdu *pdu);
+
+/**
+ * @brief Register an array of MIB nodes in bulk.
+ * @param inst Target agent instance.
+ * @param nodes Node array.
+ * @param count Number of nodes.
+ * @return 0 on success, -EINVAL on bad arguments, -ENOMEM if the tree is full.
+ */
+int snmp_mib_register_nodes(struct snmp_agent *inst, const struct snmp_mib_node *nodes,
+			    size_t count);
+
+/**
+ * @brief Look up one OID in the agent's tree (scalar node or table cell).
+ * @param inst Target agent instance.
+ * @param oid OID to resolve.
+ * @param vb Output variable binding.
+ * @return 0 on success, -EINVAL on bad arguments, negative errno from the node callback.
+ */
+int snmp_mib_get(struct snmp_agent *inst, const struct snmp_oid *oid, struct snmp_varbind *vb);
+
+/**
+ * @brief Return the lexicographically next OID present in the agent's tree.
+ * @param inst Target agent instance.
+ * @param oid Reference OID.
+ * @param vb Output variable binding (endOfMibView when nothing is larger).
+ * @return 0 on success, -EINVAL on bad arguments.
+ */
+int snmp_mib_get_next(struct snmp_agent *inst, const struct snmp_oid *oid, struct snmp_varbind *vb);
+
+/**
+ * @brief Write one variable binding (reserve/commit/cleanup runs inline).
+ * @param inst Target agent instance.
+ * @param oid Target OID.
+ * @param vb Value to write.
+ * @return 0 on success, -EINVAL on bad arguments, -ENOENT/-EACCES per RFC 3416.
+ */
+int snmp_mib_set(struct snmp_agent *inst, const struct snmp_oid *oid,
+		 const struct snmp_varbind *vb);
+
+/**
+ * @brief Execute a PDU (GET/GETNEXT/GETBULK/SET) against the agent's tree.
+ *
+ * Runs the two-phase-commit SET pipeline of RFC 3416 section 4.2.5 atomically under
+ * the agent lock. @p inst is mandatory: pass the agent that received the message.
+ *
+ * @param inst Target agent instance.
+ * @param pdu PDU to process in place (error_status/error_index and response type set).
+ * @return 0 on success, -EINVAL if @p inst or @p pdu is NULL.
+ */
+int snmp_mib_dispatch(struct snmp_agent *inst, struct snmp_pdu *pdu);
+
+/**
+ * @brief Register an SNMP table in the agent's tree.
+ * @param inst Target agent instance.
+ * @param table Application-owned table descriptor (pointer is stored, not copied).
+ * @return 0 on success, -EINVAL on bad arguments, -ENOMEM if the table registry is full.
+ */
 int snmp_mib_register_table_inst(struct snmp_agent *inst, struct snmp_mib_table *table);
 
-void snmp_mib_lock_inst(struct snmp_agent *inst);
-void snmp_mib_unlock_inst(struct snmp_agent *inst);
+/**
+ * @brief Lock the agent's shared state (MIB tree, tables, sys strings, communities,
+ *        engine config and rx/tx/current_pdu scratch). Same mutex as @c inst->lock.
+ * @param inst Target agent instance.
+ */
+void snmp_mib_lock(struct snmp_agent *inst);
+
+/** @brief Release the lock taken by snmp_mib_lock(). @param inst Target agent. */
+void snmp_mib_unlock(struct snmp_agent *inst);
 
 int snmp_set_device_enterprise_oid_inst(struct snmp_agent *inst, const struct snmp_oid *oid);
 int snmp_mib2_set_sysdescr_inst(struct snmp_agent *inst, const char *descr);
@@ -168,27 +243,16 @@ int snmp_mib2_set_syscontact_inst(struct snmp_agent *inst, const char *contact);
 int snmp_mib2_set_sysname_inst(struct snmp_agent *inst, const char *name);
 int snmp_mib2_set_syslocation_inst(struct snmp_agent *inst, const char *location);
 
-/* --- Legacy Facade APIs (delegates to default agent) --- */
-
-int snmp_mib_init(void);
-int snmp_mib_register_defaults(void);
+/*
+ * --- Transitional legacy facades (removed in sub-phase 8c) ---------------------
+ *
+ * These no-parameter entry points delegate to snmp_agent_get_default(). They only
+ * survive because samples/snmp_agent still calls them; the identifier cannot be
+ * reclaimed by the instance API until the sample migrates, since C has no
+ * overloading. Do not use in new code.
+ */
 int snmp_mib_register(const struct snmp_mib_node *node);
-int snmp_mib_register_nodes(const struct snmp_mib_node *nodes, size_t count);
-int snmp_mib_get(const struct snmp_oid *oid, struct snmp_varbind *vb);
-int snmp_mib_get_next(const struct snmp_oid *oid, struct snmp_varbind *vb);
-int snmp_mib_set(const struct snmp_oid *oid, const struct snmp_varbind *vb);
-int(snmp_mib_dispatch)(struct snmp_agent *inst, struct snmp_pdu *pdu);
-int snmp_mib_dispatch_legacy(struct snmp_pdu *pdu);
-
-#define _SNMP_DISPATCH_1(pdu) snmp_mib_dispatch_inst(NULL, (pdu))
-#define _SNMP_DISPATCH_2(inst, pdu) snmp_mib_dispatch_inst((inst), (pdu))
-#define _SNMP_DISPATCH_GET(_1, _2, NAME, ...) NAME
-#define snmp_mib_dispatch(...) _SNMP_DISPATCH_GET(__VA_ARGS__, _SNMP_DISPATCH_2, _SNMP_DISPATCH_1)(__VA_ARGS__)
-
 int snmp_mib_register_table(struct snmp_mib_table *table);
-void snmp_mib_lock(void);
-void snmp_mib_unlock(void);
-
 int snmp_set_device_enterprise_oid(const struct snmp_oid *oid);
 int snmp_mib2_set_sysdescr(const char *descr);
 int snmp_mib2_set_syscontact(const char *contact);

@@ -102,31 +102,12 @@ extern "C" {
 int snmp_agent_init(void);
 
 /**
- * @brief Register standard MIB-II objects (system group + snmp group counters).
- *        Called automatically by snmp_agent_init(). Application code may call
- *        this directly if using a custom init sequence.
- *
- * @return 0 on success, negative errno on failure.
- */
-int snmp_mib_register_defaults(void);
-
-/**
  * @brief Register a single MIB node. Nodes are kept lexicographically sorted.
  *
  * @param node Pointer to the MIB node definition to register.
  * @return 0 on success, negative errno on failure.
  */
 int snmp_mib_register(const struct snmp_mib_node *node);
-
-/**
- * @brief Register an array of MIB nodes in bulk (application-defined MIB).
- *        All nodes are inserted into the same sorted tree.
- *
- * @param nodes Pointer to array of MIB node definitions.
- * @param count Number of nodes in the array.
- * @return 0 on success, negative errno on failure.
- */
-int snmp_mib_register_nodes(const struct snmp_mib_node *nodes, size_t count);
 
 /**
  * @brief Configure the read community string for SNMP v1/v2c (default: "public").

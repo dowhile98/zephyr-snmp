@@ -204,7 +204,7 @@ static int vacm_evaluate_view(const struct snmp_agent *inst, const char *view_na
 
 /* ---- Instance-based APIs ---- */
 
-int snmp_vacm_init_inst(struct snmp_agent *inst)
+int snmp_vacm_init(struct snmp_agent *inst)
 {
 	if (!inst) {
 		return -EINVAL;
@@ -220,21 +220,22 @@ int snmp_vacm_init_inst(struct snmp_agent *inst)
 	inst->view_cnt = 0;
 
 	/* Default context: empty string ("") */
-	int ret = snmp_vacm_add_context_inst(inst, "");
+	int ret = snmp_vacm_add_context(inst, "");
 	if (ret < 0) {
 		return ret;
 	}
 
 	/* Group "admin": mapped from USM user CONFIG_SNMP_V3_USER_NAME */
-	ret = snmp_vacm_add_group_mapping_inst(inst, SNMP_SEC_MODEL_USM, CONFIG_SNMP_V3_USER_NAME, "admin");
+	ret = snmp_vacm_add_group_mapping(inst, SNMP_SEC_MODEL_USM, CONFIG_SNMP_V3_USER_NAME,
+					  "admin");
 	if (ret < 0) {
 		return ret;
 	}
 
 	/* Access rule: "admin" gets "fullView" for Read, Write, Notify with authNoPriv+ */
-	ret = snmp_vacm_add_access_rule_inst(inst, "admin", "", SNMP_SEC_MODEL_USM,
-					     SNMP_SEC_LEVEL_AUTH_NOPRIV,
-					     "fullView", "fullView", "fullView");
+	ret = snmp_vacm_add_access_rule(inst, "admin", "", SNMP_SEC_MODEL_USM,
+					SNMP_SEC_LEVEL_AUTH_NOPRIV, "fullView", "fullView",
+					"fullView");
 	if (ret < 0) {
 		return ret;
 	}
@@ -244,21 +245,22 @@ int snmp_vacm_init_inst(struct snmp_agent *inst)
 		.len = 4,
 		.ids = {1, 3, 6, 1}
 	};
-	ret = snmp_vacm_add_view_tree_inst(inst, "fullView", &internet_oid, NULL, 0, SNMP_VACM_VIEW_INCLUDED);
+	ret = snmp_vacm_add_view_tree(inst, "fullView", &internet_oid, NULL, 0,
+				      SNMP_VACM_VIEW_INCLUDED);
 	if (ret < 0) {
 		return ret;
 	}
 
 	/* Group "readonly": mapped from user "monitor" */
-	ret = snmp_vacm_add_group_mapping_inst(inst, SNMP_SEC_MODEL_USM, "monitor", "readonly");
+	ret = snmp_vacm_add_group_mapping(inst, SNMP_SEC_MODEL_USM, "monitor", "readonly");
 	if (ret < 0) {
 		return ret;
 	}
 
 	/* Access rule: "readonly" gets "restrictedView" for Read, Notify with noAuthNoPriv+ */
-	ret = snmp_vacm_add_access_rule_inst(inst, "readonly", "", SNMP_SEC_MODEL_USM,
-					     SNMP_SEC_LEVEL_NOAUTH_NOPRIV,
-					     "restrictedView", "", "restrictedView");
+	ret = snmp_vacm_add_access_rule(inst, "readonly", "", SNMP_SEC_MODEL_USM,
+					SNMP_SEC_LEVEL_NOAUTH_NOPRIV, "restrictedView", "",
+					"restrictedView");
 	if (ret < 0) {
 		return ret;
 	}
@@ -268,7 +270,8 @@ int snmp_vacm_init_inst(struct snmp_agent *inst)
 		.len = 7,
 		.ids = {1, 3, 6, 1, 2, 1, 1}
 	};
-	ret = snmp_vacm_add_view_tree_inst(inst, "restrictedView", &system_oid, NULL, 0, SNMP_VACM_VIEW_INCLUDED);
+	ret = snmp_vacm_add_view_tree(inst, "restrictedView", &system_oid, NULL, 0,
+				      SNMP_VACM_VIEW_INCLUDED);
 	if (ret < 0) {
 		return ret;
 	}
@@ -276,7 +279,7 @@ int snmp_vacm_init_inst(struct snmp_agent *inst)
 	return 0;
 }
 
-int snmp_vacm_add_context_inst(struct snmp_agent *inst, const char *context_name)
+int snmp_vacm_add_context(struct snmp_agent *inst, const char *context_name)
 {
 	if (!inst) {
 		return -EINVAL;
@@ -305,8 +308,8 @@ int snmp_vacm_add_context_inst(struct snmp_agent *inst, const char *context_name
 	return -ENOMEM;
 }
 
-int snmp_vacm_add_group_mapping_inst(struct snmp_agent *inst, int security_model,
-				     const char *security_name, const char *group_name)
+int snmp_vacm_add_group_mapping(struct snmp_agent *inst, int security_model,
+				const char *security_name, const char *group_name)
 {
 	if (!inst || !security_name || !group_name) {
 		return -EINVAL;
@@ -344,10 +347,10 @@ int snmp_vacm_add_group_mapping_inst(struct snmp_agent *inst, int security_model
 	return -ENOMEM;
 }
 
-int snmp_vacm_add_access_rule_inst(struct snmp_agent *inst, const char *group_name,
-				   const char *context_prefix, int security_model,
-				   int min_sec_level, const char *read_view, const char *write_view,
-				   const char *notify_view)
+int snmp_vacm_add_access_rule(struct snmp_agent *inst, const char *group_name,
+			      const char *context_prefix, int security_model, int min_sec_level,
+			      const char *read_view, const char *write_view,
+			      const char *notify_view)
 {
 	if (!inst || !group_name) {
 		return -EINVAL;
@@ -400,9 +403,9 @@ int snmp_vacm_add_access_rule_inst(struct snmp_agent *inst, const char *group_na
 	return -ENOMEM;
 }
 
-int snmp_vacm_add_view_tree_inst(struct snmp_agent *inst, const char *view_name,
-				 const struct snmp_oid *subtree, const uint8_t *mask,
-				 size_t mask_len, int type_included)
+int snmp_vacm_add_view_tree(struct snmp_agent *inst, const char *view_name,
+			    const struct snmp_oid *subtree, const uint8_t *mask, size_t mask_len,
+			    int type_included)
 {
 	if (!inst || !view_name || !subtree) {
 		return -EINVAL;
@@ -458,9 +461,9 @@ int snmp_vacm_add_view_tree_inst(struct snmp_agent *inst, const char *view_name,
 	return -ENOMEM;
 }
 
-int snmp_vacm_check_access_ex_inst(struct snmp_agent *inst, const char *context_name,
-				   int security_model, const char *security_name, int sec_level,
-				   int access_type, const struct snmp_oid *target_oid)
+int snmp_vacm_check_access_ex(struct snmp_agent *inst, const char *context_name, int security_model,
+			      const char *security_name, int sec_level, int access_type,
+			      const struct snmp_oid *target_oid)
 {
 	if (!inst || !security_name) {
 		return -EINVAL;
@@ -510,8 +513,7 @@ int snmp_vacm_check_access_ex_inst(struct snmp_agent *inst, const char *context_
 	return vacm_evaluate_view(inst, view, target_oid);
 }
 
-int snmp_vacm_check_access_inst(struct snmp_agent *inst, const struct snmp_v3_msg *msg,
-				bool is_write)
+int snmp_vacm_check_access(struct snmp_agent *inst, const struct snmp_v3_msg *msg, bool is_write)
 {
 	if (!inst || !msg) {
 		return -EINVAL;
@@ -533,78 +535,21 @@ int snmp_vacm_check_access_inst(struct snmp_agent *inst, const struct snmp_v3_ms
 	user_name[name_len] = '\0';
 
 	if (msg->scoped.pdu.varbind_cnt == 0) {
-		return snmp_vacm_check_access_ex_inst(inst, (const char *)msg->scoped.context_name,
-						      msg->global.msg_security_model,
-						      user_name, sec_level, access_type, NULL);
+		return snmp_vacm_check_access_ex(inst, (const char *)msg->scoped.context_name,
+						 msg->global.msg_security_model, user_name,
+						 sec_level, access_type, NULL);
 	}
 
 	for (size_t i = 0; i < msg->scoped.pdu.varbind_cnt; i++) {
-		int ret = snmp_vacm_check_access_ex_inst(inst, (const char *)msg->scoped.context_name,
-							 msg->global.msg_security_model,
-							 user_name, sec_level, access_type,
-							 &msg->scoped.pdu.varbinds[i].oid);
+		int ret = snmp_vacm_check_access_ex(
+		    inst, (const char *)msg->scoped.context_name, msg->global.msg_security_model,
+		    user_name, sec_level, access_type, &msg->scoped.pdu.varbinds[i].oid);
 		if (ret < 0) {
 			return ret;
 		}
 	}
 
 	return 0;
-}
-
-/* ---- Legacy API Facade (delegates to default agent) ---- */
-
-int snmp_vacm_init(void)
-{
-	return snmp_vacm_init_inst(snmp_agent_get_default());
-}
-
-int snmp_vacm_add_context(const char *context_name)
-{
-	return snmp_vacm_add_context_inst(snmp_agent_get_default(), context_name);
-}
-
-int snmp_vacm_add_group_mapping(int security_model, const char *security_name,
-				const char *group_name)
-{
-	return snmp_vacm_add_group_mapping_inst(snmp_agent_get_default(),
-						security_model, security_name, group_name);
-}
-
-int snmp_vacm_add_access_rule(const char *group_name, const char *context_prefix,
-			      int security_model, int min_sec_level,
-			      const char *read_view, const char *write_view,
-			      const char *notify_view)
-{
-	return snmp_vacm_add_access_rule_inst(snmp_agent_get_default(), group_name,
-					      context_prefix, security_model, min_sec_level,
-					      read_view, write_view, notify_view);
-}
-
-int snmp_vacm_add_view_tree(const char *view_name, const struct snmp_oid *subtree,
-			    const uint8_t *mask, size_t mask_len, int type_included)
-{
-	return snmp_vacm_add_view_tree_inst(snmp_agent_get_default(), view_name,
-					    subtree, mask, mask_len, type_included);
-}
-
-int snmp_vacm_check_access_ex(const char *context_name, int security_model,
-			      const char *security_name, int sec_level,
-			      int access_type, const struct snmp_oid *target_oid)
-{
-	return snmp_vacm_check_access_ex_inst(snmp_agent_get_default(), context_name,
-					      security_model, security_name, sec_level,
-					      access_type, target_oid);
-}
-
-int snmp_vacm_check_access(const struct snmp_v3_msg *msg, bool is_write)
-{
-	return snmp_vacm_check_access_inst(snmp_agent_get_default(), msg, is_write);
-}
-
-int snmp_vacm_add_user(const char *user_name, const char *group_name)
-{
-	return snmp_vacm_add_group_mapping_inst(snmp_agent_get_default(),
-						SNMP_SEC_MODEL_USM, user_name, group_name);
 }
 
 #endif /* CONFIG_SNMP_AGENT && CONFIG_SNMP_VERSION_3 */
