@@ -71,6 +71,40 @@ Todas las características pueden ajustarse en tiempo de compilación o mediante
 | `CONFIG_SNMP_SAMPLE_LED_OBJECT` | `y` | Activa el nodo de control de LED de hardware. |
 | `CONFIG_SNMP_SAMPLE_BUTTON_TRAP` | `y` | Activa la interrupción de botón y despacho de trampas. |
 | `CONFIG_SNMP_SAMPLE_TRAP_DEST` | `"192.168.16.101"` | Dirección IP del servidor NMS gestor receptor de Traps. |
+| `CONFIG_SNMP_SAMPLE_SECOND_INSTANCE` | `n` (opcional) | Arranca un segundo agente independiente (`g_agent_wan`) demostrando multi-instancia. |
+| `CONFIG_SNMP_SAMPLE_WAN_PORT` | `1610` | Puerto UDP del segundo agente del demo dual-instancia. |
+
+### 🧬 Demo Dual-Instancia (Multi-Instance)
+
+`CONFIG_SNMP_SAMPLE_SECOND_INSTANCE=y` ejecuta dos agentes SNMP totalmente aislados
+desde un solo `main.c`: cada uno con su propio storage estático de aplicación,
+sysName, comunidades, árbol MIB, contadores `.11` y socket-service dedicado.
+Comparten interfaz pero **no pueden ocupar el mismo puerto UDP** (un segundo
+`bind()` en :161 fallaría con `-EADDRINUSE`), por eso el agente WAN escucha en 1610.
+
+Requisitos adicionales (fórmula del presupuesto de poll, contrato §4.6, verificada
+por `BUILD_ASSERT` en `src/snmp_service.c`):
+
+```text
+CONFIG_ZVFS_POLL_MAX >= CONFIG_SNMP_MAX_INSTANCES * SNMP_SVC_FDS + 1
+# SNMP_SVC_FDS = 2 con CONFIG_NET_IPV6 (listener IPv4 + IPv6 por instancia), 1 en caso contrario
+# +1 = eventfd del hilo de socket-service. Deje holgura si hay más servicios de sockets.
+```
+
+Habilitación (ejemplo qemu_x86 con IPv6 ⇒ 2*2+1 = 5):
+
+```bash
+west build -b qemu_x86 samples/snmp_agent -- \
+  -DCONFIG_SNMP_MAX_INSTANCES=2 -DCONFIG_ZVFS_POLL_MAX=5 \
+  -DCONFIG_SNMP_SAMPLE_SECOND_INSTANCE=y
+```
+
+Verificación de aislamiento desde el host:
+
+```bash
+snmpget -v2c -c public udp:<IP>:1610 1.3.6.1.2.1.1.5.0   # -> NUCLEO-H743ZI-WAN
+snmpget -v2c -c public udp:<IP>      1.3.6.1.2.1.1.5.0   # -> NUCLEO-H743ZI-SNMP
+```
 
 ---
 

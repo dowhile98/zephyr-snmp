@@ -65,22 +65,38 @@ CONFIG_SNMP_TRAP_ENABLED=y
 
 ### 2. Initialize in `main.c`
 
+The agent has no global instance: you own one `struct snmp_agent` per SNMP endpoint
+(static storage, zero dynamic allocation) and every API takes it explicitly.
+
 ```c
 #include <snmp/snmp.h>
 #include <snmp/snmp_trap.h>
 
+static struct snmp_agent g_agent;           /* caller-owned storage */
+
 int main(void) {
-    snmp_agent_init();
+    struct snmp_agent_cfg cfg = {
+        .read_community  = "public",
+        .write_community = "secret",
+        .sys_name        = "Zephyr-Node",
+        .sys_contact     = "admin@example.com",
+    };
+    snmp_agent_init(&g_agent, &cfg);        /* domain state + default MIB-II groups */
 
-    snmp_mib2_set_sysname("Zephyr-Node");
-    snmp_mib2_set_syscontact("admin@example.com");
-    snmp_set_read_community("public");
-    snmp_set_write_community("secret");
+    snmp_mib2_set_sysname(&g_agent, "Zephyr-Node");   /* setters work after init too */
+    snmp_agent_set_read_community(&g_agent, "public");
 
-    snmp_trap_add_destination("192.168.1.100");
-    snmp_trap_send_coldstart();
+    snmp_trap_add_destination(&g_agent, "192.168.1.100");
+    snmp_agent_start(&g_agent);             /* open UDP :161 listener */
+
+    snmp_trap_send_coldstart(&g_agent);     /* only once the interface has an IP */
 }
 ```
+
+A second agent is just more storage: `static struct snmp_agent g_agent2;` with its own
+`cfg.port` (instances sharing an interface need distinct ports) and its own `sysName` —
+see `samples/snmp_agent` with `CONFIG_SNMP_SAMPLE_SECOND_INSTANCE=y` for a working demo.
+Lifecycle: `init → start → stop → deinit`; APIs called in the wrong state return `-EPERM`.
 
 ### 3. Test from Linux
 
@@ -112,6 +128,7 @@ snmptrapd -f -Lo
 | `CONFIG_SNMP_MAX_VARBINDS` | int | 32 | Maximum varbinds per PDU |
 | `CONFIG_SNMP_MAX_MIB_NODES` | int | 128 | Maximum registered MIB nodes |
 | `CONFIG_SNMP_MAX_TABLES` | int | 8 | Maximum registered MIB tables |
+| `CONFIG_SNMP_MAX_INSTANCES` | int | 1 | Concurrently RUNNING `struct snmp_agent` slots (~31 KiB RAM/instance at defaults, ~21 KiB with v3 off) |
 
 ### v3 Options
 
@@ -146,63 +163,70 @@ snmptrapd -f -Lo
 ### Agent Lifecycle
 
 ```c
-int snmp_agent_init(void);
-int snmp_agent_deinit(void);
+int  snmp_agent_init(struct snmp_agent *agent, const struct snmp_agent_cfg *cfg);
+int  snmp_agent_start(struct snmp_agent *agent);
+int  snmp_agent_stop(struct snmp_agent *agent);
+int  snmp_agent_deinit(struct snmp_agent *agent);
 ```
-Initializes the MIB tree, registers default MIB-II nodes, starts the UDP :161 listener, and initializes USM/VACM for v3. `snmp_agent_deinit()` unregisters the socket service and stops the agent.
+The application owns the `struct snmp_agent` storage (static, zero dynamic allocation;
+NULL `cfg` selects the Kconfig defaults). `snmp_agent_init()` zero-fills the storage,
+registers the MIB-II default groups and initializes USM/VACM for v3.
+`snmp_agent_start()` opens and binds the UDP listener and attaches one socket-service
+slot; `snmp_agent_stop()` detaches with the documented quiesce ordering;
+`snmp_agent_deinit()` tears down the transport and resets tree, counters and security
+state on caller-owned storage. APIs called in the wrong state return `-EPERM`.
 
 ### Community Strings (v1/v2c)
 
 ```c
-int snmp_set_read_community(const char *community);
-int snmp_set_write_community(const char *community);
+int snmp_agent_set_read_community(struct snmp_agent *agent, const char *community);
+int snmp_agent_set_write_community(struct snmp_agent *agent, const char *community);
 ```
 
 ### MIB-II System Group Setters
 
 ```c
-int snmp_mib2_set_sysname(const char *name);
-int snmp_mib2_set_syscontact(const char *contact);
-int snmp_mib2_set_syslocation(const char *location);
-int snmp_mib2_set_sysdescr(const char *descr);
-int snmp_set_device_enterprise_oid(const struct snmp_oid *oid);
+int snmp_mib2_set_sysname(struct snmp_agent *agent, const char *name);
+int snmp_mib2_set_syscontact(struct snmp_agent *agent, const char *contact);
+int snmp_mib2_set_syslocation(struct snmp_agent *agent, const char *location);
+int snmp_mib2_set_sysdescr(struct snmp_agent *agent, const char *descr);
+int snmp_set_device_enterprise_oid(struct snmp_agent *agent, const struct snmp_oid *oid);
 ```
 
 ### Custom MIB Registration
 
 ```c
-/* Register a single scalar node */
-int snmp_mib_register(const struct snmp_mib_node *node);
+/* Register a single scalar node (copied into this agent's tree) */
+int snmp_mib_register(struct snmp_agent *agent, const struct snmp_mib_node *node);
 
 /* Register an array of scalar nodes */
-int snmp_mib_register_nodes(const struct snmp_mib_node *nodes, size_t count);
+int snmp_mib_register_nodes(struct snmp_agent *agent,
+                            const struct snmp_mib_node *nodes, size_t count);
 
-/* Register a 2D table */
-int snmp_mib_register_table(struct snmp_mib_table *tbl,
-                            const struct snmp_oid *base_oid,
-                            uint8_t col_count,
-                            snmp_table_get_cb_t get_cb,
-                            snmp_table_set_cb_t set_cb);
+/* Register a table (descriptor pointer stored per agent; rows stay app-owned) */
+int snmp_mib_register_table(struct snmp_agent *agent, struct snmp_mib_table *table);
 
-/* Add a row index to a registered table */
-int snmp_mib_table_add_row(struct snmp_mib_table *tbl, uint32_t row_idx);
+/* Link / unlink one application-owned row, serialised against this agent's walks */
+int snmp_mib_table_add_row(struct snmp_agent *agent,
+                           struct snmp_mib_table *table, struct snmp_table_row *row);
+int snmp_mib_table_remove_row(struct snmp_agent *agent,
+                              struct snmp_mib_table *table, uint32_t index);
 ```
 
 ### Trap Engine
 
 ```c
-int snmp_trap_add_destination(const char *ip_addr);
-int snmp_trap_send_coldstart(void);
-int snmp_trap_send_auth_failure(void);
-int snmp_trap_send(const struct snmp_oid *trap_oid,
+int snmp_trap_add_destination(struct snmp_agent *agent, const char *ipv4);
+int snmp_trap_send_coldstart(struct snmp_agent *agent);
+int snmp_trap_send_auth_failure(struct snmp_agent *agent);
+int snmp_trap_send(struct snmp_agent *agent,
+                   const struct snmp_oid *trap_oid,
                    const struct snmp_varbind *varbinds,
                    uint8_t varbind_cnt,
                    bool is_inform);
-int snmp_trap_send_v3(const struct snmp_oid *trap_oid,
-                     const struct snmp_varbind *varbinds,
-                     uint8_t varbind_cnt,
-                     bool is_inform);
 ```
+The notification wire format (v1 / v2c / v3) is selected by Kconfig inside
+`snmp_trap_send()`; traps always leave through the agent that owns the notification.
 
 ## MIB-II Coverage
 
