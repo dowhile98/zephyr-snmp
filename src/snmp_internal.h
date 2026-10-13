@@ -79,36 +79,6 @@ int snmp_service_attach(struct snmp_agent *agent);
 int snmp_service_detach(struct snmp_agent *agent);
 
 /* --------------------------------------------------------------------------
- * Transport adapter (src/snmp_service.c)
- *
- * Driven only by snmp_agent_start()/snmp_agent_stop(). The adapter reserves one
- * pre-allocated socket-service descriptor per RUNNING instance, binds that agent's
- * own sockets to agent->port / agent->bound_iface and registers them with the agent
- * as user_data, so the service callback recovers its owner from the event copy
- * instead of scanning descriptors or falling back to a default singleton.
- * ------------------------------------------------------------------------ */
-
-/**
- * @brief Reserve a slot, create and bind the agent's sockets, then register them.
- * @param agent Instance to attach (svc_slot and sock_v4/sock_v6 are written).
- * @return 0 on success, -EBUSY if every slot is taken, -EADDRINUSE / -ENETDOWN or a
- *         socket errno otherwise.
- */
-int snmp_service_attach(struct snmp_agent *agent);
-
-/**
- * @brief Tear the transport down using the documented quiesce ordering.
- *
- * Deregisters the descriptor, takes agent->lock as the barrier that drains any
- * in-flight callback, closes the sockets, releases the slot and publishes
- * SNMP_AGENT_STOPPED.
- *
- * @param agent Instance to detach.
- * @return 0 on success, -EINVAL if @p agent is NULL.
- */
-int snmp_service_detach(struct snmp_agent *agent);
-
-/* --------------------------------------------------------------------------
  * Socket helpers (implemented by the adapter, shared with the trap engine)
  * ------------------------------------------------------------------------ */
 

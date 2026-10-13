@@ -294,15 +294,6 @@ int snmp_agent_load_engine_boots(struct snmp_agent *agent);
  */
 struct snmp_agent *snmp_agent_get_default(void);
 
-/**
- * @brief Retrieve pointer to default global agent instance (legacy facade support).
- *
- * @deprecated The default-instance facade is removed in sub-phase 8c; applications must
- *             own their @c struct snmp_agent storage and pass it to the instance API.
- * @return Pointer to the module-owned default struct snmp_agent.
- */
-struct snmp_agent *snmp_agent_get_default(void);
-
 #endif /* CONFIG_SNMP_AGENT */
 
 #ifdef __cplusplus
