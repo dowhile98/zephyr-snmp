@@ -218,7 +218,7 @@ static struct snmp_mib_table s_sensor_table = {
 	.set_cbs = NULL,
 };
 
-int app_mib_init(void)
+int app_mib_init(struct snmp_agent *agent)
 {
 	int ret;
 
@@ -227,7 +227,7 @@ int app_mib_init(void)
 		.len = 7,
 		.ids = {1, 3, 6, 1, 4, 1, CONFIG_SNMP_SAMPLE_ENTERPRISE_ID}
 	};
-	snmp_set_device_enterprise_oid(&ent_oid);
+	snmp_set_device_enterprise_oid(agent, &ent_oid);
 
 #if defined(CONFIG_SNMP_SAMPLE_SENSOR_OBJECT) || !defined(CONFIG_SNMP_SAMPLE_SENSOR_OBJECT)
 	/* 1. Register sensorValue (1.3.6.1.4.1.<enterprise>.1.1.1.0) */
@@ -237,7 +237,7 @@ int app_mib_init(void)
 		.get_cb = cb_get_sensor_value,
 		.set_cb = cb_set_sensor_value,
 	};
-	ret = snmp_mib_register(&node_sensor_val);
+	ret = snmp_mib_register(agent, &node_sensor_val);
 	if (ret < 0) {
 		LOG_ERR("Failed to register sensorValue node: %d", ret);
 		return ret;
@@ -250,7 +250,7 @@ int app_mib_init(void)
 		.get_cb = cb_get_sensor_humidity,
 		.set_cb = NULL,
 	};
-	ret = snmp_mib_register(&node_humidity);
+	ret = snmp_mib_register(agent, &node_humidity);
 	if (ret < 0) {
 		LOG_ERR("Failed to register sensorHumidity node: %d", ret);
 		return ret;
@@ -263,7 +263,7 @@ int app_mib_init(void)
 		.get_cb = cb_get_sensor_desc,
 		.set_cb = NULL,
 	};
-	ret = snmp_mib_register(&node_desc);
+	ret = snmp_mib_register(agent, &node_desc);
 	if (ret < 0) {
 		LOG_ERR("Failed to register sensorDescription node: %d", ret);
 		return ret;
@@ -276,7 +276,7 @@ int app_mib_init(void)
 		.get_cb = cb_get_sensor_status_oid,
 		.set_cb = NULL,
 	};
-	ret = snmp_mib_register(&node_status_oid);
+	ret = snmp_mib_register(agent, &node_status_oid);
 	if (ret < 0) {
 		LOG_ERR("Failed to register sensorStatusOid node: %d", ret);
 		return ret;
@@ -291,7 +291,7 @@ int app_mib_init(void)
 		.get_cb = cb_get_led_state,
 		.set_cb = cb_set_led_state,
 	};
-	ret = snmp_mib_register(&node_led);
+	ret = snmp_mib_register(agent, &node_led);
 	if (ret < 0) {
 		LOG_ERR("Failed to register ledState node: %d", ret);
 		return ret;
@@ -306,7 +306,7 @@ int app_mib_init(void)
 		.get_cb = cb_get_button_counter,
 		.set_cb = NULL,
 	};
-	ret = snmp_mib_register(&node_btn);
+	ret = snmp_mib_register(agent, &node_btn);
 	if (ret < 0) {
 		LOG_ERR("Failed to register buttonCounter node: %d", ret);
 		return ret;
@@ -314,11 +314,18 @@ int app_mib_init(void)
 #endif
 
 	/* 7. Register sensorTable (1.3.6.1.4.1.<enterprise>.1.3.1) */
-	ret = snmp_mib_register_table(&s_sensor_table);
+	ret = snmp_mib_register_table(agent, &s_sensor_table);
 	if (ret == 0) {
-		snmp_mib_table_add_row(&s_sensor_table, &s_sensor_rows[0]);
-		snmp_mib_table_add_row(&s_sensor_table, &s_sensor_rows[1]);
-		snmp_mib_table_add_row(&s_sensor_table, &s_sensor_rows[2]);
+		/*
+		 * The row list belongs to the shared, application-owned table, so it
+		 * is linked once — by the first agent that registers it — while every
+		 * instance is still INITIALIZED and no MIB walk can run concurrently.
+		 */
+		if (s_sensor_table.rows == NULL) {
+			snmp_mib_table_add_row(agent, &s_sensor_table, &s_sensor_rows[0]);
+			snmp_mib_table_add_row(agent, &s_sensor_table, &s_sensor_rows[1]);
+			snmp_mib_table_add_row(agent, &s_sensor_table, &s_sensor_rows[2]);
+		}
 	} else {
 		LOG_WRN("Failed to register sensorTable: %d", ret);
 	}

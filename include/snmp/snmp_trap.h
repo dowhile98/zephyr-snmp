@@ -31,7 +31,7 @@ struct snmp_agent;
  * @return 0 on success, -EINVAL on bad arguments, -ENOMEM if the destination table
  *         (CONFIG_SNMP_TRAP_DEST_COUNT) is full.
  */
-int snmp_trap_add_destination_inst(struct snmp_agent *inst, const char *addr);
+int snmp_trap_add_destination(struct snmp_agent *inst, const char *addr);
 
 /**
  * @brief Send an SNMP Trap or Inform notification from one agent.
@@ -47,15 +47,15 @@ int snmp_trap_add_destination_inst(struct snmp_agent *inst, const char *addr);
  * @return 0 on success, -EINVAL on bad arguments, -ENETDOWN when the bound interface
  *         has no address, other negative errno on socket failure.
  */
-int snmp_trap_send_inst(struct snmp_agent *inst, const struct snmp_oid *trap_oid,
-			const struct snmp_varbind *varbinds, uint8_t varbind_cnt, bool is_inform);
+int snmp_trap_send(struct snmp_agent *inst, const struct snmp_oid *trap_oid,
+		   const struct snmp_varbind *varbinds, uint8_t varbind_cnt, bool is_inform);
 
 /**
  * @brief Send the standard coldStart (1.3.6.1.6.3.1.1.5.1) notification from one agent.
  * @param inst Target agent instance.
- * @return 0 on success, negative errno as for snmp_trap_send_inst().
+ * @return 0 on success, negative errno as for snmp_trap_send().
  */
-int snmp_trap_send_coldstart_inst(struct snmp_agent *inst);
+int snmp_trap_send_coldstart(struct snmp_agent *inst);
 
 /**
  * @brief Send the standard authFailure (1.3.6.1.6.3.1.1.5.5) notification from one agent.
@@ -67,17 +67,6 @@ int snmp_trap_send_coldstart_inst(struct snmp_agent *inst);
  * @return 0 when sent or suppressed, negative errno on socket failure.
  */
 int snmp_trap_send_auth_failure(struct snmp_agent *inst);
-
-/*
- * --- Transitional legacy facades (removed in sub-phase 8c) ---------------------
- * No-parameter entry points delegating to snmp_agent_get_default(); kept only so
- * samples/snmp_agent still builds. snmp_trap_send_v3() is gone: the notification
- * format is selected by Kconfig inside snmp_trap_send_inst().
- */
-int snmp_trap_add_destination(const char *addr);
-int snmp_trap_send(const struct snmp_oid *trap_oid, const struct snmp_varbind *varbinds,
-		   uint8_t varbind_cnt, bool is_inform);
-int snmp_trap_send_coldstart(void);
 
 #endif /* CONFIG_SNMP_AGENT */
 

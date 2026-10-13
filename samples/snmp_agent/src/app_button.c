@@ -26,6 +26,9 @@ static bool s_hardware_available = false;
 static uint32_t s_button_counter = 0;
 static int64_t s_last_press_time = 0;
 
+/* Agent to notify through; set by app_button_init() from main.c's storage. */
+static struct snmp_agent *s_trap_agent;
+
 static void button_work_handler(struct k_work *work);
 static K_WORK_DEFINE(s_button_work, button_work_handler);
 
@@ -60,8 +63,13 @@ static void button_work_handler(struct k_work *work)
 #endif
 }
 
-int app_button_init(void)
+int app_button_init(struct snmp_agent *agent)
 {
+#if !defined(CONFIG_SNMP_TRAP_ENABLED)
+	ARG_UNUSED(agent);
+#endif
+	s_trap_agent = agent;
+
 #if DT_NODE_EXISTS(DT_ALIAS(sw0))
 	if (!gpio_is_ready_dt(&s_btn)) {
 		LOG_WRN("User Button device %s not ready", s_btn.port->name);
@@ -147,7 +155,7 @@ int app_button_trigger_notification(void)
 	varbinds[1].type = ASN1_TAG_INTEGER;
 	varbinds[1].val.int_val = app_led_get_state();
 
-	int ret = snmp_trap_send(&trap_oid, varbinds, 2, false);
+	int ret = snmp_trap_send(s_trap_agent, &trap_oid, varbinds, 2, false);
 	if (ret < 0) {
 		LOG_WRN("Failed to send button SNMP notification: %d", ret);
 		return ret;

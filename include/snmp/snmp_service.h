@@ -18,7 +18,7 @@ extern "C" {
  * There is no process-wide transport entry point any more. The socket-service adapter is
  * per instance and is driven exclusively by the lifecycle API:
  *
- *   snmp_agent_inst_init(agent, cfg)   -> reserves nothing yet
+ *   snmp_agent_init(agent, cfg)        -> reserves nothing yet
  *   snmp_agent_start(agent)            -> binds agent->port / agent->bound_iface and
  *                                         attaches one socket-service descriptor slot
  *   snmp_agent_stop(agent)             -> deregisters, quiesces, closes, frees the slot
@@ -27,8 +27,9 @@ extern "C" {
  * declared in src/snmp_internal.h, so including this header is no longer required by
  * applications.
  *
- * @deprecated This header will be removed in sub-phase 8d once the no-parameter facades
- *             are gone; keep it empty until then so existing #includes still compile.
+ * @deprecated Kept only so existing #includes still compile; the no-parameter facades
+ *             this header once documented were removed in sub-phase 8c. Delete the file
+ *             in sub-phase 8d after auditing that nothing includes it.
  */
 
 #endif /* CONFIG_SNMP_AGENT */

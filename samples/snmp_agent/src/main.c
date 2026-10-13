@@ -42,6 +42,13 @@ LOG_MODULE_REGISTER(main, LOG_LEVEL_INF);
 static struct net_mgmt_event_callback s_mgmt_cb;
 static K_SEM_DEFINE(s_ip_ready_sem, 0, 1);
 
+/*
+ * Caller-owned agent storage (decision #1 of the design contract): one instance is
+ * always present; the optional second one demonstrates true multi-instance operation
+ * on another UDP port with its own identity and its own MIB tree.
+ */
+static struct snmp_agent g_agent_lan;
+
 static void print_banner(const char *ip_str)
 {
 	LOG_INF("================================================================");
@@ -148,42 +155,48 @@ int main(void)
 {
 	LOG_INF("Booting SNMP Validation Sample...");
 
-	/* 1. Initialize hardware drivers */
+	/* 1. Initialize hardware drivers that do not need the agent */
 	app_led_init();
 	app_sensor_init();
-	app_button_init();
 
 	/* 2. Register network management event listener */
 	net_mgmt_init_event_callback(&s_mgmt_cb, net_event_handler,
 				     NET_EVENT_IPV4_ADDR_ADD | NET_EVENT_IPV4_ADDR_DEL);
 	net_mgmt_add_event_callback(&s_mgmt_cb);
 
-	/* 3. Initialize SNMP Subsystem (starts UDP port 161 listener) */
-	int ret = snmp_agent_init();
+	/* 3. Create the LAN agent instance on caller-owned static storage.
+	 *    snmp_agent_init() only builds the domain state (MIB-II groups, identity,
+	 *    communities); the UDP listener is opened later by snmp_agent_start().
+	 */
+	const struct snmp_agent_cfg cfg_lan = {
+	    .port = CONFIG_SNMP_AGENT_PORT,
+	    .read_community = CONFIG_SNMP_COMMUNITY_READ,
+	    .write_community = CONFIG_SNMP_COMMUNITY_WRITE,
+	    .sys_descr = "Zephyr RTOS SNMP Validation Node (STM32H743ZI)",
+	    .sys_contact = "admin@example.com",
+	    .sys_name = "NUCLEO-H743ZI-SNMP",
+	    .sys_location = "Lab Bench 1",
+	    .settings_prefix = "snmp/lan",
+	};
+	int ret = snmp_agent_init(&g_agent_lan, &cfg_lan);
 	if (ret < 0) {
-		LOG_ERR("Failed to initialize SNMP agent: %d", ret);
+		LOG_ERR("Failed to initialize LAN SNMP agent: %d", ret);
 		return ret;
 	}
 
-	/* 4. Configure MIB-II System Group identity */
-	snmp_mib2_set_sysname("NUCLEO-H743ZI-SNMP");
-	snmp_mib2_set_syslocation("Lab Bench 1");
-	snmp_mib2_set_syscontact("admin@example.com");
-	snmp_mib2_set_sysdescr("Zephyr RTOS SNMP Validation Node (STM32H743ZI)");
+	/* Button traps fire from a workqueue: hand it the agent to notify through. */
+	app_button_init(&g_agent_lan);
 
-	snmp_set_read_community(CONFIG_SNMP_COMMUNITY_READ);
-	snmp_set_write_community(CONFIG_SNMP_COMMUNITY_WRITE);
-
-	/* 5. Register Private MIB */
-	ret = app_mib_init();
+	/* 4. Register Private MIB on the LAN agent */
+	ret = app_mib_init(&g_agent_lan);
 	if (ret < 0) {
 		LOG_ERR("Failed to initialize Private MIB: %d", ret);
 		return ret;
 	}
 
 #if defined(CONFIG_SNMP_TRAP_ENABLED)
-	/* 6. Configure trap destination */
-	snmp_trap_add_destination(CONFIG_SNMP_SAMPLE_TRAP_DEST);
+	/* 5. Configure trap destination */
+	snmp_trap_add_destination(&g_agent_lan, CONFIG_SNMP_SAMPLE_TRAP_DEST);
 	LOG_INF("Configured SNMP Trap destination: %s", CONFIG_SNMP_SAMPLE_TRAP_DEST);
 #endif
 
@@ -222,12 +235,23 @@ int main(void)
 
 	print_banner(ip_buf);
 
+	/* 7. Open the UDP listeners only now that the interface has an address.
+	 *    The coldStart trap stays ordered exactly like the old transport facade
+	 *    documented it (former snmp_service.c): first an assigned IPv4 address,
+	 *    then the listener, then the notification.
+	 */
+	ret = snmp_agent_start(&g_agent_lan);
+	if (ret < 0) {
+		LOG_ERR("Failed to start LAN SNMP agent: %d", ret);
+		return ret;
+	}
+
 #if defined(CONFIG_SNMP_TRAP_ENABLED)
-	snmp_trap_send_coldstart();
+	snmp_trap_send_coldstart(&g_agent_lan);
 	LOG_INF("ColdStart Trap dispatched to %s", CONFIG_SNMP_SAMPLE_TRAP_DEST);
 #endif
 
-	/* 7. Main loop: periodically update sensor values */
+	/* 8. Main loop: periodically update sensor values */
 	while (1) {
 		k_sleep(K_SECONDS(2));
 		app_sensor_update_periodic();

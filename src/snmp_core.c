@@ -5,7 +5,7 @@
  * SNMP core dispatcher — routes v1/v2c and v3 messages, handles version
  * validation, community/USM security, MIB dispatch, and response encoding.
  *
- * This file also owns the instance lifecycle (snmp_agent_inst_init(),
+ * This file also owns the instance lifecycle (snmp_agent_init(),
  * snmp_agent_deinit()) documented in include/snmp/snmp_core.h.
  */
 
@@ -46,22 +46,6 @@
 #endif
 #endif
 
-/*
- * Legacy facade storage. Removed in sub-phase 8c together with
- * snmp_agent_get_default() and every no-parameter entry point.
- */
-static struct snmp_agent g_default_agent;
-static bool g_default_agent_inited;
-
-struct snmp_agent *snmp_agent_get_default(void)
-{
-	if (!g_default_agent_inited) {
-		g_default_agent_inited = true;
-		snmp_agent_inst_init(&g_default_agent, NULL);
-	}
-	return &g_default_agent;
-}
-
 #define INST_COUNTER_INC(inst, field) snmp_counter_inc(&(inst)->counters.field)
 
 /* Copy a bounded string, always NUL-terminating. */
@@ -100,7 +84,7 @@ static void set_defaults(struct snmp_agent *agent)
 	agent->sys_object_id.ids[6] = 0;
 }
 
-int snmp_agent_inst_init(struct snmp_agent *agent, const struct snmp_agent_cfg *cfg)
+int snmp_agent_init(struct snmp_agent *agent, const struct snmp_agent_cfg *cfg)
 {
 	if (!agent) {
 		return -EINVAL;
@@ -609,38 +593,6 @@ int snmp_agent_process_pdu(struct snmp_agent *agent, const uint8_t *req_buf, siz
 		INST_COUNTER_INC(agent, snmpInBadVersions);
 		return -ENOTSUP;
 	}
-}
-
-/* ---- Legacy facades (delegate to the default agent; removed in sub-phase 8c) ---- */
-
-/**
- * @brief Deprecated no-parameter facade: initialise the default agent and open its
- *        listener on the Kconfig port.
- *
- * @deprecated Removed in sub-phase 8c. Own a @ref struct snmp_agent, then call
- *             snmp_agent_inst_init(agent, cfg) and snmp_agent_start(agent). Sending the
- *             cold-start trap once the interface has an address remains the
- *             application's job, exactly as before.
- *
- * @return 0 on success, negative errno on failure.
- */
-int snmp_agent_init(void)
-{
-	/* snmp_agent_get_default() has already run snmp_agent_inst_init() with the
-	 * Kconfig defaults; starting it attaches the transport the way the old
-	 * snmp_service_init() did, so registrations made afterwards still take effect.
-	 */
-	return snmp_agent_start(snmp_agent_get_default());
-}
-
-int snmp_set_read_community(const char *community)
-{
-	return snmp_agent_set_read_community(snmp_agent_get_default(), community);
-}
-
-int snmp_set_write_community(const char *community)
-{
-	return snmp_agent_set_write_community(snmp_agent_get_default(), community);
 }
 
 #endif /* CONFIG_SNMP_AGENT */

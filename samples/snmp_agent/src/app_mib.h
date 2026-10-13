@@ -10,8 +10,10 @@
 extern "C" {
 #endif
 
+struct snmp_agent;
+
 /**
- * @brief Initialize and register the Private MIB for the sample:
+ * @brief Initialize and register the Private MIB for the sample on one agent:
  *        1.3.6.1.4.1.<enterprise>.1 (nucleoH743)
  *        - device (1)
  *          - sensorValue (1.0)
@@ -21,9 +23,14 @@ extern "C" {
  *          - sensorDescription (5.0)
  *          - sensorStatusOid (6.0)
  *        - sensorTable (3)
+ *
+ *        Safe to call for more than one agent: the node structs are copied into
+ *        each agent's own tree and the shared sensorTable row list is linked only
+ *        once (before any listener runs).
+ * @param agent Agent instance whose MIB tree receives the nodes. Caller-owned.
  * @return 0 on success, negative errno on failure.
  */
-int app_mib_init(void);
+int app_mib_init(struct snmp_agent *agent);
 
 #ifdef __cplusplus
 }

@@ -23,7 +23,7 @@
 #endif
 
 /*
- * Is the v3 notification builder reachable from snmp_trap_send_inst()?
+ * Is the v3 notification builder reachable from snmp_trap_send()?
  *
  * That function picks the wire format with an #if/#elif ladder in which the explicit
  * SNMP_TRAP_FORMAT_V1/V2C choices and the SNMP_VERSION_2C fallback are tested before
@@ -42,7 +42,7 @@
 #endif
 #endif
 
-int snmp_trap_add_destination_inst(struct snmp_agent *inst, const char *addr)
+int snmp_trap_add_destination(struct snmp_agent *inst, const char *addr)
 {
 	if (!inst || !addr)
 		return -EINVAL;
@@ -63,9 +63,9 @@ int snmp_trap_add_destination_inst(struct snmp_agent *inst, const char *addr)
 }
 
 #if defined(SNMP_TRAP_HAVE_V3)
-static int snmp_trap_send_v3_inst(struct snmp_agent *inst, const struct snmp_oid *trap_oid,
-				  const struct snmp_varbind *varbinds, uint8_t varbind_cnt,
-				  bool is_inform)
+static int snmp_trap_send_v3(struct snmp_agent *inst, const struct snmp_oid *trap_oid,
+			     const struct snmp_varbind *varbinds, uint8_t varbind_cnt,
+			     bool is_inform)
 {
 	struct snmp_v3_msg msg;
 	size_t tx_len = 0;
@@ -201,14 +201,14 @@ static int snmp_trap_send_v3_inst(struct snmp_agent *inst, const struct snmp_oid
 }
 #endif /* SNMP_TRAP_HAVE_V3 */
 
-int snmp_trap_send_inst(struct snmp_agent *inst, const struct snmp_oid *trap_oid,
-			const struct snmp_varbind *varbinds, uint8_t varbind_cnt, bool is_inform)
+int snmp_trap_send(struct snmp_agent *inst, const struct snmp_oid *trap_oid,
+		   const struct snmp_varbind *varbinds, uint8_t varbind_cnt, bool is_inform)
 {
 	if (!inst || !trap_oid)
 		return -EINVAL;
 
 #if defined(CONFIG_SNMP_TRAP_FORMAT_V3)
-	return snmp_trap_send_v3_inst(inst, trap_oid, varbinds, varbind_cnt, is_inform);
+	return snmp_trap_send_v3(inst, trap_oid, varbinds, varbind_cnt, is_inform);
 #elif defined(CONFIG_SNMP_TRAP_FORMAT_V1)
 	/* Proceed with SNMPv1 trap */
 #elif defined(CONFIG_SNMP_TRAP_FORMAT_V2C)
@@ -216,7 +216,7 @@ int snmp_trap_send_inst(struct snmp_agent *inst, const struct snmp_oid *trap_oid
 #elif defined(CONFIG_SNMP_VERSION_2C)
 	/* Fallback: proceed with SNMPv2c trap */
 #elif defined(CONFIG_SNMP_VERSION_3)
-	return snmp_trap_send_v3_inst(inst, trap_oid, varbinds, varbind_cnt, is_inform);
+	return snmp_trap_send_v3(inst, trap_oid, varbinds, varbind_cnt, is_inform);
 #elif defined(CONFIG_SNMP_VERSION_1)
 	/* Fallback: proceed with SNMPv1 trap */
 #else
@@ -340,12 +340,12 @@ int snmp_trap_send_inst(struct snmp_agent *inst, const struct snmp_oid *trap_oid
 	return 0;
 }
 
-int snmp_trap_send_coldstart_inst(struct snmp_agent *inst)
+int snmp_trap_send_coldstart(struct snmp_agent *inst)
 {
 	static const struct snmp_oid cold_start_oid = {
 		.len = 10,
 		.ids = {1, 3, 6, 1, 6, 3, 1, 1, 5, 1}};
-	return snmp_trap_send_inst(inst, &cold_start_oid, NULL, 0, false);
+	return snmp_trap_send(inst, &cold_start_oid, NULL, 0, false);
 }
 
 int snmp_trap_send_auth_failure(struct snmp_agent *inst)
@@ -360,27 +360,7 @@ int snmp_trap_send_auth_failure(struct snmp_agent *inst)
 	static const struct snmp_oid auth_fail_oid = {
 		.len = 10,
 		.ids = {1, 3, 6, 1, 6, 3, 1, 1, 5, 5}};
-	return snmp_trap_send_inst(inst, &auth_fail_oid, NULL, 0, false);
-}
-
-/* ---- Legacy API Facade (delegates to default agent) ---- */
-
-int snmp_trap_add_destination(const char *addr)
-{
-	return snmp_trap_add_destination_inst(snmp_agent_get_default(), addr);
-}
-
-int snmp_trap_send(const struct snmp_oid *trap_oid,
-		   const struct snmp_varbind *varbinds,
-		   uint8_t varbind_cnt,
-		   bool is_inform)
-{
-	return snmp_trap_send_inst(snmp_agent_get_default(), trap_oid, varbinds, varbind_cnt, is_inform);
-}
-
-int snmp_trap_send_coldstart(void)
-{
-	return snmp_trap_send_coldstart_inst(snmp_agent_get_default());
+	return snmp_trap_send(inst, &auth_fail_oid, NULL, 0, false);
 }
 
 #endif /* CONFIG_SNMP_AGENT && CONFIG_SNMP_TRAP_ENABLED */

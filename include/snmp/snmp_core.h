@@ -32,7 +32,7 @@ struct net_if; /* forward declaration: host (non-Zephyr) builds keep it incomple
  *
  * Legal transitions:
  * @code
- *   UNINIT --snmp_agent_inst_init()--> INITIALIZED --snmp_agent_start()--> RUNNING
+ *   UNINIT --snmp_agent_init()--> INITIALIZED --snmp_agent_start()--> RUNNING
  *      ^                                  ^   |                              |
  *      |                                  |   +--------snmp_agent_deinit()---+
  *      |                                  |                              |
@@ -42,7 +42,7 @@ struct net_if; /* forward declaration: host (non-Zephyr) builds keep it incomple
  * Any API invoked in the wrong state returns @c -EPERM.
  */
 enum snmp_agent_state {
-	SNMP_AGENT_UNINIT = 0,	/**< Zero-filled storage; snmp_agent_inst_init() not called. */
+	SNMP_AGENT_UNINIT = 0,	/**< Zero-filled storage; snmp_agent_init() not called. */
 	SNMP_AGENT_INITIALIZED, /**< Domain state ready, transport not listening. */
 	SNMP_AGENT_RUNNING,	/**< Sockets bound and registered with the socket service. */
 	SNMP_AGENT_STOPPING,	/**< Deregistration in progress (quiesce barrier). */
@@ -53,7 +53,7 @@ enum snmp_agent_state {
 #define SNMP_SLOT_NONE 0xFF
 
 /**
- * @brief Optional creation-time configuration for snmp_agent_inst_init().
+ * @brief Optional creation-time configuration for snmp_agent_init().
  *
  * Every member is optional: a NULL string / NULL pointer / zero value selects the
  * Kconfig default. Passing @ NULL for the whole structure is legal and yields the
@@ -86,7 +86,7 @@ struct snmp_agent_cfg {
  *       APIs — they are module-internal and may change without notice.
  *
  * @note Storage may be zero-filled (BSS): state @c 0 is #SNMP_AGENT_UNINIT and
- *       snmp_agent_inst_init() zero-fills and initialises everything itself.
+ *       snmp_agent_init() zero-fills and initialises everything itself.
  */
 struct snmp_agent {
 	/* Communities */
@@ -183,7 +183,7 @@ struct snmp_agent {
  * @param cfg   Optional creation-time configuration; @ NULL selects Kconfig defaults.
  * @return 0 on success, -EINVAL if @p agent is NULL.
  */
-int snmp_agent_inst_init(struct snmp_agent *agent, const struct snmp_agent_cfg *cfg);
+int snmp_agent_init(struct snmp_agent *agent, const struct snmp_agent_cfg *cfg);
 
 /**
  * @brief Deinitialize an agent instance: reset MIB tree, counters and security state.
@@ -269,7 +269,7 @@ int snmp_agent_set_write_community(struct snmp_agent *agent, const char *communi
  * Reads @c "<agent settings_prefix>/boots" (see struct snmp_agent_cfg::settings_prefix)
  * with a direct settings read: no global settings handler is registered, so several
  * engines can persist their own replay window under different prefixes. Called by
- * snmp_agent_inst_init() after the configuration is applied, and safe to call again
+ * snmp_agent_init() after the configuration is applied, and safe to call again
  * before snmp_agent_start().
  *
  * RFC 3414 section 3.1.1 requires snmpEngineBoots to increase on every local
@@ -282,17 +282,6 @@ int snmp_agent_set_write_community(struct snmp_agent *agent, const char *communi
  */
 int snmp_agent_load_engine_boots(struct snmp_agent *agent);
 #endif /* CONFIG_SNMP_VERSION_3 */
-
-/**
- * @brief Retrieve pointer to the default global agent instance.
- *
- * @deprecated Facade retained only while the no-parameter API exists. It is removed in
- *             sub-phase 8c together with every other legacy entry point; new code must
- *             own its @ref struct snmp_agent storage and call the instance API.
- *
- * @return Pointer to the module-owned default agent instance (lazily initialized).
- */
-struct snmp_agent *snmp_agent_get_default(void);
 
 #endif /* CONFIG_SNMP_AGENT */
 

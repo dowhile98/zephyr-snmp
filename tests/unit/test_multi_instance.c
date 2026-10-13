@@ -73,9 +73,9 @@ void test_multi_instance_coexistence(void)
 	static struct snmp_agent wan_agent;
 
 	/* 1. Initialize both independent instances */
-	int ret = snmp_agent_inst_init(&lan_agent, NULL);
+	int ret = snmp_agent_init(&lan_agent, NULL);
 	ASSERT_EQ(ret, 0);
-	ret = snmp_agent_inst_init(&wan_agent, NULL);
+	ret = snmp_agent_init(&wan_agent, NULL);
 	ASSERT_EQ(ret, 0);
 
 	/* 2. Configure distinct community strings */
@@ -85,9 +85,9 @@ void test_multi_instance_coexistence(void)
 	ASSERT_EQ(ret, 0);
 
 	/* 3. Configure distinct sysName strings */
-	ret = snmp_mib2_set_sysname_inst(&lan_agent, "router-lan");
+	ret = snmp_mib2_set_sysname(&lan_agent, "router-lan");
 	ASSERT_EQ(ret, 0);
-	ret = snmp_mib2_set_sysname_inst(&wan_agent, "gateway-wan");
+	ret = snmp_mib2_set_sysname(&wan_agent, "gateway-wan");
 	ASSERT_EQ(ret, 0);
 
 	/* 4. Register scalar .1.3.6.1.4.1.1111.1.0 on lan_agent only */
@@ -104,7 +104,7 @@ void test_multi_instance_coexistence(void)
 	node1.oid.ids[8] = 0;
 	node1.type = ASN1_TAG_INTEGER;
 	node1.get_cb = get_val_1111;
-	ret = snmp_mib_register_inst(&lan_agent, &node1);
+	ret = snmp_mib_register(&lan_agent, &node1);
 	ASSERT_EQ(ret, 0);
 
 	/* 5. Register scalar .1.3.6.1.4.1.2222.1.0 on wan_agent only */
@@ -121,7 +121,7 @@ void test_multi_instance_coexistence(void)
 	node2.oid.ids[8] = 0;
 	node2.type = ASN1_TAG_INTEGER;
 	node2.get_cb = get_val_2222;
-	ret = snmp_mib_register_inst(&wan_agent, &node2);
+	ret = snmp_mib_register(&wan_agent, &node2);
 	ASSERT_EQ(ret, 0);
 
 	uint8_t req_buf[512];
@@ -302,8 +302,8 @@ void test_multi_instance_counter_isolation(void)
 	static struct snmp_agent agent_a;
 	static struct snmp_agent agent_b;
 
-	ASSERT_EQ(snmp_agent_inst_init(&agent_a, NULL), 0);
-	ASSERT_EQ(snmp_agent_inst_init(&agent_b, NULL), 0);
+	ASSERT_EQ(snmp_agent_init(&agent_a, NULL), 0);
+	ASSERT_EQ(snmp_agent_init(&agent_b, NULL), 0);
 	ASSERT_EQ(snmp_agent_set_read_community(&agent_a, "pubA"), 0);
 	ASSERT_EQ(snmp_agent_set_read_community(&agent_b, "pubB"), 0);
 

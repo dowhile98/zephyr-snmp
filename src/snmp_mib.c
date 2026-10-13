@@ -132,7 +132,7 @@ static int mib2_enable_authen_traps_set(struct snmp_agent *agent, struct snmp_mi
 	return 0;
 }
 
-int snmp_set_device_enterprise_oid_inst(struct snmp_agent *inst, const struct snmp_oid *oid)
+int snmp_set_device_enterprise_oid(struct snmp_agent *inst, const struct snmp_oid *oid)
 {
 	if (!inst || !oid || oid->len == 0 || oid->len > CONFIG_SNMP_MAX_OID_LEN)
 		return -EINVAL;
@@ -142,12 +142,7 @@ int snmp_set_device_enterprise_oid_inst(struct snmp_agent *inst, const struct sn
 	return 0;
 }
 
-int snmp_set_device_enterprise_oid(const struct snmp_oid *oid)
-{
-	return snmp_set_device_enterprise_oid_inst(snmp_agent_get_default(), oid);
-}
-
-int snmp_mib2_set_sysdescr_inst(struct snmp_agent *inst, const char *descr)
+int snmp_mib2_set_sysdescr(struct snmp_agent *inst, const char *descr)
 {
 	if (!inst || !descr || strlen(descr) >= sizeof(inst->sys_descr))
 		return -EINVAL;
@@ -158,12 +153,7 @@ int snmp_mib2_set_sysdescr_inst(struct snmp_agent *inst, const char *descr)
 	return 0;
 }
 
-int snmp_mib2_set_sysdescr(const char *descr)
-{
-	return snmp_mib2_set_sysdescr_inst(snmp_agent_get_default(), descr);
-}
-
-int snmp_mib2_set_syscontact_inst(struct snmp_agent *inst, const char *contact)
+int snmp_mib2_set_syscontact(struct snmp_agent *inst, const char *contact)
 {
 	if (!inst || !contact || strlen(contact) >= sizeof(inst->sys_contact))
 		return -EINVAL;
@@ -174,12 +164,7 @@ int snmp_mib2_set_syscontact_inst(struct snmp_agent *inst, const char *contact)
 	return 0;
 }
 
-int snmp_mib2_set_syscontact(const char *contact)
-{
-	return snmp_mib2_set_syscontact_inst(snmp_agent_get_default(), contact);
-}
-
-int snmp_mib2_set_sysname_inst(struct snmp_agent *inst, const char *name)
+int snmp_mib2_set_sysname(struct snmp_agent *inst, const char *name)
 {
 	if (!inst || !name || strlen(name) >= sizeof(inst->sys_name))
 		return -EINVAL;
@@ -190,12 +175,7 @@ int snmp_mib2_set_sysname_inst(struct snmp_agent *inst, const char *name)
 	return 0;
 }
 
-int snmp_mib2_set_sysname(const char *name)
-{
-	return snmp_mib2_set_sysname_inst(snmp_agent_get_default(), name);
-}
-
-int snmp_mib2_set_syslocation_inst(struct snmp_agent *inst, const char *location)
+int snmp_mib2_set_syslocation(struct snmp_agent *inst, const char *location)
 {
 	if (!inst || !location || strlen(location) >= sizeof(inst->sys_location))
 		return -EINVAL;
@@ -204,11 +184,6 @@ int snmp_mib2_set_syslocation_inst(struct snmp_agent *inst, const char *location
 	inst->sys_location[sizeof(inst->sys_location) - 1] = '\0';
 	snmp_mib_unlock(inst);
 	return 0;
-}
-
-int snmp_mib2_set_syslocation(const char *location)
-{
-	return snmp_mib2_set_syslocation_inst(snmp_agent_get_default(), location);
 }
 
 /* Maximum octet string a varbind can carry (union snmp_val::octet_str::data). */
@@ -369,7 +344,7 @@ static int register_counter_node(struct snmp_agent *inst, const uint32_t *base_o
 	node.set_cb =
 	    (e->subid == SNMP_COUNTER_SUBID_AUTHEN_TRAPS) ? mib2_enable_authen_traps_set : NULL;
 	node.user_data = NULL;
-	return snmp_mib_register_inst(inst, &node);
+	return snmp_mib_register(inst, &node);
 }
 
 int snmp_mib_init(struct snmp_agent *inst)
@@ -415,7 +390,7 @@ int snmp_mib_register_defaults(struct snmp_agent *inst)
 		n.get_cb = g_cb;                                                                   \
 		n.set_cb = s_cb;                                                                   \
 		n.user_data = NULL;                                                                \
-		int ret = snmp_mib_register_inst(inst, &n);                                        \
+		int ret = snmp_mib_register(inst, &n);                                             \
 		if (ret < 0)                                                                       \
 			return ret;                                                                \
 	} while (0)
@@ -431,7 +406,7 @@ int snmp_mib_register_defaults(struct snmp_agent *inst)
 	return 0;
 }
 
-int snmp_mib_register_inst(struct snmp_agent *inst, const struct snmp_mib_node *node)
+int snmp_mib_register(struct snmp_agent *inst, const struct snmp_mib_node *node)
 {
 	if (!inst || !node || node->oid.len == 0 || node->oid.len > CONFIG_SNMP_MAX_OID_LEN)
 		return -EINVAL;
@@ -463,11 +438,6 @@ int snmp_mib_register_inst(struct snmp_agent *inst, const struct snmp_mib_node *
 
 	snmp_mib_unlock(inst);
 	return 0;
-}
-
-int snmp_mib_register(const struct snmp_mib_node *node)
-{
-	return snmp_mib_register_inst(snmp_agent_get_default(), node);
 }
 
 int snmp_mib_register_nodes(struct snmp_agent *inst, const struct snmp_mib_node *nodes,
@@ -1218,7 +1188,7 @@ int snmp_mib_dispatch(struct snmp_agent *inst, struct snmp_pdu *pdu)
 
 /* --- MIB Table Support --- */
 
-int snmp_mib_register_table_inst(struct snmp_agent *inst, struct snmp_mib_table *table)
+int snmp_mib_register_table(struct snmp_agent *inst, struct snmp_mib_table *table)
 {
 	if (!inst || !table || table->column_cnt == 0 || !table->column_subids ||
 	    !table->column_types || !table->get_cbs)
@@ -1245,34 +1215,27 @@ int snmp_mib_register_table_inst(struct snmp_agent *inst, struct snmp_mib_table 
 	return 0;
 }
 
-int snmp_mib_register_table(struct snmp_mib_table *table)
-{
-	return snmp_mib_register_table_inst(snmp_agent_get_default(), table);
-}
-
-int snmp_mib_table_add_row(struct snmp_mib_table *table, struct snmp_table_row *row)
+int snmp_mib_table_add_row(struct snmp_agent *inst, struct snmp_mib_table *table,
+			   struct snmp_table_row *row)
 {
 	if (!table || !row)
 		return -EINVAL;
 
-	/* TODO(8c): the row list is application-owned and this helper takes no agent,
-	 * so it serialises on the default instance's lock, exactly as before.
-	 */
-	snmp_mib_lock(snmp_agent_get_default());
+	snmp_mib_lock(inst);
 
 	row->next = table->rows;
 	table->rows = row;
 
-	snmp_mib_unlock(snmp_agent_get_default());
+	snmp_mib_unlock(inst);
 	return 0;
 }
 
-int snmp_mib_table_remove_row(struct snmp_mib_table *table, uint32_t index)
+int snmp_mib_table_remove_row(struct snmp_agent *inst, struct snmp_mib_table *table, uint32_t index)
 {
 	if (!table)
 		return -EINVAL;
 
-	snmp_mib_lock(snmp_agent_get_default());
+	snmp_mib_lock(inst);
 
 	struct snmp_table_row *prev = NULL;
 	struct snmp_table_row *cur = table->rows;
@@ -1283,14 +1246,14 @@ int snmp_mib_table_remove_row(struct snmp_mib_table *table, uint32_t index)
 				prev->next = cur->next;
 			else
 				table->rows = cur->next;
-			snmp_mib_unlock(snmp_agent_get_default());
+			snmp_mib_unlock(inst);
 			return 0;
 		}
 		prev = cur;
 		cur = cur->next;
 	}
 
-	snmp_mib_unlock(snmp_agent_get_default());
+	snmp_mib_unlock(inst);
 	return -ENOENT;
 }
 

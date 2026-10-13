@@ -15,15 +15,10 @@
 
 /*
  * Two independent instances: the VACM tables under test live in s_vacm_test_agent and
- * are driven exclusively through the agent-parameter API. The stub below only exists to
- * satisfy the transitional no-parameter facades still present in src/snmp_mib.c; it is
- * removed in sub-phase 8d together with those facades.
+ * are driven exclusively through the agent-parameter API. The module has no default
+ * agent any more (sub-phase 8c), so there is nothing else to stub.
  */
 static struct snmp_agent s_vacm_test_agent;
-struct snmp_agent *snmp_agent_get_default(void)
-{
-	return &s_vacm_test_agent;
-}
 
 /* Assert macros defined in main.c */
 #define ASSERT(cond) do { \

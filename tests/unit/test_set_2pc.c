@@ -21,19 +21,24 @@
 #define ASSERT_NE(a, b) ASSERT((a) != (b))
 
 /* Legacy test state */
+static struct snmp_agent s_2pc_agent;
 static int32_t s_legacy_val1 = 10;
 static int32_t s_legacy_val2 = 20;
 
-static int get_legacy_val1(const struct snmp_mib_node *node, struct snmp_varbind *vb)
+static int get_legacy_val1(struct snmp_agent *agent, const struct snmp_mib_node *node,
+			   struct snmp_varbind *vb)
 {
+	(void)agent;
 	(void)node;
 	vb->type = ASN1_TAG_INTEGER;
 	vb->val.int_val = s_legacy_val1;
 	return 0;
 }
 
-static int set_legacy_val1(struct snmp_mib_node *node, const struct snmp_varbind *vb)
+static int set_legacy_val1(struct snmp_agent *agent, struct snmp_mib_node *node,
+			   const struct snmp_varbind *vb)
 {
+	(void)agent;
 	(void)node;
 	if (vb->type != ASN1_TAG_INTEGER) {
 		return -EINVAL;
@@ -42,16 +47,20 @@ static int set_legacy_val1(struct snmp_mib_node *node, const struct snmp_varbind
 	return 0;
 }
 
-static int get_legacy_val2(const struct snmp_mib_node *node, struct snmp_varbind *vb)
+static int get_legacy_val2(struct snmp_agent *agent, const struct snmp_mib_node *node,
+			   struct snmp_varbind *vb)
 {
+	(void)agent;
 	(void)node;
 	vb->type = ASN1_TAG_INTEGER;
 	vb->val.int_val = s_legacy_val2;
 	return 0;
 }
 
-static int set_legacy_val2(struct snmp_mib_node *node, const struct snmp_varbind *vb)
+static int set_legacy_val2(struct snmp_agent *agent, struct snmp_mib_node *node,
+			   const struct snmp_varbind *vb)
 {
+	(void)agent;
 	(void)node;
 	if (vb->type != ASN1_TAG_INTEGER) {
 		return -EINVAL;
@@ -68,17 +77,20 @@ static bool s_tx_b_fail_commit = false;
 static bool s_tx_a_undo_called = false;
 static bool s_tx_a_cleanup_called = false;
 
-static int get_tx_val_a(const struct snmp_mib_node *node, struct snmp_varbind *vb)
+static int get_tx_val_a(struct snmp_agent *agent, const struct snmp_mib_node *node,
+			struct snmp_varbind *vb)
 {
+	(void)agent;
 	(void)node;
 	vb->type = ASN1_TAG_INTEGER;
 	vb->val.int_val = s_tx_val_a;
 	return 0;
 }
 
-static int set_tx_val_a(struct snmp_mib_node *node, const struct snmp_varbind *vb,
-			enum snmp_set_action action, void **tx_ctx)
+static int set_tx_val_a(struct snmp_agent *agent, struct snmp_mib_node *node,
+			const struct snmp_varbind *vb, enum snmp_set_action action, void **tx_ctx)
 {
+	(void)agent;
 	(void)node;
 	switch (action) {
 	case SNMP_SET_RESERVE:
@@ -102,17 +114,20 @@ static int set_tx_val_a(struct snmp_mib_node *node, const struct snmp_varbind *v
 	}
 }
 
-static int get_tx_val_b(const struct snmp_mib_node *node, struct snmp_varbind *vb)
+static int get_tx_val_b(struct snmp_agent *agent, const struct snmp_mib_node *node,
+			struct snmp_varbind *vb)
 {
+	(void)agent;
 	(void)node;
 	vb->type = ASN1_TAG_INTEGER;
 	vb->val.int_val = s_tx_val_b;
 	return 0;
 }
 
-static int set_tx_val_b(struct snmp_mib_node *node, const struct snmp_varbind *vb,
-			enum snmp_set_action action, void **tx_ctx)
+static int set_tx_val_b(struct snmp_agent *agent, struct snmp_mib_node *node,
+			const struct snmp_varbind *vb, enum snmp_set_action action, void **tx_ctx)
 {
+	(void)agent;
 	(void)node;
 	switch (action) {
 	case SNMP_SET_RESERVE:
@@ -142,7 +157,7 @@ static int set_tx_val_b(struct snmp_mib_node *node, const struct snmp_varbind *v
 
 static void setup_test_nodes(void)
 {
-	snmp_mib_init();
+	snmp_mib_init(&s_2pc_agent);
 
 	s_legacy_val1 = 10;
 	s_legacy_val2 = 20;
@@ -161,7 +176,7 @@ static void setup_test_nodes(void)
 		.set_cb = set_legacy_val1,
 		.set_tx_cb = NULL,
 	};
-	snmp_mib_register(&node1);
+	snmp_mib_register(&s_2pc_agent, &node1);
 
 	/* Node 2: 1.3.6.1.4.1.9999.2.0 (legacy) */
 	struct snmp_mib_node node2 = {
@@ -171,7 +186,7 @@ static void setup_test_nodes(void)
 		.set_cb = set_legacy_val2,
 		.set_tx_cb = NULL,
 	};
-	snmp_mib_register(&node2);
+	snmp_mib_register(&s_2pc_agent, &node2);
 
 	/* Node A: 1.3.6.1.4.1.9999.3.0 (2PC) */
 	struct snmp_mib_node node_a = {
@@ -181,7 +196,7 @@ static void setup_test_nodes(void)
 		.set_cb = NULL,
 		.set_tx_cb = set_tx_val_a,
 	};
-	snmp_mib_register(&node_a);
+	snmp_mib_register(&s_2pc_agent, &node_a);
 
 	/* Node B: 1.3.6.1.4.1.9999.4.0 (2PC) */
 	struct snmp_mib_node node_b = {
@@ -191,7 +206,7 @@ static void setup_test_nodes(void)
 		.set_cb = NULL,
 		.set_tx_cb = set_tx_val_b,
 	};
-	snmp_mib_register(&node_b);
+	snmp_mib_register(&s_2pc_agent, &node_b);
 
 	/* Read-only Node: 1.3.6.1.4.1.9999.5.0 */
 	struct snmp_mib_node node_ro = {
@@ -201,7 +216,7 @@ static void setup_test_nodes(void)
 		.set_cb = NULL,
 		.set_tx_cb = NULL,
 	};
-	snmp_mib_register(&node_ro);
+	snmp_mib_register(&s_2pc_agent, &node_ro);
 }
 
 void test_set_2pc_atomic_failure_legacy(void)
@@ -227,7 +242,7 @@ void test_set_2pc_atomic_failure_legacy(void)
 	pdu.varbinds[1].val.octet_str.len = 4;
 	memcpy(pdu.varbinds[1].val.octet_str.data, "test", 4);
 
-	int ret = snmp_mib_dispatch(NULL, &pdu);
+	int ret = snmp_mib_dispatch(&s_2pc_agent, &pdu);
 	ASSERT_EQ(ret, 0);
 
 	/* Assert atomic failure: error status is wrongType, error index is 2 */
@@ -262,7 +277,7 @@ void test_set_2pc_atomic_failure_tx(void)
 	pdu.varbinds[1].type = ASN1_TAG_INTEGER;
 	pdu.varbinds[1].val.int_val = 600;
 
-	int ret = snmp_mib_dispatch(NULL, &pdu);
+	int ret = snmp_mib_dispatch(&s_2pc_agent, &pdu);
 	ASSERT_EQ(ret, 0);
 
 	ASSERT_EQ(pdu.error_status, SNMP_ERR_WRONG_VALUE);
@@ -297,7 +312,7 @@ void test_set_2pc_rollback_on_commit_failure(void)
 	pdu.varbinds[1].type = ASN1_TAG_INTEGER;
 	pdu.varbinds[1].val.int_val = 600;
 
-	int ret = snmp_mib_dispatch(NULL, &pdu);
+	int ret = snmp_mib_dispatch(&s_2pc_agent, &pdu);
 	ASSERT_EQ(ret, 0);
 
 	ASSERT_EQ(pdu.error_status, SNMP_ERR_COMMIT_FAILED);
@@ -331,7 +346,7 @@ void test_set_2pc_atomic_success(void)
 	pdu.varbinds[1].type = ASN1_TAG_INTEGER;
 	pdu.varbinds[1].val.int_val = 222;
 
-	int ret = snmp_mib_dispatch(NULL, &pdu);
+	int ret = snmp_mib_dispatch(&s_2pc_agent, &pdu);
 	ASSERT_EQ(ret, 0);
 
 	ASSERT_EQ(pdu.error_status, SNMP_ERR_NO_ERROR);
@@ -360,7 +375,7 @@ void test_smiv2_error_code_mapping_v2c_and_v1(void)
 	pdu_v2_ro.varbinds[0].type = ASN1_TAG_INTEGER;
 	pdu_v2_ro.varbinds[0].val.int_val = 999;
 
-	snmp_mib_dispatch(NULL, &pdu_v2_ro);
+	snmp_mib_dispatch(&s_2pc_agent, &pdu_v2_ro);
 	ASSERT_EQ(pdu_v2_ro.error_status, SNMP_ERR_NOT_WRITABLE);
 	ASSERT_EQ(pdu_v2_ro.error_index, 1);
 
@@ -375,7 +390,7 @@ void test_smiv2_error_code_mapping_v2c_and_v1(void)
 	pdu_v1_ro.varbinds[0].type = ASN1_TAG_INTEGER;
 	pdu_v1_ro.varbinds[0].val.int_val = 999;
 
-	snmp_mib_dispatch(NULL, &pdu_v1_ro);
+	snmp_mib_dispatch(&s_2pc_agent, &pdu_v1_ro);
 	ASSERT_EQ(pdu_v1_ro.error_status, SNMP_ERR_READ_ONLY);
 	ASSERT_EQ(pdu_v1_ro.error_index, 1);
 
@@ -389,7 +404,7 @@ void test_smiv2_error_code_mapping_v2c_and_v1(void)
 	memcpy(pdu_v2_type.varbinds[0].oid.ids, (uint32_t[]){1, 3, 6, 1, 4, 1, 9999, 1}, 8 * sizeof(uint32_t));
 	pdu_v2_type.varbinds[0].type = ASN1_TAG_OCTET_STRING;
 
-	snmp_mib_dispatch(NULL, &pdu_v2_type);
+	snmp_mib_dispatch(&s_2pc_agent, &pdu_v2_type);
 	ASSERT_EQ(pdu_v2_type.error_status, SNMP_ERR_WRONG_TYPE);
 	ASSERT_EQ(pdu_v2_type.error_index, 1);
 
@@ -403,7 +418,7 @@ void test_smiv2_error_code_mapping_v2c_and_v1(void)
 	memcpy(pdu_v1_type.varbinds[0].oid.ids, (uint32_t[]){1, 3, 6, 1, 4, 1, 9999, 1}, 8 * sizeof(uint32_t));
 	pdu_v1_type.varbinds[0].type = ASN1_TAG_OCTET_STRING;
 
-	snmp_mib_dispatch(NULL, &pdu_v1_type);
+	snmp_mib_dispatch(&s_2pc_agent, &pdu_v1_type);
 	ASSERT_EQ(pdu_v1_type.error_status, SNMP_ERR_BAD_VALUE);
 	ASSERT_EQ(pdu_v1_type.error_index, 1);
 }
@@ -412,25 +427,26 @@ void test_multi_instance_independence(void)
 {
 	setup_test_nodes();
 
-	struct snmp_agent_inst inst1;
-	struct snmp_agent_inst inst2;
+	struct snmp_agent inst1;
+	struct snmp_agent inst2;
 
-	int ret1 = snmp_agent_inst_init(&inst1);
-	int ret2 = snmp_agent_inst_init(&inst2);
+	int ret1 = snmp_agent_init(&inst1, NULL);
+	int ret2 = snmp_agent_init(&inst2, NULL);
 	ASSERT_EQ(ret1, 0);
 	ASSERT_EQ(ret2, 0);
 
-	snmp_agent_inst_set_read_community(&inst1, "dept_alpha");
-	snmp_agent_inst_set_write_community(&inst1, "secret_alpha");
+	snmp_agent_set_read_community(&inst1, "dept_alpha");
+	snmp_agent_set_write_community(&inst1, "secret_alpha");
 
-	snmp_agent_inst_set_read_community(&inst2, "dept_beta");
-	snmp_agent_inst_set_write_community(&inst2, "secret_beta");
+	snmp_agent_set_read_community(&inst2, "dept_beta");
+	snmp_agent_set_write_community(&inst2, "secret_beta");
 
 	/* Build encoded SNMPv2c GET request for Node 1 with community 'dept_alpha' */
 	struct snmp_pdu req_pdu;
 	memset(&req_pdu, 0, sizeof(req_pdu));
 	req_pdu.version = 1; /* v2c */
 	strncpy((char *)req_pdu.community, "dept_alpha", sizeof(req_pdu.community) - 1);
+	req_pdu.community_len = strlen((char *)req_pdu.community);
 	req_pdu.type = SNMP_PDU_GET_REQ;
 	req_pdu.request_id = 12345;
 	req_pdu.varbind_cnt = 1;
@@ -447,8 +463,8 @@ void test_multi_instance_independence(void)
 	size_t resp_len = 0;
 
 	/* 1. Pass request with 'dept_alpha' to inst1 -> should succeed */
-	int proc_ret1 = snmp_agent_inst_process_pdu(&inst1, req_buf, req_len,
-						   resp_buf, sizeof(resp_buf), &resp_len);
+	int proc_ret1 =
+	    snmp_agent_process_pdu(&inst1, req_buf, req_len, resp_buf, sizeof(resp_buf), &resp_len);
 	ASSERT_EQ(proc_ret1, 0);
 	ASSERT(resp_len > 0);
 	ASSERT_EQ(inst1.counters.snmpInPkts, 1);
@@ -456,8 +472,8 @@ void test_multi_instance_independence(void)
 
 	/* 2. Pass SAME request with 'dept_alpha' to inst2 -> should be rejected with -EACCES */
 	resp_len = 0;
-	int proc_ret2 = snmp_agent_inst_process_pdu(&inst2, req_buf, req_len,
-						   resp_buf, sizeof(resp_buf), &resp_len);
+	int proc_ret2 =
+	    snmp_agent_process_pdu(&inst2, req_buf, req_len, resp_buf, sizeof(resp_buf), &resp_len);
 	ASSERT_EQ(proc_ret2, -EACCES);
 	ASSERT_EQ(resp_len, 0);
 	ASSERT_EQ(inst2.counters.snmpInPkts, 1);

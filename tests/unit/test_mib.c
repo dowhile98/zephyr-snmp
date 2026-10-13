@@ -68,7 +68,7 @@ void test_mib_register_get(void)
 	node.get_cb = my_get_cb;
 	node.set_cb = NULL;
 
-	ret = snmp_mib_register_inst(&s_mib_agent, &node);
+	ret = snmp_mib_register(&s_mib_agent, &node);
 	ASSERT_EQ(ret, 0);
 
 	struct snmp_varbind vb = {0};
@@ -96,7 +96,7 @@ void test_mib_get_next(void)
 	node_a.oid.ids[8] = 0;
 	node_a.type = SNMP_TAG_COUNTER32;
 	node_a.get_cb = my_get_cb;
-	snmp_mib_register_inst(&s_mib_agent, &node_a);
+	snmp_mib_register(&s_mib_agent, &node_a);
 
 	struct snmp_mib_node node_b = {0};
 	node_b.oid.len = 9;
@@ -111,7 +111,7 @@ void test_mib_get_next(void)
 	node_b.oid.ids[8] = 0;
 	node_b.type = SNMP_TAG_GAUGE32;
 	node_b.get_cb = my_get_cb;
-	snmp_mib_register_inst(&s_mib_agent, &node_b);
+	snmp_mib_register(&s_mib_agent, &node_b);
 
 	struct snmp_oid query = {.len = 9, .ids = {1, 3, 6, 1, 4, 1, 99, 0, 99}};
 	struct snmp_varbind vb = {0};
@@ -147,9 +147,9 @@ void test_mib_duplicate_oid(void)
 	node.type = SNMP_TAG_COUNTER32;
 	node.get_cb = my_get_cb;
 
-	int ret = snmp_mib_register_inst(&s_mib_agent, &node);
+	int ret = snmp_mib_register(&s_mib_agent, &node);
 	ASSERT_EQ(ret, 0);
-	ret = snmp_mib_register_inst(&s_mib_agent, &node);
+	ret = snmp_mib_register(&s_mib_agent, &node);
 	ASSERT_EQ(ret, 0);
 }
 
@@ -220,12 +220,12 @@ void test_table_register_get(void)
 	g_test_rows[0].next = NULL;
 	g_test_rows[1].next = NULL;
 
-	int ret = snmp_mib_register_table_inst(&s_mib_agent, &g_test_tbl);
+	int ret = snmp_mib_register_table(&s_mib_agent, &g_test_tbl);
 	ASSERT_EQ(ret, 0);
 
-	ret = snmp_mib_table_add_row(&g_test_tbl, &g_test_rows[0]);
+	ret = snmp_mib_table_add_row(&s_mib_agent, &g_test_tbl, &g_test_rows[0]);
 	ASSERT_EQ(ret, 0);
-	ret = snmp_mib_table_add_row(&g_test_tbl, &g_test_rows[1]);
+	ret = snmp_mib_table_add_row(&s_mib_agent, &g_test_tbl, &g_test_rows[1]);
 	ASSERT_EQ(ret, 0);
 
 	/* Get col 1, row 1 */
@@ -258,9 +258,9 @@ void test_table_get_next_order(void)
 	g_test_rows[0].next = NULL;
 	g_test_rows[1].next = NULL;
 
-	snmp_mib_register_table_inst(&s_mib_agent, &g_test_tbl);
-	snmp_mib_table_add_row(&g_test_tbl, &g_test_rows[0]);
-	snmp_mib_table_add_row(&g_test_tbl, &g_test_rows[1]);
+	snmp_mib_register_table(&s_mib_agent, &g_test_tbl);
+	snmp_mib_table_add_row(&s_mib_agent, &g_test_tbl, &g_test_rows[0]);
+	snmp_mib_table_add_row(&s_mib_agent, &g_test_tbl, &g_test_rows[1]);
 
 	struct snmp_varbind vb = {0};
 
@@ -313,9 +313,9 @@ void test_table_set(void)
 	g_test_rows[0].next = NULL;
 	g_test_rows[1].next = NULL;
 
-	snmp_mib_register_table_inst(&s_mib_agent, &g_test_tbl);
-	snmp_mib_table_add_row(&g_test_tbl, &g_test_rows[0]);
-	snmp_mib_table_add_row(&g_test_tbl, &g_test_rows[1]);
+	snmp_mib_register_table(&s_mib_agent, &g_test_tbl);
+	snmp_mib_table_add_row(&s_mib_agent, &g_test_tbl, &g_test_rows[0]);
+	snmp_mib_table_add_row(&s_mib_agent, &g_test_tbl, &g_test_rows[1]);
 
 	/* Set col 2, row 1 to 999 */
 	struct snmp_varbind vb_set = {
@@ -493,7 +493,7 @@ static void setup_2pc_test_nodes(void)
 		.set_cb = set_legacy_val1,
 		.set_tx_cb = NULL,
 	};
-	snmp_mib_register_inst(&s_mib_agent, &node1);
+	snmp_mib_register(&s_mib_agent, &node1);
 
 	/* Node 2: 1.3.6.1.4.1.9999.2.0 (legacy) */
 	struct snmp_mib_node node2 = {
@@ -503,7 +503,7 @@ static void setup_2pc_test_nodes(void)
 		.set_cb = set_legacy_val2,
 		.set_tx_cb = NULL,
 	};
-	snmp_mib_register_inst(&s_mib_agent, &node2);
+	snmp_mib_register(&s_mib_agent, &node2);
 
 	/* Node A: 1.3.6.1.4.1.9999.3.0 (2PC) */
 	struct snmp_mib_node node_a = {
@@ -513,7 +513,7 @@ static void setup_2pc_test_nodes(void)
 		.set_cb = NULL,
 		.set_tx_cb = set_tx_val_a,
 	};
-	snmp_mib_register_inst(&s_mib_agent, &node_a);
+	snmp_mib_register(&s_mib_agent, &node_a);
 
 	/* Node B: 1.3.6.1.4.1.9999.4.0 (2PC) */
 	struct snmp_mib_node node_b = {
@@ -523,7 +523,7 @@ static void setup_2pc_test_nodes(void)
 		.set_cb = NULL,
 		.set_tx_cb = set_tx_val_b,
 	};
-	snmp_mib_register_inst(&s_mib_agent, &node_b);
+	snmp_mib_register(&s_mib_agent, &node_b);
 
 	/* Read-only Node: 1.3.6.1.4.1.9999.5.0 */
 	struct snmp_mib_node node_ro = {
@@ -533,7 +533,7 @@ static void setup_2pc_test_nodes(void)
 		.set_cb = NULL,
 		.set_tx_cb = NULL,
 	};
-	snmp_mib_register_inst(&s_mib_agent, &node_ro);
+	snmp_mib_register(&s_mib_agent, &node_ro);
 }
 
 static void test_set_2pc_atomic_failure_legacy(void)
@@ -744,8 +744,8 @@ static void test_multi_instance_independence(void)
 	struct snmp_agent inst1;
 	struct snmp_agent inst2;
 
-	int ret1 = snmp_agent_inst_init(&inst1, NULL);
-	int ret2 = snmp_agent_inst_init(&inst2, NULL);
+	int ret1 = snmp_agent_init(&inst1, NULL);
+	int ret2 = snmp_agent_init(&inst2, NULL);
 	ASSERT_EQ(ret1, 0);
 	ASSERT_EQ(ret2, 0);
 
@@ -826,16 +826,16 @@ void test_interleaved_scalar_and_table_walk(void)
 	node_before.oid.ids[8] = 0;
 	node_before.type = SNMP_TAG_COUNTER32;
 	node_before.get_cb = my_get_cb;
-	snmp_mib_register_inst(&s_mib_agent, &node_before);
+	snmp_mib_register(&s_mib_agent, &node_before);
 
 	/* Table: 1.3.6.1.4.1.99.10.1 */
 	g_test_tbl.rows = NULL;
 	g_test_rows[0].next = NULL;
 	g_test_rows[1].next = NULL;
 
-	snmp_mib_register_table_inst(&s_mib_agent, &g_test_tbl);
-	snmp_mib_table_add_row(&g_test_tbl, &g_test_rows[0]);
-	snmp_mib_table_add_row(&g_test_tbl, &g_test_rows[1]);
+	snmp_mib_register_table(&s_mib_agent, &g_test_tbl);
+	snmp_mib_table_add_row(&s_mib_agent, &g_test_tbl, &g_test_rows[0]);
+	snmp_mib_table_add_row(&s_mib_agent, &g_test_tbl, &g_test_rows[1]);
 
 	/* Scalar after table: 1.3.6.1.4.1.99.20.0 */
 	struct snmp_mib_node node_after = {0};
@@ -851,7 +851,7 @@ void test_interleaved_scalar_and_table_walk(void)
 	node_after.oid.ids[8] = 0;
 	node_after.type = SNMP_TAG_GAUGE32;
 	node_after.get_cb = my_get_cb;
-	snmp_mib_register_inst(&s_mib_agent, &node_after);
+	snmp_mib_register(&s_mib_agent, &node_after);
 
 	struct snmp_varbind vb = {0};
 

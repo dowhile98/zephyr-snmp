@@ -8,15 +8,20 @@
 
 #include <stdint.h>
 
+struct snmp_agent;
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 /**
  * @brief Initialize user button hardware (sw0 alias) with GPIO interrupt and workqueue.
+ *
+ * @param agent Agent through which a button press dispatches its SNMP notification.
+ *              The caller owns the storage; it must outlive the module.
  * @return 0 on success, negative errno on failure.
  */
-int app_button_init(void);
+int app_button_init(struct snmp_agent *agent);
 
 /**
  * @brief Get total user button press count.

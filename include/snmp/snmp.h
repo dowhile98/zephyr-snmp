@@ -32,29 +32,51 @@
  *
  * ## Quick Start
  *
+ * The agent has no default instance: the application owns one @ref struct snmp_agent
+ * per SNMP endpoint (static storage, zero dynamic allocation) and drives it through
+ * the instance API.
+ *
  * @code
  * #include <snmp/snmp.h>
  *
- * // 1. Init agent (registra MIB-II system + snmp groups, abre UDP :161)
- * snmp_agent_init();
+ * static struct snmp_agent g_agent_lan;            // caller-owned storage (BSS)
  *
- * // 2. Configure identity
- * snmp_mib2_set_sysname("MyDevice");
- * snmp_mib2_set_syslocation("Rack 3");
- * snmp_set_read_community("public");
- * snmp_set_write_community("secret");
+ * int main(void)
+ * {
+ *     struct snmp_agent_cfg cfg = {
+ *         .port           = 161,
+ *         .read_community = "public",
+ *         .write_community = "secret",
+ *         .sys_name       = "MyDevice",
+ *         .sys_location   = "Rack 3",
+ *     };
  *
- * // 3. Register enterprise MIB nodes
- * struct snmp_mib_node my_nodes[] = {
- *     { .oid = {11, {1,3,6,1,4,1,54321,1,1,1,0}},
- *       .type = SNMP_TAG_GAUGE32,
- *       .get_cb = my_sensor_get, .set_cb = NULL },
- * };
- * snmp_mib_register_nodes(my_nodes, ARRAY_SIZE(my_nodes));
+ *     // 1. Create the domain state (MIB-II system + snmp groups included)
+ *     snmp_agent_init(&g_agent_lan, &cfg);
  *
- * // 4. Configure trap destinations (optional)
- * snmp_trap_add_destination("192.168.1.100");
+ *     // 2. Register enterprise MIB nodes on this agent
+ *     struct snmp_mib_node my_nodes[] = {
+ *         { .oid = {11, {1,3,6,1,4,1,54321,1,1,1,0}},
+ *           .type = SNMP_TAG_GAUGE32,
+ *           .get_cb = my_sensor_get, .set_cb = NULL },
+ *     };
+ *     snmp_mib_register_nodes(&g_agent_lan, my_nodes, ARRAY_SIZE(my_nodes));
+ *
+ *     // 3. Configure trap destinations (optional), then open UDP :161
+ *     snmp_trap_add_destination(&g_agent_lan, "192.168.1.100");
+ *     snmp_agent_start(&g_agent_lan);
+ *
+ *     // ... snmp_agent_stop(&g_agent_lan) to detach the transport ...
+ *     return 0;
+ * }
  * @endcode
+ *
+ * A second agent on the same interface only needs its own storage, another port
+ * (@c cfg.port) and its own @c cfg.sys_name — every API takes the instance to act
+ * on. Lifecycle: init -> start -> stop -> deinit; calling an API in the wrong state
+ * returns @c -EPERM. Every entry point except @ref snmp_agent_get_counters and
+ * @ref snmp_usm_get_engine_boots takes @c agent->lock: call them from thread
+ * context, never from an ISR, and never from inside a MIB callback.
  *
  * ## Testing (Linux host)
  *
@@ -90,81 +112,12 @@ extern "C" {
 #endif
 
 #ifdef CONFIG_SNMP_AGENT
-
-/**
- * @brief Initialize the SNMP agent subsystem, MIB tree, and UDP socket service on port 161.
- *
- * @deprecated No-parameter facade operating on snmp_agent_get_default(). Removed in
- *             sub-phase 8c: own your @ref struct snmp_agent storage and call
- *             snmp_agent_inst_init() followed by snmp_agent_start().
- * @return 0 on success, negative errno on failure.
+/*
+ * All public entry points are declared in the component headers included above:
+ * lifecycle and communities in snmp_core.h, MIB and identity setters in snmp_mib.h,
+ * traps in snmp_trap.h, v3 security in snmp_usm.h / snmp_vacm.h. There is no
+ * default instance to facade any more: every call names the agent it acts on.
  */
-int snmp_agent_init(void);
-
-/**
- * @brief Register a single MIB node. Nodes are kept lexicographically sorted.
- *
- * @param node Pointer to the MIB node definition to register.
- * @return 0 on success, negative errno on failure.
- */
-int snmp_mib_register(const struct snmp_mib_node *node);
-
-/**
- * @brief Configure the read community string for SNMP v1/v2c (default: "public").
- *
- * @param community String pointer.
- * @return 0 on success, negative errno on failure.
- */
-int snmp_set_read_community(const char *community);
-
-/**
- * @brief Configure the write community string for SNMP v1/v2c (default: "private").
- *
- * @param community String pointer.
- * @return 0 on success, negative errno on failure.
- */
-int snmp_set_write_community(const char *community);
-
-/**
- * @brief Configure the Enterprise OID (used for sysObjectID and Traps).
- *
- * @param oid Pointer to enterprise OID.
- * @return 0 on success, negative errno on failure.
- */
-int snmp_set_device_enterprise_oid(const struct snmp_oid *oid);
-
-/**
- * @brief Configure the MIB-II System description string (sysDescr).
- *
- * @param descr Null-terminated description string (max 127 chars).
- * @return 0 on success, negative errno on failure.
- */
-int snmp_mib2_set_sysdescr(const char *descr);
-
-/**
- * @brief Configure the MIB-II System contact person (sysContact).
- *
- * @param contact Null-terminated contact string (max 63 chars).
- * @return 0 on success, negative errno on failure.
- */
-int snmp_mib2_set_syscontact(const char *contact);
-
-/**
- * @brief Configure the MIB-II System host name (sysName).
- *
- * @param name Null-terminated system name string (max 63 chars).
- * @return 0 on success, negative errno on failure.
- */
-int snmp_mib2_set_sysname(const char *name);
-
-/**
- * @brief Configure the MIB-II System physical location (sysLocation).
- *
- * @param location Null-terminated location string (max 63 chars).
- * @return 0 on success, negative errno on failure.
- */
-int snmp_mib2_set_syslocation(const char *location);
-
 #endif /* CONFIG_SNMP_AGENT */
 
 

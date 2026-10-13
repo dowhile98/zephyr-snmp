@@ -540,7 +540,7 @@ int snmp_usm_init(struct snmp_agent *inst)
 	}
 
 	/*
-	 * engineBoots comes from struct snmp_agent_cfg (applied by snmp_agent_inst_init
+	 * engineBoots comes from struct snmp_agent_cfg (applied by snmp_agent_init
 	 * before calling us) or from Kconfig. Persistence is explicit and per instance:
 	 * snmp_agent_load_engine_boots() reads this engine's own key, instead of a
 	 * process-wide settings handler that could only ever feed the default agent.

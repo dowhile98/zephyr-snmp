@@ -203,8 +203,31 @@ struct snmp_mib_table {
 	void *user_data;
 };
 
-int snmp_mib_table_add_row(struct snmp_mib_table *table, struct snmp_table_row *row);
-int snmp_mib_table_remove_row(struct snmp_mib_table *table, uint32_t index);
+/**
+ * @brief Prepend a row to an application-owned table's row list.
+ *
+ * The row list is application state; registration only stores the table pointer in
+ * the agent. The update is serialised against @p inst's walks with the agent lock,
+ * so pass the agent this table is registered with (a table shared by several agents
+ * must be mutated per that contract's snmp_mib_lock()/unlock() discipline).
+ *
+ * @param inst Agent whose MIB walks must not observe a torn row list.
+ * @param table Application-owned table descriptor.
+ * @param row Application-owned row; its @c next link is managed by this API.
+ * @return 0 on success, -EINVAL on bad arguments.
+ */
+int snmp_mib_table_add_row(struct snmp_agent *inst, struct snmp_mib_table *table,
+			   struct snmp_table_row *row);
+
+/**
+ * @brief Unlink the row with @p index from an application-owned table's row list.
+ * @param inst Agent whose MIB walks must not observe a torn row list.
+ * @param table Application-owned table descriptor.
+ * @param index Row index to remove.
+ * @return 0 on success, -EINVAL on bad arguments, -ENOENT when no row matches.
+ */
+int snmp_mib_table_remove_row(struct snmp_agent *inst, struct snmp_mib_table *table,
+			      uint32_t index);
 
 /* --- Instance-based MIB APIs --- */
 
@@ -229,7 +252,7 @@ int snmp_mib_register_defaults(struct snmp_agent *inst);
  * @param node Node definition to copy in.
  * @return 0 on success, -EINVAL on bad arguments, -ENOMEM if the tree is full.
  */
-int snmp_mib_register_inst(struct snmp_agent *inst, const struct snmp_mib_node *node);
+int snmp_mib_register(struct snmp_agent *inst, const struct snmp_mib_node *node);
 
 /**
  * @brief Register an array of MIB nodes in bulk.
@@ -287,7 +310,7 @@ int snmp_mib_dispatch(struct snmp_agent *inst, struct snmp_pdu *pdu);
  * @param table Application-owned table descriptor (pointer is stored, not copied).
  * @return 0 on success, -EINVAL on bad arguments, -ENOMEM if the table registry is full.
  */
-int snmp_mib_register_table_inst(struct snmp_agent *inst, struct snmp_mib_table *table);
+int snmp_mib_register_table(struct snmp_agent *inst, struct snmp_mib_table *table);
 
 /**
  * @brief Lock the agent's shared state (MIB tree, tables, sys strings, communities,
@@ -299,27 +322,11 @@ void snmp_mib_lock(struct snmp_agent *inst);
 /** @brief Release the lock taken by snmp_mib_lock(). @param inst Target agent. */
 void snmp_mib_unlock(struct snmp_agent *inst);
 
-int snmp_set_device_enterprise_oid_inst(struct snmp_agent *inst, const struct snmp_oid *oid);
-int snmp_mib2_set_sysdescr_inst(struct snmp_agent *inst, const char *descr);
-int snmp_mib2_set_syscontact_inst(struct snmp_agent *inst, const char *contact);
-int snmp_mib2_set_sysname_inst(struct snmp_agent *inst, const char *name);
-int snmp_mib2_set_syslocation_inst(struct snmp_agent *inst, const char *location);
-
-/*
- * --- Transitional legacy facades (removed in sub-phase 8c) ---------------------
- *
- * These no-parameter entry points delegate to snmp_agent_get_default(). They only
- * survive because samples/snmp_agent still calls them; the identifier cannot be
- * reclaimed by the instance API until the sample migrates, since C has no
- * overloading. Do not use in new code.
- */
-int snmp_mib_register(const struct snmp_mib_node *node);
-int snmp_mib_register_table(struct snmp_mib_table *table);
-int snmp_set_device_enterprise_oid(const struct snmp_oid *oid);
-int snmp_mib2_set_sysdescr(const char *descr);
-int snmp_mib2_set_syscontact(const char *contact);
-int snmp_mib2_set_sysname(const char *name);
-int snmp_mib2_set_syslocation(const char *location);
+int snmp_set_device_enterprise_oid(struct snmp_agent *inst, const struct snmp_oid *oid);
+int snmp_mib2_set_sysdescr(struct snmp_agent *inst, const char *descr);
+int snmp_mib2_set_syscontact(struct snmp_agent *inst, const char *contact);
+int snmp_mib2_set_sysname(struct snmp_agent *inst, const char *name);
+int snmp_mib2_set_syslocation(struct snmp_agent *inst, const char *location);
 
 #endif /* CONFIG_SNMP_AGENT */
 
