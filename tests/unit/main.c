@@ -66,6 +66,9 @@ extern void test_set_2pc_rollback_on_commit_failure(void);
 extern void test_set_2pc_atomic_success(void);
 extern void test_smiv2_error_code_mapping_v2c_and_v1(void);
 extern void test_multi_instance_independence(void);
+extern void test_mib_bsearch_lookup(void);
+extern void test_mib_no_such_object_vs_instance(void);
+extern void test_getbulk_response_pruning_on_buffer_limit(void);
 
 int main(void)
 {
@@ -98,6 +101,9 @@ int main(void)
 	RUN_TEST(test_table_get_next_order);
 	RUN_TEST(test_table_set);
 	RUN_TEST(test_interleaved_scalar_and_table_walk);
+	RUN_TEST(test_mib_bsearch_lookup);
+	RUN_TEST(test_mib_no_such_object_vs_instance);
+	RUN_TEST(test_getbulk_response_pruning_on_buffer_limit);
 
 	printf("\nMulti-Instance Engine:\n");
 	RUN_TEST(test_multi_instance_coexistence);

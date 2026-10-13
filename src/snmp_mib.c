@@ -406,6 +406,45 @@ int snmp_mib_register_defaults(struct snmp_agent *inst)
 	return 0;
 }
 
+static int snmp_mib_find_node_idx(const struct snmp_agent *inst, const struct snmp_oid *oid)
+{
+	if (!inst || !oid || inst->mib_node_cnt == 0) {
+		return -1;
+	}
+
+	int low = 0;
+	int high = (int)inst->mib_node_cnt - 1;
+
+	while (low <= high) {
+		int mid = low + (high - low) / 2;
+		int cmp = snmp_oid_compare(oid, &inst->mib_nodes[mid].oid);
+
+		if (cmp == 0) {
+			return mid;
+		} else if (cmp < 0) {
+			high = mid - 1;
+		} else {
+			low = mid + 1;
+		}
+	}
+
+	return -1;
+}
+
+static bool snmp_oid_prefix_match(const struct snmp_oid *oid, const struct snmp_oid *prefix,
+				  uint8_t prefix_len)
+{
+	if (!oid || !prefix || oid->len < prefix_len || prefix->len < prefix_len) {
+		return false;
+	}
+	for (uint8_t i = 0; i < prefix_len; i++) {
+		if (oid->ids[i] != prefix->ids[i]) {
+			return false;
+		}
+	}
+	return true;
+}
+
 int snmp_mib_register(struct snmp_agent *inst, const struct snmp_mib_node *node)
 {
 	if (!inst || !node || node->oid.len == 0 || node->oid.len > CONFIG_SNMP_MAX_OID_LEN)
@@ -413,12 +452,11 @@ int snmp_mib_register(struct snmp_agent *inst, const struct snmp_mib_node *node)
 
 	snmp_mib_lock(inst);
 
-	for (size_t k = 0; k < inst->mib_node_cnt; k++) {
-		if (snmp_oid_equal(&inst->mib_nodes[k].oid, &node->oid)) {
-			inst->mib_nodes[k] = *node;
-			snmp_mib_unlock(inst);
-			return 0;
-		}
+	int existing_idx = snmp_mib_find_node_idx(inst, &node->oid);
+	if (existing_idx >= 0) {
+		inst->mib_nodes[existing_idx] = *node;
+		snmp_mib_unlock(inst);
+		return 0;
 	}
 
 	if (inst->mib_node_cnt >= CONFIG_SNMP_MAX_MIB_NODES) {
@@ -524,62 +562,90 @@ int snmp_mib_get(struct snmp_agent *inst, const struct snmp_oid *oid, struct snm
 
 	snmp_mib_lock(inst);
 
+	/* 1. Check Tables */
 	for (size_t t = 0; t < inst->mib_table_cnt; t++) {
 		struct snmp_mib_table *tbl = inst->mib_tables[t];
 
-		if (oid->len != tbl->table_oid.len + 2)
-			continue;
+		if (snmp_oid_prefix_match(oid, &tbl->table_oid, tbl->table_oid.len)) {
+			if (oid->len > tbl->table_oid.len) {
+				uint8_t col_subid = (uint8_t)oid->ids[tbl->table_oid.len];
+				bool col_found = false;
+				uint8_t col_idx = 0;
 
-		bool match = true;
-		for (uint8_t i = 0; i < tbl->table_oid.len; i++) {
-			if (oid->ids[i] != tbl->table_oid.ids[i]) {
-				match = false;
-				break;
-			}
-		}
-		if (!match)
-			continue;
-
-		uint8_t col_subid = (uint8_t)oid->ids[tbl->table_oid.len];
-		uint32_t row_idx = (uint32_t)oid->ids[tbl->table_oid.len + 1];
-
-		for (uint8_t c = 0; c < tbl->column_cnt; c++) {
-			if (tbl->column_subids[c] != col_subid)
-				continue;
-
-			for (struct snmp_table_row *r = tbl->rows; r; r = r->next) {
-				if (r->index == row_idx) {
-					vb->oid = *oid;
-					int ret = tbl->get_cbs[c](inst, r, c, vb);
-					snmp_mib_unlock(inst);
-					return ret;
+				for (uint8_t c = 0; c < tbl->column_cnt; c++) {
+					if (tbl->column_subids[c] == col_subid) {
+						col_found = true;
+						col_idx = c;
+						break;
+					}
 				}
+
+				if (col_found) {
+					if (oid->len == tbl->table_oid.len + 2) {
+						uint32_t row_idx =
+						    (uint32_t)oid->ids[tbl->table_oid.len + 1];
+						for (struct snmp_table_row *r = tbl->rows; r;
+						     r = r->next) {
+							if (r->index == row_idx) {
+								vb->oid = *oid;
+								int ret = tbl->get_cbs[col_idx](
+								    inst, r, col_idx, vb);
+								snmp_mib_unlock(inst);
+								return ret;
+							}
+						}
+					}
+					vb->oid = *oid;
+					vb->type = SNMP_TAG_EXCEPT_NO_SUCH_INST;
+					snmp_mib_unlock(inst);
+					return 0;
+				}
+
+				vb->oid = *oid;
+				vb->type = SNMP_TAG_EXCEPT_NO_SUCH_OBJ;
+				snmp_mib_unlock(inst);
+				return 0;
 			}
 
 			vb->oid = *oid;
-			vb->type = SNMP_TAG_EXCEPT_NO_SUCH_INST;
+			vb->type = SNMP_TAG_EXCEPT_NO_SUCH_OBJ;
 			snmp_mib_unlock(inst);
 			return 0;
 		}
 	}
 
+	/* 2. Check Scalar Exact Match via Binary Search */
+	int idx = snmp_mib_find_node_idx(inst, oid);
+	if (idx >= 0) {
+		vb->oid = *oid;
+		int ret = 0;
+		if (inst->mib_nodes[idx].get_cb) {
+			ret = inst->mib_nodes[idx].get_cb(inst, &inst->mib_nodes[idx], vb);
+		} else {
+			vb->type = inst->mib_nodes[idx].type;
+		}
+		snmp_mib_unlock(inst);
+		return ret;
+	}
+
+	/* 3. Check if queried OID matches the parent object prefix of any registered scalar node */
 	for (size_t i = 0; i < inst->mib_node_cnt; i++) {
-		if (snmp_oid_equal(&inst->mib_nodes[i].oid, oid)) {
-			vb->oid = *oid;
-			int ret = 0;
-			if (inst->mib_nodes[i].get_cb) {
-				ret = inst->mib_nodes[i].get_cb(inst, &inst->mib_nodes[i], vb);
-			} else {
-				vb->type = inst->mib_nodes[i].type;
+		const struct snmp_mib_node *node = &inst->mib_nodes[i];
+		if (node->oid.len > 1 && oid->len >= node->oid.len - 1) {
+			uint8_t parent_len = node->oid.len - 1;
+			if (snmp_oid_prefix_match(oid, &node->oid, parent_len)) {
+				vb->oid = *oid;
+				vb->type = SNMP_TAG_EXCEPT_NO_SUCH_INST;
+				snmp_mib_unlock(inst);
+				return 0;
 			}
-			snmp_mib_unlock(inst);
-			return ret;
 		}
 	}
 
+	/* 4. No matching object type found */
 	snmp_mib_unlock(inst);
 	vb->oid = *oid;
-	vb->type = SNMP_TAG_EXCEPT_NO_SUCH_INST;
+	vb->type = SNMP_TAG_EXCEPT_NO_SUCH_OBJ;
 	return 0;
 }
 
@@ -614,16 +680,25 @@ int snmp_mib_get_next(struct snmp_agent *inst, const struct snmp_oid *oid, struc
 		}
 	}
 
-	/* Find best scalar candidate */
+	/* Find best scalar candidate via binary search */
 	bool has_scalar_cand = false;
 	size_t best_scalar_idx = 0;
 
-	for (size_t i = 0; i < inst->mib_node_cnt; i++) {
-		if (snmp_oid_compare(&inst->mib_nodes[i].oid, oid) > 0) {
-			has_scalar_cand = true;
-			best_scalar_idx = i;
-			break;
+	int low = 0;
+	int high = (int)inst->mib_node_cnt - 1;
+	int cand = -1;
+	while (low <= high) {
+		int mid = low + (high - low) / 2;
+		if (snmp_oid_compare(&inst->mib_nodes[mid].oid, oid) > 0) {
+			cand = mid;
+			high = mid - 1;
+		} else {
+			low = mid + 1;
 		}
+	}
+	if (cand >= 0) {
+		has_scalar_cand = true;
+		best_scalar_idx = (size_t)cand;
 	}
 
 	/* Decide between table candidate and scalar candidate */
@@ -805,31 +880,27 @@ int snmp_mib_set(struct snmp_agent *inst, const struct snmp_oid *oid, const stru
 	}
 
 	/* Check scalar nodes */
-	for (size_t i = 0; i < inst->mib_node_cnt; i++) {
-		if (snmp_oid_equal(&inst->mib_nodes[i].oid, oid)) {
-			if (inst->mib_nodes[i].set_tx_cb) {
-				void *tx_ctx = NULL;
-				int ret = inst->mib_nodes[i].set_tx_cb(
-				    inst, &inst->mib_nodes[i], vb, SNMP_SET_RESERVE, &tx_ctx);
-				if (ret == 0) {
-					ret = inst->mib_nodes[i].set_tx_cb(
-					    inst, &inst->mib_nodes[i], vb, SNMP_SET_COMMIT,
-					    &tx_ctx);
-				}
-				inst->mib_nodes[i].set_tx_cb(inst, &inst->mib_nodes[i], vb,
-							     SNMP_SET_CLEANUP, &tx_ctx);
-				snmp_mib_unlock(inst);
-				return ret;
+	int s_idx = snmp_mib_find_node_idx(inst, oid);
+	if (s_idx >= 0) {
+		struct snmp_mib_node *node = &inst->mib_nodes[s_idx];
+		if (node->set_tx_cb) {
+			void *tx_ctx = NULL;
+			int ret = node->set_tx_cb(inst, node, vb, SNMP_SET_RESERVE, &tx_ctx);
+			if (ret == 0) {
+				ret = node->set_tx_cb(inst, node, vb, SNMP_SET_COMMIT, &tx_ctx);
 			}
-			if (!inst->mib_nodes[i].set_cb) {
-				snmp_mib_unlock(inst);
-				MIB_COUNTER_INC(inst, snmpInReadOnlys);
-				return -EACCES;
-			}
-			int ret = inst->mib_nodes[i].set_cb(inst, &inst->mib_nodes[i], vb);
+			node->set_tx_cb(inst, node, vb, SNMP_SET_CLEANUP, &tx_ctx);
 			snmp_mib_unlock(inst);
 			return ret;
 		}
+		if (!node->set_cb) {
+			snmp_mib_unlock(inst);
+			MIB_COUNTER_INC(inst, snmpInReadOnlys);
+			return -EACCES;
+		}
+		int ret = node->set_cb(inst, node, vb);
+		snmp_mib_unlock(inst);
+		return ret;
 	}
 
 	snmp_mib_unlock(inst);
@@ -1032,12 +1103,10 @@ int snmp_mib_dispatch(struct snmp_agent *inst, struct snmp_pdu *pdu)
 
 			/* 2. Check scalar nodes if not a table column */
 			if (!found) {
-				for (size_t k = 0; k < inst->mib_node_cnt; k++) {
-					if (snmp_oid_equal(&inst->mib_nodes[k].oid, &vb->oid)) {
-						found = true;
-						item->node = &inst->mib_nodes[k];
-						break;
-					}
+				int k = snmp_mib_find_node_idx(inst, &vb->oid);
+				if (k >= 0) {
+					found = true;
+					item->node = &inst->mib_nodes[k];
 				}
 
 				if (!found) {

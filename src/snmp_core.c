@@ -405,6 +405,13 @@ static int process_v1v2c(struct snmp_agent *agent, const uint8_t *req_buf, size_
 		}
 	}
 
+	uint8_t req_type = agent->current_pdu.type;
+	int32_t non_rep =
+	    agent->current_pdu.non_repeaters < 0 ? 0 : agent->current_pdu.non_repeaters;
+	if (non_rep > (int32_t)agent->current_pdu.varbind_cnt) {
+		non_rep = agent->current_pdu.varbind_cnt;
+	}
+
 	/* Dispatch to MIB engine with instance context */
 	ret = snmp_mib_dispatch(agent, &agent->current_pdu);
 	if (ret < 0) {
@@ -414,16 +421,36 @@ static int process_v1v2c(struct snmp_agent *agent, const uint8_t *req_buf, size_
 	/* Encode response PDU */
 	size_t encoded_len = 0;
 	ret = snmp_ber_encode_pdu(resp_buf, max_resp_len, &encoded_len, &agent->current_pdu);
-	if (ret < 0) {
-		if (ret == -ENOBUFS) {
-			INST_COUNTER_INC(agent, snmpOutTooBigs);
+	if (ret == -ENOBUFS && req_type == SNMP_PDU_GET_BULK_REQ) {
+		while (ret == -ENOBUFS && agent->current_pdu.varbind_cnt > (uint8_t)non_rep) {
+			agent->current_pdu.varbind_cnt--;
+			ret = snmp_ber_encode_pdu(resp_buf, max_resp_len, &encoded_len,
+						  &agent->current_pdu);
 		}
-		return ret;
 	}
 
-	*out_resp_len = encoded_len;
-	INST_COUNTER_INC(agent, snmpOutPkts);
-	return 0;
+	if (ret == 0) {
+		*out_resp_len = encoded_len;
+		INST_COUNTER_INC(agent, snmpOutPkts);
+		return 0;
+	}
+
+	if (ret == -ENOBUFS) {
+		INST_COUNTER_INC(agent, snmpOutTooBigs);
+		agent->current_pdu.error_status = SNMP_ERR_TOO_BIG;
+		agent->current_pdu.error_index = 0;
+		agent->current_pdu.varbind_cnt = 0;
+		agent->current_pdu.type = SNMP_PDU_GET_RESP;
+		int enc_ret =
+		    snmp_ber_encode_pdu(resp_buf, max_resp_len, &encoded_len, &agent->current_pdu);
+		if (enc_ret == 0) {
+			*out_resp_len = encoded_len;
+			INST_COUNTER_INC(agent, snmpOutPkts);
+			return 0;
+		}
+	}
+
+	return ret;
 }
 
 /* ---- v3 processing ---- */
@@ -528,6 +555,12 @@ static int process_v3(struct snmp_agent *agent, const uint8_t *req_buf, size_t r
 		}
 	}
 
+	uint8_t req_type = msg.scoped.pdu.type;
+	int32_t non_rep = msg.scoped.pdu.non_repeaters < 0 ? 0 : msg.scoped.pdu.non_repeaters;
+	if (non_rep > (int32_t)msg.scoped.pdu.varbind_cnt) {
+		non_rep = msg.scoped.pdu.varbind_cnt;
+	}
+
 	/* Dispatch to MIB */
 	ret = snmp_mib_dispatch(agent, &msg.scoped.pdu);
 	if (ret < 0) {
@@ -547,16 +580,41 @@ static int process_v3(struct snmp_agent *agent, const uint8_t *req_buf, size_t r
 	/* Encode */
 	size_t encoded_len = 0;
 	ret = snmp_ber_encode_v3_msg(resp_buf, max_resp_len, &encoded_len, &msg);
-	if (ret < 0) {
-		if (ret == -ENOBUFS) {
-			INST_COUNTER_INC(agent, snmpOutTooBigs);
+	if (ret == -ENOBUFS && req_type == SNMP_PDU_GET_BULK_REQ) {
+		while (ret == -ENOBUFS && msg.scoped.pdu.varbind_cnt > (uint8_t)non_rep) {
+			msg.scoped.pdu.varbind_cnt--;
+			ret = snmp_usm_build_outgoing(agent, &msg);
+			if (ret < 0) {
+				break;
+			}
+			ret = snmp_ber_encode_v3_msg(resp_buf, max_resp_len, &encoded_len, &msg);
 		}
-		return ret;
 	}
 
-	*out_resp_len = encoded_len;
-	INST_COUNTER_INC(agent, snmpOutPkts);
-	return 0;
+	if (ret == 0) {
+		*out_resp_len = encoded_len;
+		INST_COUNTER_INC(agent, snmpOutPkts);
+		return 0;
+	}
+
+	if (ret == -ENOBUFS) {
+		INST_COUNTER_INC(agent, snmpOutTooBigs);
+		msg.scoped.pdu.error_status = SNMP_ERR_TOO_BIG;
+		msg.scoped.pdu.error_index = 0;
+		msg.scoped.pdu.varbind_cnt = 0;
+		msg.scoped.pdu.type = SNMP_PDU_GET_RESP;
+		if (snmp_usm_build_outgoing(agent, &msg) == 0) {
+			int enc_ret =
+			    snmp_ber_encode_v3_msg(resp_buf, max_resp_len, &encoded_len, &msg);
+			if (enc_ret == 0) {
+				*out_resp_len = encoded_len;
+				INST_COUNTER_INC(agent, snmpOutPkts);
+				return 0;
+			}
+		}
+	}
+
+	return ret;
 }
 
 #endif /* CONFIG_SNMP_VERSION_3 */

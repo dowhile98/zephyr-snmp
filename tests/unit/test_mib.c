@@ -21,6 +21,8 @@
 		}                                                                                  \
 	} while (0)
 #define ASSERT_EQ(a, b) ASSERT((a) == (b))
+#define ASSERT_GT(a, b) ASSERT((a) > (b))
+#define ASSERT_LT(a, b) ASSERT((a) < (b))
 
 /*
  * All MIB engine tests run against one explicit instance (no default-agent reliance):
@@ -912,4 +914,330 @@ void test_interleaved_scalar_and_table_walk(void)
 	ret = snmp_mib_get_next(&s_mib_agent, &query, &vb);
 	ASSERT_EQ(ret, 0);
 	ASSERT_EQ(vb.type, SNMP_TAG_EXCEPT_END_MIB_VIEW);
+}
+
+static int bsearch_test_cb(struct snmp_agent *agent, const struct snmp_mib_node *node,
+			   struct snmp_varbind *vb)
+{
+	(void)agent;
+	vb->type = ASN1_TAG_INTEGER;
+	vb->val.int_val = (int32_t)node->oid.ids[7];
+	return 0;
+}
+
+void test_mib_bsearch_lookup(void)
+{
+	static struct snmp_agent agent;
+	int ret = snmp_mib_init(&agent);
+	ASSERT_EQ(ret, 0);
+
+	/* Register 5 nodes out of order to verify lexicographic sorting */
+	static const uint32_t subids[] = {30, 10, 50, 20, 40};
+	for (size_t i = 0; i < 5; i++) {
+		struct snmp_mib_node node = {0};
+		node.oid.len = 9;
+		node.oid.ids[0] = 1;
+		node.oid.ids[1] = 3;
+		node.oid.ids[2] = 6;
+		node.oid.ids[3] = 1;
+		node.oid.ids[4] = 4;
+		node.oid.ids[5] = 1;
+		node.oid.ids[6] = 88;
+		node.oid.ids[7] = subids[i];
+		node.oid.ids[8] = 0;
+		node.type = ASN1_TAG_INTEGER;
+		node.get_cb = bsearch_test_cb;
+		ret = snmp_mib_register(&agent, &node);
+		ASSERT_EQ(ret, 0);
+	}
+
+	struct snmp_varbind vb;
+
+	/* 1. First node (subid 10) */
+	struct snmp_oid oid_first = {.len = 9, .ids = {1, 3, 6, 1, 4, 1, 88, 10, 0}};
+	memset(&vb, 0, sizeof(vb));
+	ret = snmp_mib_get(&agent, &oid_first, &vb);
+	ASSERT_EQ(ret, 0);
+	ASSERT_EQ(vb.type, ASN1_TAG_INTEGER);
+	ASSERT_EQ(vb.val.int_val, 10);
+
+	/* 2. Middle node (subid 30) */
+	struct snmp_oid oid_mid = {.len = 9, .ids = {1, 3, 6, 1, 4, 1, 88, 30, 0}};
+	memset(&vb, 0, sizeof(vb));
+	ret = snmp_mib_get(&agent, &oid_mid, &vb);
+	ASSERT_EQ(ret, 0);
+	ASSERT_EQ(vb.type, ASN1_TAG_INTEGER);
+	ASSERT_EQ(vb.val.int_val, 30);
+
+	/* 3. Last node (subid 50) */
+	struct snmp_oid oid_last = {.len = 9, .ids = {1, 3, 6, 1, 4, 1, 88, 50, 0}};
+	memset(&vb, 0, sizeof(vb));
+	ret = snmp_mib_get(&agent, &oid_last, &vb);
+	ASSERT_EQ(ret, 0);
+	ASSERT_EQ(vb.type, ASN1_TAG_INTEGER);
+	ASSERT_EQ(vb.val.int_val, 50);
+
+	/* 4. Non-existent nodes */
+	struct snmp_oid oid_none1 = {.len = 9, .ids = {1, 3, 6, 1, 4, 1, 88, 5, 0}};
+	memset(&vb, 0, sizeof(vb));
+	ret = snmp_mib_get(&agent, &oid_none1, &vb);
+	ASSERT_EQ(ret, 0);
+	ASSERT_EQ(vb.type, SNMP_TAG_EXCEPT_NO_SUCH_OBJ);
+
+	struct snmp_oid oid_none2 = {.len = 9, .ids = {1, 3, 6, 1, 4, 1, 88, 25, 0}};
+	memset(&vb, 0, sizeof(vb));
+	ret = snmp_mib_get(&agent, &oid_none2, &vb);
+	ASSERT_EQ(ret, 0);
+	ASSERT_EQ(vb.type, SNMP_TAG_EXCEPT_NO_SUCH_OBJ);
+
+	struct snmp_oid oid_none3 = {.len = 9, .ids = {1, 3, 6, 1, 4, 1, 88, 99, 0}};
+	memset(&vb, 0, sizeof(vb));
+	ret = snmp_mib_get(&agent, &oid_none3, &vb);
+	ASSERT_EQ(ret, 0);
+	ASSERT_EQ(vb.type, SNMP_TAG_EXCEPT_NO_SUCH_OBJ);
+}
+
+static int scalar_cb_42(struct snmp_agent *agent, const struct snmp_mib_node *node,
+			struct snmp_varbind *vb)
+{
+	(void)agent;
+	(void)node;
+	vb->type = ASN1_TAG_INTEGER;
+	vb->val.int_val = 42;
+	return 0;
+}
+
+void test_mib_no_such_object_vs_instance(void)
+{
+	static struct snmp_agent agent;
+	int ret = snmp_mib_init(&agent);
+	ASSERT_EQ(ret, 0);
+
+	/* Register scalar: 1.3.6.1.4.1.500.1.0 */
+	struct snmp_mib_node scalar_node = {0};
+	scalar_node.oid.len = 9;
+	scalar_node.oid.ids[0] = 1;
+	scalar_node.oid.ids[1] = 3;
+	scalar_node.oid.ids[2] = 6;
+	scalar_node.oid.ids[3] = 1;
+	scalar_node.oid.ids[4] = 4;
+	scalar_node.oid.ids[5] = 1;
+	scalar_node.oid.ids[6] = 500;
+	scalar_node.oid.ids[7] = 1;
+	scalar_node.oid.ids[8] = 0;
+	scalar_node.type = ASN1_TAG_INTEGER;
+	scalar_node.get_cb = scalar_cb_42;
+	ret = snmp_mib_register(&agent, &scalar_node);
+	ASSERT_EQ(ret, 0);
+
+	/* Register table: 1.3.6.1.4.1.500.2.1 with columns {1, 2} and row 1 */
+	static const uint8_t t_cols[] = {1, 2};
+	static const uint8_t t_types[] = {ASN1_TAG_INTEGER, ASN1_TAG_INTEGER};
+	static snmp_table_get_cb_t t_get_cbs[] = {test_col1_get, test_col2_get};
+	static struct snmp_table_row t_row = {.index = 1, .next = NULL, .user_data = NULL};
+	struct snmp_mib_table t_table = {
+	    .table_oid = {.len = 9, .ids = {1, 3, 6, 1, 4, 1, 500, 2, 1}},
+	    .column_cnt = 2,
+	    .column_subids = t_cols,
+	    .column_types = t_types,
+	    .get_cbs = t_get_cbs,
+	    .set_cbs = NULL,
+	    .rows = NULL,
+	    .user_data = NULL};
+	ret = snmp_mib_register_table(&agent, &t_table);
+	ASSERT_EQ(ret, 0);
+	ret = snmp_mib_table_add_row(&agent, &t_table, &t_row);
+	ASSERT_EQ(ret, 0);
+
+	struct snmp_varbind vb;
+
+	/* 1. Query valid scalar .0: returns value */
+	struct snmp_oid oid_scalar_0 = {.len = 9, .ids = {1, 3, 6, 1, 4, 1, 500, 1, 0}};
+	memset(&vb, 0, sizeof(vb));
+	ret = snmp_mib_get(&agent, &oid_scalar_0, &vb);
+	ASSERT_EQ(ret, 0);
+	ASSERT_EQ(vb.type, ASN1_TAG_INTEGER);
+	ASSERT_EQ(vb.val.int_val, 42);
+
+	/* 2. Query scalar .1: returns noSuchInstance */
+	struct snmp_oid oid_scalar_1 = {.len = 9, .ids = {1, 3, 6, 1, 4, 1, 500, 1, 1}};
+	memset(&vb, 0, sizeof(vb));
+	ret = snmp_mib_get(&agent, &oid_scalar_1, &vb);
+	ASSERT_EQ(ret, 0);
+	ASSERT_EQ(vb.type, SNMP_TAG_EXCEPT_NO_SUCH_INST);
+
+	/* 3. Query completely foreign OID 1.3.6.1.2.1.99.1.0: returns noSuchObject */
+	struct snmp_oid oid_foreign = {.len = 9, .ids = {1, 3, 6, 1, 2, 1, 99, 1, 0}};
+	memset(&vb, 0, sizeof(vb));
+	ret = snmp_mib_get(&agent, &oid_foreign, &vb);
+	ASSERT_EQ(ret, 0);
+	ASSERT_EQ(vb.type, SNMP_TAG_EXCEPT_NO_SUCH_OBJ);
+
+	/* 4. Query table with existing column (1) and non-existing row (99): returns noSuchInstance
+	 */
+	struct snmp_oid oid_tbl_no_row = {.len = 11, .ids = {1, 3, 6, 1, 4, 1, 500, 2, 1, 1, 99}};
+	memset(&vb, 0, sizeof(vb));
+	ret = snmp_mib_get(&agent, &oid_tbl_no_row, &vb);
+	ASSERT_EQ(ret, 0);
+	ASSERT_EQ(vb.type, SNMP_TAG_EXCEPT_NO_SUCH_INST);
+
+	/* 5. Query table with non-existing column (5) and row 1: returns noSuchObject */
+	struct snmp_oid oid_tbl_no_col = {.len = 11, .ids = {1, 3, 6, 1, 4, 1, 500, 2, 1, 5, 1}};
+	memset(&vb, 0, sizeof(vb));
+	ret = snmp_mib_get(&agent, &oid_tbl_no_col, &vb);
+	ASSERT_EQ(ret, 0);
+	ASSERT_EQ(vb.type, SNMP_TAG_EXCEPT_NO_SUCH_OBJ);
+
+	/* 6. Verify SNMPv1 converts both noSuchInstance and noSuchObject to noSuchName */
+	struct snmp_pdu v1_pdu;
+	memset(&v1_pdu, 0, sizeof(v1_pdu));
+	v1_pdu.version = 0; /* SNMPv1 */
+	v1_pdu.type = SNMP_PDU_GET_REQ;
+	v1_pdu.varbind_cnt = 1;
+	v1_pdu.varbinds[0].oid = oid_scalar_1; /* noSuchInstance */
+	ret = snmp_mib_dispatch(&agent, &v1_pdu);
+	ASSERT_EQ(ret, 0);
+	ASSERT_EQ(v1_pdu.error_status, SNMP_ERR_NO_SUCH_NAME);
+	ASSERT_EQ(v1_pdu.error_index, 1);
+
+	memset(&v1_pdu, 0, sizeof(v1_pdu));
+	v1_pdu.version = 0; /* SNMPv1 */
+	v1_pdu.type = SNMP_PDU_GET_REQ;
+	v1_pdu.varbind_cnt = 1;
+	v1_pdu.varbinds[0].oid = oid_foreign; /* noSuchObject */
+	ret = snmp_mib_dispatch(&agent, &v1_pdu);
+	ASSERT_EQ(ret, 0);
+	ASSERT_EQ(v1_pdu.error_status, SNMP_ERR_NO_SUCH_NAME);
+	ASSERT_EQ(v1_pdu.error_index, 1);
+}
+
+void test_getbulk_response_pruning_on_buffer_limit(void)
+{
+	static struct snmp_agent agent;
+	int ret = snmp_agent_init(&agent, NULL);
+	ASSERT_EQ(ret, 0);
+	ret = snmp_agent_set_read_community(&agent, "public");
+	ASSERT_EQ(ret, 0);
+
+	/* Register 10 scalar nodes: 1.3.6.1.4.1.600.1.0 to 1.3.6.1.4.1.600.10.0 */
+	for (uint32_t i = 1; i <= 10; i++) {
+		struct snmp_mib_node node = {0};
+		node.oid.len = 9;
+		node.oid.ids[0] = 1;
+		node.oid.ids[1] = 3;
+		node.oid.ids[2] = 6;
+		node.oid.ids[3] = 1;
+		node.oid.ids[4] = 4;
+		node.oid.ids[5] = 1;
+		node.oid.ids[6] = 600;
+		node.oid.ids[7] = i;
+		node.oid.ids[8] = 0;
+		node.type = ASN1_TAG_INTEGER;
+		node.get_cb = scalar_cb_42;
+		ret = snmp_mib_register(&agent, &node);
+		ASSERT_EQ(ret, 0);
+	}
+
+	/* Build GETBULK request: non_repeaters = 0, max_repetitions = 10 */
+	struct snmp_pdu req_pdu;
+	memset(&req_pdu, 0, sizeof(req_pdu));
+	req_pdu.version = 1; /* SNMPv2c */
+	req_pdu.type = SNMP_PDU_GET_BULK_REQ;
+	req_pdu.request_id = 999;
+	req_pdu.non_repeaters = 0;
+	req_pdu.max_repetitions = 10;
+	strncpy((char *)req_pdu.community, "public", sizeof(req_pdu.community) - 1);
+	req_pdu.community_len = strlen((char *)req_pdu.community);
+	req_pdu.varbind_cnt = 1;
+	req_pdu.varbinds[0].oid.len = 8;
+	req_pdu.varbinds[0].oid.ids[0] = 1;
+	req_pdu.varbinds[0].oid.ids[1] = 3;
+	req_pdu.varbinds[0].oid.ids[2] = 6;
+	req_pdu.varbinds[0].oid.ids[3] = 1;
+	req_pdu.varbinds[0].oid.ids[4] = 4;
+	req_pdu.varbinds[0].oid.ids[5] = 1;
+	req_pdu.varbinds[0].oid.ids[6] = 600;
+	req_pdu.varbinds[0].oid.ids[7] = 0; /* will getNext to .1.0 */
+	req_pdu.varbinds[0].type = ASN1_TAG_NULL;
+
+	uint8_t req_buf[256];
+	size_t req_len = 0;
+	ret = snmp_ber_encode_pdu(req_buf, sizeof(req_buf), &req_len, &req_pdu);
+	ASSERT_EQ(ret, 0);
+
+	/* 1. Large buffer test: full 10 repetitions fit */
+	uint8_t resp_buf[1024];
+	size_t resp_len = 0;
+	ret =
+	    snmp_agent_process_pdu(&agent, req_buf, req_len, resp_buf, sizeof(resp_buf), &resp_len);
+	ASSERT_EQ(ret, 0);
+
+	struct snmp_pdu resp_pdu;
+	memset(&resp_pdu, 0, sizeof(resp_pdu));
+	ret = snmp_ber_decode_pdu(resp_buf, resp_len, &resp_pdu);
+	ASSERT_EQ(ret, 0);
+	ASSERT_EQ(resp_pdu.error_status, SNMP_ERR_NO_ERROR);
+	ASSERT_EQ(resp_pdu.varbind_cnt, 10);
+	size_t full_resp_len = resp_len;
+
+	/* 2. Constrained buffer test: small buffer size that can hold some but not all varbinds */
+	size_t small_buf_sz = full_resp_len / 2;
+	memset(resp_buf, 0, sizeof(resp_buf));
+	resp_len = 0;
+	ret = snmp_agent_process_pdu(&agent, req_buf, req_len, resp_buf, small_buf_sz, &resp_len);
+	ASSERT_EQ(ret, 0);
+	ASSERT_GT(resp_len, 0);
+	ASSERT(resp_len <= small_buf_sz);
+
+	memset(&resp_pdu, 0, sizeof(resp_pdu));
+	ret = snmp_ber_decode_pdu(resp_buf, resp_len, &resp_pdu);
+	ASSERT_EQ(ret, 0);
+	ASSERT_EQ(resp_pdu.error_status, SNMP_ERR_NO_ERROR);
+	ASSERT_GT(resp_pdu.varbind_cnt, 0);
+	ASSERT_LT(resp_pdu.varbind_cnt, 10);
+
+	/* 3. Extremely small buffer test: non_repeaters cannot fit in buffer */
+	/* With non_repeaters = 1, repetition pruning stops at 1 varbind (~42 bytes). */
+	/* When buffer is 35 bytes, non-repeater cannot fit -> returns tooBig with varbind_cnt = 0
+	 */
+	struct snmp_pdu req_pdu2;
+	memset(&req_pdu2, 0, sizeof(req_pdu2));
+	req_pdu2.version = 1; /* SNMPv2c */
+	req_pdu2.type = SNMP_PDU_GET_BULK_REQ;
+	req_pdu2.request_id = 1000;
+	req_pdu2.non_repeaters = 1;
+	req_pdu2.max_repetitions = 5;
+	strncpy((char *)req_pdu2.community, "public", sizeof(req_pdu2.community) - 1);
+	req_pdu2.community_len = strlen((char *)req_pdu2.community);
+	req_pdu2.varbind_cnt = 1;
+	req_pdu2.varbinds[0].oid.len = 8;
+	req_pdu2.varbinds[0].oid.ids[0] = 1;
+	req_pdu2.varbinds[0].oid.ids[1] = 3;
+	req_pdu2.varbinds[0].oid.ids[2] = 6;
+	req_pdu2.varbinds[0].oid.ids[3] = 1;
+	req_pdu2.varbinds[0].oid.ids[4] = 4;
+	req_pdu2.varbinds[0].oid.ids[5] = 1;
+	req_pdu2.varbinds[0].oid.ids[6] = 600;
+	req_pdu2.varbinds[0].oid.ids[7] = 0;
+	req_pdu2.varbinds[0].type = ASN1_TAG_NULL;
+
+	ret = snmp_ber_encode_pdu(req_buf, sizeof(req_buf), &req_len, &req_pdu2);
+	ASSERT_EQ(ret, 0);
+
+	uint32_t too_bigs_before = agent.counters.snmpOutTooBigs;
+	size_t tiny_buf_sz = 35;
+	memset(resp_buf, 0, sizeof(resp_buf));
+	resp_len = 0;
+	ret = snmp_agent_process_pdu(&agent, req_buf, req_len, resp_buf, tiny_buf_sz, &resp_len);
+	ASSERT_EQ(ret, 0);
+	ASSERT_GT(resp_len, 0);
+	ASSERT(resp_len <= tiny_buf_sz);
+
+	memset(&resp_pdu, 0, sizeof(resp_pdu));
+	ret = snmp_ber_decode_pdu(resp_buf, resp_len, &resp_pdu);
+	ASSERT_EQ(ret, 0);
+	ASSERT_EQ(resp_pdu.error_status, SNMP_ERR_TOO_BIG);
+	ASSERT_EQ(resp_pdu.error_index, 0);
+	ASSERT_EQ(resp_pdu.varbind_cnt, 0);
+	ASSERT_GT(agent.counters.snmpOutTooBigs, too_bigs_before);
 }
