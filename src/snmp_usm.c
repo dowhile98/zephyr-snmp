@@ -29,9 +29,16 @@
 #define AES_IV_LEN    16
 #define SNMP_ENGINE_BOOTS_MAX 2147483647U
 
-#define INC_STAT(inst, field) do { \
-		if (inst) { snmp_counter_inc(&(inst)->counters.field); } \
-		snmp_counter_inc(&g_snmp_counters.field); \
+/*
+ * Security-model events increment the counters of the agent that received the message,
+ * exactly once. The previous unconditional mirror into the process-wide
+ * g_snmp_counters corrupted that global for every non-default instance.
+ */
+#define INC_STAT(inst, field)                                                                      \
+	do {                                                                                       \
+		if (inst) {                                                                        \
+			snmp_counter_inc(&(inst)->counters.field);                                 \
+		}                                                                                  \
 	} while (0)
 
 #if defined(CONFIG_SETTINGS)

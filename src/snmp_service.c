@@ -44,8 +44,11 @@ static void snmp_service_callback(struct net_socket_service_event *pev)
 
 #ifdef CONFIG_SNMP_RATE_LIMIT
 		if (!snmp_rate_check()) {
+			/* Single increment on the routed agent; the old unconditional mirror
+			 * into g_snmp_counters leaked every drop of every instance into the
+			 * process-wide counter block (contract 6.2).
+			 */
 			snmp_counter_inc(&agent->counters.snmpSilentDrops);
-			snmp_counter_inc(&g_snmp_counters.snmpSilentDrops);
 			return; /* Silently drop — don't respond */
 		}
 #endif

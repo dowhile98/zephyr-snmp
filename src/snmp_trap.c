@@ -144,8 +144,8 @@ static int snmp_trap_send_v3_inst(struct snmp_agent *inst, const struct snmp_oid
 			     (struct sockaddr *)&dest, sizeof(dest));
 	}
 
+	/* One PDU sent = one increment, on the sending agent (contract 6.2). */
 	snmp_counter_inc(&inst->counters.snmpOutTraps);
-	snmp_counter_inc(&g_snmp_counters.snmpOutTraps);
 	zsock_close(sock);
 	return 0;
 }
@@ -281,8 +281,8 @@ int snmp_trap_send_inst(struct snmp_agent *inst, const struct snmp_oid *trap_oid
 		zsock_sendto(sock, inst->tx_buf, tx_len, 0, (struct sockaddr *)&dest, sizeof(dest));
 	}
 
+	/* One PDU sent = one increment, on the sending agent (contract 6.2). */
 	snmp_counter_inc(&inst->counters.snmpOutTraps);
-	snmp_counter_inc(&g_snmp_counters.snmpOutTraps);
 	zsock_close(sock);
 	k_mutex_unlock(&inst->lock);
 	return 0;
@@ -301,9 +301,9 @@ int snmp_trap_send_auth_failure(struct snmp_agent *inst)
 	if (!inst) {
 		return -EINVAL;
 	}
-	if (inst->counters.snmpEnableAuthenTraps != 1 && g_snmp_counters.snmpEnableAuthenTraps != 1)
-	{
-		return 0; /* Traps disabled */
+	/* Gate on the receiving agent only: the global mirror is gone (contract 6.2). */
+	if (inst->counters.snmpEnableAuthenTraps != 1) {
+		return 0; /* Traps disabled for this agent */
 	}
 	static const struct snmp_oid auth_fail_oid = {
 		.len = 10,

@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stddef.h>
 #include <errno.h>
 #include <snmp/snmp_ber.h>
 #include <snmp/snmp_mib.h>
@@ -228,4 +229,207 @@ void test_multi_instance_coexistence(void)
 	ASSERT_EQ(resp_pdu.error_status, 0);
 	ASSERT_EQ(resp_pdu.varbinds[0].type, ASN1_TAG_OCTET_STRING);
 	ASSERT_EQ(strcmp((char *)resp_pdu.varbinds[0].val.octet_str.data, "gateway-wan"), 0);
+}
+
+/* -------------------------------------------------------------------------- */
+/* MIB-II snmp-group (1.3.6.1.2.1.11) counter isolation                        */
+/*                                                                            */
+/* Every double-count / global mirror listed in design contract 6.2 leaks the  */
+/* traffic of one agent into another agent's statistics. Driving traffic       */
+/* exclusively on agent A and then reading the whole .11 group out of both    */
+/* agents' trees catches all of them at once, host-side, without sockets.     */
+/* -------------------------------------------------------------------------- */
+
+/* RFC 3418 / RFC 1213: sub-identifiers 7 and 23 of the snmp group do not exist. */
+static const uint32_t ci_subids[] = {
+    1,	2,  3,	4,  5,	6,  8,	9,  10, 11, 12, 13, 14, 15, 16,
+    17, 18, 19, 20, 21, 22, 24, 25, 26, 27, 28, 29, 30, 31, 32,
+};
+
+static void ci_make_counter_oid(struct snmp_oid *oid, uint32_t subid)
+{
+	oid->len = 9;
+	oid->ids[0] = 1;
+	oid->ids[1] = 3;
+	oid->ids[2] = 6;
+	oid->ids[3] = 1;
+	oid->ids[4] = 2;
+	oid->ids[5] = 1;
+	oid->ids[6] = 11;
+	oid->ids[7] = subid;
+	oid->ids[8] = 0;
+}
+
+static size_t ci_build_request(uint8_t *buf, size_t buf_sz, const char *community,
+			       const struct snmp_oid *oid, uint8_t pdu_type, int32_t req_id,
+			       int32_t max_rep)
+{
+	struct snmp_pdu pdu;
+	memset(&pdu, 0, sizeof(pdu));
+	pdu.version = 1; /* SNMPv2c */
+	pdu.type = pdu_type;
+	pdu.request_id = req_id;
+	pdu.max_repetitions = max_rep;
+	strncpy((char *)pdu.community, community, sizeof(pdu.community) - 1);
+	pdu.community_len = strlen((char *)pdu.community);
+	pdu.varbind_cnt = 1;
+	pdu.varbinds[0].oid = *oid;
+	pdu.varbinds[0].type = ASN1_TAG_NULL;
+
+	size_t enc_len = 0;
+	ASSERT_EQ(snmp_ber_encode_pdu(buf, buf_sz, &enc_len, &pdu), 0);
+	return enc_len;
+}
+
+/* Read one .11.<subid>.0 node of this agent through its own MIB tree. */
+static uint32_t ci_read_counter(struct snmp_agent *agent, uint32_t subid)
+{
+	struct snmp_oid oid;
+	ci_make_counter_oid(&oid, subid);
+
+	struct snmp_varbind vb;
+	memset(&vb, 0, sizeof(vb));
+	int ret = snmp_mib_get(agent, &oid, &vb);
+	if (ret != 0) {
+		printf("FAIL: snmp_mib_get(.11.%u.0) -> %d\n", subid, ret);
+		exit(1);
+	}
+	return vb.val.uint_val;
+}
+
+void test_multi_instance_counter_isolation(void)
+{
+	static struct snmp_agent agent_a;
+	static struct snmp_agent agent_b;
+
+	ASSERT_EQ(snmp_agent_inst_init(&agent_a, NULL), 0);
+	ASSERT_EQ(snmp_agent_inst_init(&agent_b, NULL), 0);
+	ASSERT_EQ(snmp_agent_set_read_community(&agent_a, "pubA"), 0);
+	ASSERT_EQ(snmp_agent_set_read_community(&agent_b, "pubB"), 0);
+
+	uint8_t req[512];
+	uint8_t resp[512];
+	size_t len;
+	size_t resp_len;
+
+	struct snmp_oid sysname = {
+	    .len = 9,
+	    .ids = {1, 3, 6, 1, 2, 1, 1, 5, 0},
+	};
+	struct snmp_oid absent = {
+	    .len = 9,
+	    .ids = {1, 3, 6, 1, 4, 1, 99999, 1, 0},
+	};
+	struct snmp_oid uptime = {
+	    .len = 9,
+	    .ids = {1, 3, 6, 1, 2, 1, 1, 3, 0},
+	};
+
+	/* --- Traffic on agent A only, exercising as many counter paths as possible --- */
+
+	/* 1. Successful GET */
+	len = ci_build_request(req, sizeof(req), "pubA", &sysname, SNMP_PDU_GET_REQ, 1, 0);
+	snmp_agent_process_pdu(&agent_a, req, len, resp, sizeof(resp), &resp_len);
+
+	/* 2. Successful GETNEXT */
+	len = ci_build_request(req, sizeof(req), "pubA", &sysname, SNMP_PDU_GET_NEXT_REQ, 2, 0);
+	snmp_agent_process_pdu(&agent_a, req, len, resp, sizeof(resp), &resp_len);
+
+	/* 3. GETBULK: the snmpInTotalReqVars accumulation path of contract 6.2 */
+	len = ci_build_request(req, sizeof(req), "pubA", &sysname, SNMP_PDU_GET_BULK_REQ, 3, 3);
+	snmp_agent_process_pdu(&agent_a, req, len, resp, sizeof(resp), &resp_len);
+
+	/* 4. Wrong community (snmpInBadCommunityNames path) */
+	len = ci_build_request(req, sizeof(req), "wrong", &sysname, SNMP_PDU_GET_REQ, 4, 0);
+	ASSERT_EQ(snmp_agent_process_pdu(&agent_a, req, len, resp, sizeof(resp), &resp_len),
+		  -EACCES);
+
+	/* 5. Unknown OID (snmpInNoSuchNames / snmpOutNoSuchNames path) */
+	len = ci_build_request(req, sizeof(req), "pubA", &absent, SNMP_PDU_GET_REQ, 5, 0);
+	snmp_agent_process_pdu(&agent_a, req, len, resp, sizeof(resp), &resp_len);
+
+	/* 6. SET on a read-only object (snmpInReadOnlys path) */
+	len = ci_build_request(req, sizeof(req), "pubA", &uptime, SNMP_PDU_SET_REQ, 6, 0);
+	snmp_agent_process_pdu(&agent_a, req, len, resp, sizeof(resp), &resp_len);
+
+	/* --- The assertion that catches every mirror bug of contract 6.2 --- */
+
+	/* 7. A saw all of that traffic; every counter of B must still read zero. */
+	ASSERT(ci_read_counter(&agent_a, 1) > 0); /* snmpInPkts */
+	for (size_t i = 0; i < sizeof(ci_subids) / sizeof(ci_subids[0]); i++) {
+		uint32_t sub = ci_subids[i];
+		uint32_t val_b = ci_read_counter(&agent_b, sub);
+		if (sub == 30) { /* snmpEnableAuthenTraps defaults to 1, not a counter */
+			ASSERT_EQ(val_b, 1);
+		} else if (val_b != 0) {
+			printf("FAIL: agent B .11.%u.0 reads %u, expected 0\n", sub, val_b);
+			exit(1);
+		}
+	}
+
+	/* 8. Cross-check the MIB nodes against the snapshot API of the same fields. */
+	struct snmp_mib2_counters cb;
+	snmp_agent_get_counters(&agent_b, &cb);
+	const uint32_t *words = (const uint32_t *)&cb;
+	size_t authen_word =
+	    offsetof(struct snmp_mib2_counters, snmpEnableAuthenTraps) / sizeof(uint32_t);
+	for (size_t i = 0; i < sizeof(cb) / sizeof(uint32_t); i++) {
+		if (i == authen_word) {
+			continue;
+		}
+		if (words[i] != 0) {
+			printf("FAIL: agent B counter word %zu reads %u\n", i, words[i]);
+			exit(1);
+		}
+	}
+
+	/* 9. A's own counters did move, and they are visible through the MIB too. */
+	struct snmp_mib2_counters ca;
+	snmp_agent_get_counters(&agent_a, &ca);
+	ASSERT(ca.snmpInPkts > 0);
+	ASSERT(ca.snmpInBadCommunityNames > 0);
+	ASSERT(ca.snmpInTotalReqVars > 0);
+	ASSERT_EQ(ci_read_counter(&agent_a, 1), ca.snmpInPkts);
+	ASSERT_EQ(ci_read_counter(&agent_a, 13), ca.snmpInTotalReqVars);
+
+	/* 10. The one writable snmp-group object is per-agent as well: setting .11.30.0
+	 *     on A (RFC 3418 INTEGER 1|2) must not change B.
+	 */
+	struct snmp_varbind vb_set;
+	memset(&vb_set, 0, sizeof(vb_set));
+	vb_set.type = ASN1_TAG_INTEGER;
+	vb_set.val.int_val = 2;
+	struct snmp_oid authen = {
+	    .len = 9,
+	    .ids = {1, 3, 6, 1, 2, 1, 11, 30, 0},
+	};
+	ASSERT_EQ(snmp_mib_set(&agent_a, &authen, &vb_set), 0);
+	ASSERT_EQ(agent_a.counters.snmpEnableAuthenTraps, 2);
+	ASSERT_EQ(agent_b.counters.snmpEnableAuthenTraps, 1);
+	ASSERT_EQ(ci_read_counter(&agent_b, 30), 1);
+
+	/* 11. MIB-II default nodes must not alias instance state via user_data
+	 *     (decision 2): every system-group and snmp-group node carries NULL.
+	 */
+	for (size_t i = 0; i < agent_a.mib_node_cnt; i++) {
+		const struct snmp_mib_node *n = &agent_a.mib_nodes[i];
+		if (n->oid.len == 9 && n->oid.ids[0] == 1 && n->oid.ids[3] == 1 &&
+		    n->oid.ids[5] == 1 && (n->oid.ids[6] == 1 || n->oid.ids[6] == 11)) {
+			if (n->user_data != NULL) {
+				printf("FAIL: default node still aliases instance state "
+				       "through user_data\n");
+				exit(1);
+			}
+		}
+	}
+
+	/* 12. Counter clearing is per-agent too. */
+	snmp_agent_zero_counters(&agent_a);
+	snmp_agent_get_counters(&agent_a, &ca);
+	snmp_agent_get_counters(&agent_b, &cb);
+	ASSERT_EQ(ca.snmpInPkts, 0);
+	ASSERT_EQ(ca.snmpEnableAuthenTraps, 1);
+	/* B was never touched: not by A's SET of .11.30.0, not by A's clearing. */
+	ASSERT_EQ(cb.snmpInPkts, 0);
+	ASSERT_EQ(cb.snmpEnableAuthenTraps, 1);
 }

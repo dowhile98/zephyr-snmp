@@ -138,7 +138,24 @@ struct snmp_mib2_counters {
 	uint32_t snmpProxyDrops;           /* 11.32.0 */
 };
 
-extern struct snmp_mib2_counters g_snmp_counters;
+/**
+ * @brief Snapshot an agent's MIB-II snmp-group counters.
+ *
+ * Safe to call from any context (plain/atomic word reads) and independent of the
+ * 1.3.6.1.2.1.11 MIB nodes, which read the same fields of the receiving agent.
+ *
+ * @param agent Agent to query; NULL is ignored.
+ * @param out   Destination structure.
+ */
+void snmp_agent_get_counters(const struct snmp_agent *agent, struct snmp_mib2_counters *out);
+
+/**
+ * @brief Zero an agent's counters, restoring snmpEnableAuthenTraps to the RFC 1907
+ *        default (enabled).
+ *
+ * @param agent Agent to clear; NULL is ignored.
+ */
+void snmp_agent_zero_counters(struct snmp_agent *agent);
 
 static inline void snmp_counter_inc(uint32_t *counter)
 {

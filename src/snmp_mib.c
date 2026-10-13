@@ -7,13 +7,10 @@
 #include <snmp/snmp_core.h>
 #include <zephyr/sys/atomic.h>
 #include <string.h>
+#include <stddef.h>
 #include <errno.h>
 
 #ifdef CONFIG_SNMP_AGENT
-
-struct snmp_mib2_counters g_snmp_counters = {
-	.snmpEnableAuthenTraps = 1 /* 1 = enabled per RFC 1907 */
-};
 
 void snmp_mib_lock(struct snmp_agent *inst)
 {
@@ -29,46 +26,109 @@ void snmp_mib_unlock(struct snmp_agent *inst)
 	}
 }
 
+/*
+ * MIB-II snmp group (1.3.6.1.2.1.11).
+ *
+ * The counter nodes carry no user_data: the sub-identifier selects the field of the
+ * *receiving agent's* struct snmp_mib2_counters through this read-only table, so every
+ * instance reports its own statistics (design contract 6.1). Only subid 30
+ * (snmpEnableAuthenTraps) is writable and is an INTEGER, not a Counter32.
+ *
+ * OID layout of a registered node: 1.3.6.1.2.1.11.<subid>.0, i.e. ids[6] == 11 and
+ * ids[7] == subid. Sub-identifiers 7 and 23 do not exist in RFC 3418/RFC 1213.
+ */
+struct counter_map_ent {
+	uint8_t subid;
+	uint8_t tag;
+	uint16_t off;
+};
+
+#define COUNTER_MAP(sub, field, t) {sub, t, (uint16_t)offsetof(struct snmp_mib2_counters, field)}
+
+static const struct counter_map_ent s_counter_map[] = {
+    COUNTER_MAP(1, snmpInPkts, SNMP_TAG_COUNTER32),
+    COUNTER_MAP(2, snmpOutPkts, SNMP_TAG_COUNTER32),
+    COUNTER_MAP(3, snmpInBadVersions, SNMP_TAG_COUNTER32),
+    COUNTER_MAP(4, snmpInBadCommunityNames, SNMP_TAG_COUNTER32),
+    COUNTER_MAP(5, snmpInBadCommunityUses, SNMP_TAG_COUNTER32),
+    COUNTER_MAP(6, snmpInASNParseErrs, SNMP_TAG_COUNTER32),
+    COUNTER_MAP(8, snmpInTooBigs, SNMP_TAG_COUNTER32),
+    COUNTER_MAP(9, snmpInNoSuchNames, SNMP_TAG_COUNTER32),
+    COUNTER_MAP(10, snmpInBadValues, SNMP_TAG_COUNTER32),
+    COUNTER_MAP(11, snmpInReadOnlys, SNMP_TAG_COUNTER32),
+    COUNTER_MAP(12, snmpInGenErrs, SNMP_TAG_COUNTER32),
+    COUNTER_MAP(13, snmpInTotalReqVars, SNMP_TAG_COUNTER32),
+    COUNTER_MAP(14, snmpInTotalSetVars, SNMP_TAG_COUNTER32),
+    COUNTER_MAP(15, snmpInGetRequests, SNMP_TAG_COUNTER32),
+    COUNTER_MAP(16, snmpInGetNexts, SNMP_TAG_COUNTER32),
+    COUNTER_MAP(17, snmpInSetRequests, SNMP_TAG_COUNTER32),
+    COUNTER_MAP(18, snmpInGetResponses, SNMP_TAG_COUNTER32),
+    COUNTER_MAP(19, snmpInTraps, SNMP_TAG_COUNTER32),
+    COUNTER_MAP(20, snmpOutTooBigs, SNMP_TAG_COUNTER32),
+    COUNTER_MAP(21, snmpOutNoSuchNames, SNMP_TAG_COUNTER32),
+    COUNTER_MAP(22, snmpOutBadValues, SNMP_TAG_COUNTER32),
+    COUNTER_MAP(24, snmpOutGenErrs, SNMP_TAG_COUNTER32),
+    COUNTER_MAP(25, snmpOutGetRequests, SNMP_TAG_COUNTER32),
+    COUNTER_MAP(26, snmpOutGetNexts, SNMP_TAG_COUNTER32),
+    COUNTER_MAP(27, snmpOutSetRequests, SNMP_TAG_COUNTER32),
+    COUNTER_MAP(28, snmpOutGetResponses, SNMP_TAG_COUNTER32),
+    COUNTER_MAP(29, snmpOutTraps, SNMP_TAG_COUNTER32),
+    COUNTER_MAP(30, snmpEnableAuthenTraps, ASN1_TAG_INTEGER),
+    COUNTER_MAP(31, snmpSilentDrops, SNMP_TAG_COUNTER32),
+    COUNTER_MAP(32, snmpProxyDrops, SNMP_TAG_COUNTER32),
+};
+
+#define SNMP_COUNTER_SUBID_AUTHEN_TRAPS 30
+
+static const struct counter_map_ent *counter_map_lookup(uint32_t subid)
+{
+	for (size_t i = 0; i < sizeof(s_counter_map) / sizeof(s_counter_map[0]); i++) {
+		if (s_counter_map[i].subid == subid) {
+			return &s_counter_map[i];
+		}
+	}
+	return NULL;
+}
+
 /* Callbacks for snmp MIB-II group counters */
 static int mib2_counter_get(struct snmp_agent *agent, const struct snmp_mib_node *node,
 			    struct snmp_varbind *vb)
 {
-	(void)agent;
-	if (!node || !vb || !node->user_data)
+	if (!agent || !node || !vb)
 		return -EINVAL;
-	uint32_t *counter_ptr = (uint32_t *)node->user_data;
-	vb->type = SNMP_TAG_COUNTER32;
-	vb->val.uint_val = *counter_ptr;
+
+	const struct counter_map_ent *e = counter_map_lookup(node->oid.ids[7]);
+	if (!e)
+		return -EINVAL;
+
+	const uint32_t *counter = (const uint32_t *)((const uint8_t *)&agent->counters + e->off);
+	vb->type = e->tag;
+	vb->val.uint_val = *counter;
 	return 0;
 }
 
 static int mib2_enable_authen_traps_get(struct snmp_agent *agent, const struct snmp_mib_node *node,
 					struct snmp_varbind *vb)
 {
-	(void)agent;
-	if (!node || !vb)
+	(void)node;
+	if (!agent || !vb)
 		return -EINVAL;
-	int32_t *val_ptr = (int32_t *)node->user_data;
 	vb->type = ASN1_TAG_INTEGER;
-	vb->val.int_val = val_ptr ? *val_ptr : g_snmp_counters.snmpEnableAuthenTraps;
+	vb->val.int_val = agent->counters.snmpEnableAuthenTraps;
 	return 0;
 }
 
 static int mib2_enable_authen_traps_set(struct snmp_agent *agent, struct snmp_mib_node *node,
 					const struct snmp_varbind *vb)
 {
-	(void)agent;
-	if (!node || !vb)
+	(void)node;
+	if (!agent || !vb)
 		return -EINVAL;
 	if (vb->type != ASN1_TAG_INTEGER)
 		return -EINVAL;
 	if (vb->val.int_val != 1 && vb->val.int_val != 2)
 		return -EINVAL;
-	int32_t *val_ptr = (int32_t *)node->user_data;
-	if (val_ptr) {
-		*val_ptr = vb->val.int_val;
-	}
-	g_snmp_counters.snmpEnableAuthenTraps = vb->val.int_val;
+	agent->counters.snmpEnableAuthenTraps = vb->val.int_val;
 	return 0;
 }
 
@@ -151,29 +211,88 @@ int snmp_mib2_set_syslocation(const char *location)
 	return snmp_mib2_set_syslocation_inst(snmp_agent_get_default(), location);
 }
 
-/* System Group Callbacks */
+/* Maximum octet string a varbind can carry (union snmp_val::octet_str::data). */
+#define SYS_STRING_MAX 128
+
+static int sys_copy_string(const char *src, struct snmp_varbind *vb)
+{
+	if (!src)
+		return -EINVAL;
+	size_t len = strlen(src);
+	if (len > SYS_STRING_MAX)
+		len = SYS_STRING_MAX;
+	vb->type = ASN1_TAG_OCTET_STRING;
+	vb->val.octet_str.len = (uint16_t)len;
+	memcpy(vb->val.octet_str.data, src, len);
+	return 0;
+}
+
+/*
+ * Resolve the agent-owned system string for a system-group sub-identifier.
+ * @param cap Optional out-parameter receiving the writable capacity (characters,
+ *            excluding the NUL terminator).
+ * @return Pointer into @p agent, or NULL for a sub-identifier that is not a string.
+ */
+static char *sys_string_field(struct snmp_agent *agent, uint32_t subid, size_t *cap)
+{
+	char *p;
+	size_t c;
+
+	switch (subid) {
+	case 1: /* sysDescr (read-only on the wire, capacity 127) */
+		p = agent->sys_descr;
+		c = sizeof(agent->sys_descr) - 1;
+		break;
+	case 4: /* sysContact */
+		p = agent->sys_contact;
+		c = sizeof(agent->sys_contact) - 1;
+		break;
+	case 5: /* sysName */
+		p = agent->sys_name;
+		c = sizeof(agent->sys_name) - 1;
+		break;
+	case 6: /* sysLocation */
+		p = agent->sys_location;
+		c = sizeof(agent->sys_location) - 1;
+		break;
+	default:
+		if (cap) {
+			*cap = 0;
+		}
+		return NULL;
+	}
+
+	if (cap) {
+		*cap = c;
+	}
+	return p;
+}
+
+/*
+ * System Group Callbacks (1.3.6.1.2.1.1.<subid>.0).
+ *
+ * The identity strings live in the receiving agent, so these callbacks select the field
+ * from node->oid.ids[7] instead of dereferencing user_data (design contract 6.1).
+ */
 static int sys_descr_get(struct snmp_agent *agent, const struct snmp_mib_node *node,
 			 struct snmp_varbind *vb)
 {
-	(void)agent;
-	if (!node || !vb || !node->user_data)
+	if (!agent || !node || !vb)
 		return -EINVAL;
-	const char *descr = (const char *)node->user_data;
-	vb->type = ASN1_TAG_OCTET_STRING;
-	vb->val.octet_str.len = strlen(descr);
-	memcpy(vb->val.octet_str.data, descr, vb->val.octet_str.len);
-	return 0;
+	if (node->oid.ids[7] != 1)
+		return -EINVAL;
+	return sys_copy_string(agent->sys_descr, vb);
 }
 
 static int sys_object_id_get(struct snmp_agent *agent, const struct snmp_mib_node *node,
 			     struct snmp_varbind *vb)
 {
-	(void)agent;
-	if (!node || !vb || !node->user_data)
+	if (!agent || !node || !vb)
 		return -EINVAL;
-	const struct snmp_oid *oid_ptr = (const struct snmp_oid *)node->user_data;
+	if (node->oid.ids[7] != 2)
+		return -EINVAL;
 	vb->type = ASN1_TAG_OID;
-	vb->val.oid = *oid_ptr;
+	vb->val.oid = agent->sys_object_id;
 	return 0;
 }
 
@@ -192,30 +311,31 @@ static int sys_uptime_get(struct snmp_agent *agent, const struct snmp_mib_node *
 static int sys_string_get(struct snmp_agent *agent, const struct snmp_mib_node *node,
 			  struct snmp_varbind *vb)
 {
-	(void)agent;
-	if (!node || !vb || !node->user_data)
+	if (!agent || !node || !vb)
 		return -EINVAL;
-	const char *str = (const char *)node->user_data;
-	vb->type = ASN1_TAG_OCTET_STRING;
-	vb->val.octet_str.len = strlen(str);
-	memcpy(vb->val.octet_str.data, str, vb->val.octet_str.len);
-	return 0;
+	return sys_copy_string(sys_string_field(agent, node->oid.ids[7], NULL), vb);
 }
 
+/*
+ * Writable system strings: sysContact.0, sysName.0, sysLocation.0. Capacity is taken
+ * from the actual destination array (sysDescr is 128 bytes, the rest 64) instead of the
+ * previous "assume at least 64" guess, so a long SET cannot run past a field.
+ */
 static int sys_string_set(struct snmp_agent *agent, struct snmp_mib_node *node,
 			  const struct snmp_varbind *vb)
 {
-	(void)agent;
-	if (!node || !vb || !node->user_data)
+	if (!agent || !node || !vb)
 		return -EINVAL;
 	if (vb->type != ASN1_TAG_OCTET_STRING)
 		return -EINVAL;
-	char *dst = (char *)node->user_data;
-	/* Assume buffer capacity of at least 64 bytes */
-	size_t max_len = 64;
 
-	if (vb->val.octet_str.len >= max_len)
+	size_t cap = 0;
+	char *dst = sys_string_field(agent, node->oid.ids[7], &cap);
+	if (!dst)
 		return -EINVAL;
+	if (vb->val.octet_str.len >= cap)
+		return -EINVAL;
+
 	memcpy(dst, vb->val.octet_str.data, vb->val.octet_str.len);
 	dst[vb->val.octet_str.len] = '\0';
 	return 0;
@@ -233,18 +353,23 @@ static int sys_services_get(struct snmp_agent *agent, const struct snmp_mib_node
 	return 0;
 }
 
-static void register_mib2_counter_inst(struct snmp_agent *inst, const uint32_t *subids, uint8_t len,
-				       uint32_t *counter_ptr)
+/* Register one 1.3.6.1.2.1.11.<subid>.0 node; user_data stays NULL by design (6.1). */
+static int register_counter_node(struct snmp_agent *inst, const uint32_t *base_oid,
+				 const struct counter_map_ent *e)
 {
 	struct snmp_mib_node node;
 	memset(&node, 0, sizeof(node));
-	node.oid.len = len;
-	memcpy(node.oid.ids, subids, len * sizeof(uint32_t));
-	node.type = SNMP_TAG_COUNTER32;
-	node.get_cb = mib2_counter_get;
-	node.set_cb = NULL;
-	node.user_data = (void *)counter_ptr;
-	snmp_mib_register_inst(inst, &node);
+	node.oid.len = 9;
+	memcpy(node.oid.ids, base_oid, 8 * sizeof(uint32_t));
+	node.oid.ids[7] = e->subid;
+	node.oid.ids[8] = 0;
+	node.type = e->tag;
+	node.get_cb = (e->subid == SNMP_COUNTER_SUBID_AUTHEN_TRAPS) ? mib2_enable_authen_traps_get
+								    : mib2_counter_get;
+	node.set_cb =
+	    (e->subid == SNMP_COUNTER_SUBID_AUTHEN_TRAPS) ? mib2_enable_authen_traps_set : NULL;
+	node.user_data = NULL;
+	return snmp_mib_register_inst(inst, &node);
 }
 
 int snmp_mib_init(struct snmp_agent *inst)
@@ -266,87 +391,42 @@ int snmp_mib_register_defaults(struct snmp_agent *inst)
 	if (!inst)
 		return -EINVAL;
 
-	/* Register standard snmp group (1.3.6.1.2.1.11.x.0) */
+	/* Register the snmp group (1.3.6.1.2.1.11.x.0) from the read-only map. */
 	static const uint32_t base_oid[9] = {1, 3, 6, 1, 2, 1, 11, 0, 0};
 
-#define REG_COUNTER_INST(subid, field)                                     \
-	do {                                                               \
-		uint32_t oid_buf[10];                                      \
-		memcpy(oid_buf, base_oid, 8 * sizeof(uint32_t));           \
-		oid_buf[7] = subid;                                        \
-		oid_buf[8] = 0;                                            \
-		register_mib2_counter_inst(inst, oid_buf, 9,               \
-					   &inst->counters.field);         \
-	} while (0)
-
-	REG_COUNTER_INST(1, snmpInPkts);
-	REG_COUNTER_INST(2, snmpOutPkts);
-	REG_COUNTER_INST(3, snmpInBadVersions);
-	REG_COUNTER_INST(4, snmpInBadCommunityNames);
-	REG_COUNTER_INST(5, snmpInBadCommunityUses);
-	REG_COUNTER_INST(6, snmpInASNParseErrs);
-	REG_COUNTER_INST(8, snmpInTooBigs);
-	REG_COUNTER_INST(9, snmpInNoSuchNames);
-	REG_COUNTER_INST(10, snmpInBadValues);
-	REG_COUNTER_INST(11, snmpInReadOnlys);
-	REG_COUNTER_INST(12, snmpInGenErrs);
-	REG_COUNTER_INST(13, snmpInTotalReqVars);
-	REG_COUNTER_INST(14, snmpInTotalSetVars);
-	REG_COUNTER_INST(15, snmpInGetRequests);
-	REG_COUNTER_INST(16, snmpInGetNexts);
-	REG_COUNTER_INST(17, snmpInSetRequests);
-	REG_COUNTER_INST(18, snmpInGetResponses);
-	REG_COUNTER_INST(19, snmpInTraps);
-	REG_COUNTER_INST(20, snmpOutTooBigs);
-	REG_COUNTER_INST(21, snmpOutNoSuchNames);
-	REG_COUNTER_INST(22, snmpOutBadValues);
-	REG_COUNTER_INST(24, snmpOutGenErrs);
-	REG_COUNTER_INST(25, snmpOutGetRequests);
-	REG_COUNTER_INST(26, snmpOutGetNexts);
-	REG_COUNTER_INST(27, snmpOutSetRequests);
-	REG_COUNTER_INST(28, snmpOutGetResponses);
-	REG_COUNTER_INST(29, snmpOutTraps);
-	REG_COUNTER_INST(31, snmpSilentDrops);
-	REG_COUNTER_INST(32, snmpProxyDrops);
-
-	/* Register snmpEnableAuthenTraps (1.3.6.1.2.1.11.30.0) */
-	struct snmp_mib_node authen_node;
-	memset(&authen_node, 0, sizeof(authen_node));
-	authen_node.oid.len = 9;
-	memcpy(authen_node.oid.ids, base_oid, 8 * sizeof(uint32_t));
-	authen_node.oid.ids[7] = 30;
-	authen_node.oid.ids[8] = 0;
-	authen_node.type = ASN1_TAG_INTEGER;
-	authen_node.get_cb = mib2_enable_authen_traps_get;
-	authen_node.set_cb = mib2_enable_authen_traps_set;
-	authen_node.user_data = &inst->counters.snmpEnableAuthenTraps;
-	snmp_mib_register_inst(inst, &authen_node);
+	for (size_t i = 0; i < sizeof(s_counter_map) / sizeof(s_counter_map[0]); i++) {
+		int ret = register_counter_node(inst, base_oid, &s_counter_map[i]);
+		if (ret < 0)
+			return ret;
+	}
 
 	/* Register MIB-II System group (1.3.6.1.2.1.1.x.0) */
 	static const uint32_t sys_base[7] = {1, 3, 6, 1, 2, 1, 1};
 
-#define REG_SYS_NODE_INST(subid, tag_val, g_cb, s_cb, u_data)              \
-	do {                                                               \
-		struct snmp_mib_node n;                                    \
-		memset(&n, 0, sizeof(n));                                  \
-		n.oid.len = 9;                                             \
-		memcpy(n.oid.ids, sys_base, 7 * sizeof(uint32_t));         \
-		n.oid.ids[7] = subid;                                      \
-		n.oid.ids[8] = 0;                                          \
-		n.type = tag_val;                                          \
-		n.get_cb = g_cb;                                           \
-		n.set_cb = s_cb;                                           \
-		n.user_data = (void *)u_data;                              \
-		snmp_mib_register_inst(inst, &n);                          \
+#define REG_SYS_NODE_INST(subid, tag_val, g_cb, s_cb)                                              \
+	do {                                                                                       \
+		struct snmp_mib_node n;                                                            \
+		memset(&n, 0, sizeof(n));                                                          \
+		n.oid.len = 9;                                                                     \
+		memcpy(n.oid.ids, sys_base, 7 * sizeof(uint32_t));                                 \
+		n.oid.ids[7] = subid;                                                              \
+		n.oid.ids[8] = 0;                                                                  \
+		n.type = tag_val;                                                                  \
+		n.get_cb = g_cb;                                                                   \
+		n.set_cb = s_cb;                                                                   \
+		n.user_data = NULL;                                                                \
+		int ret = snmp_mib_register_inst(inst, &n);                                        \
+		if (ret < 0)                                                                       \
+			return ret;                                                                \
 	} while (0)
 
-	REG_SYS_NODE_INST(1, ASN1_TAG_OCTET_STRING, sys_descr_get, NULL, inst->sys_descr);
-	REG_SYS_NODE_INST(2, ASN1_TAG_OID, sys_object_id_get, NULL, &inst->sys_object_id);
-	REG_SYS_NODE_INST(3, SNMP_TAG_TIMETICKS, sys_uptime_get, NULL, NULL);
-	REG_SYS_NODE_INST(4, ASN1_TAG_OCTET_STRING, sys_string_get, sys_string_set, inst->sys_contact);
-	REG_SYS_NODE_INST(5, ASN1_TAG_OCTET_STRING, sys_string_get, sys_string_set, inst->sys_name);
-	REG_SYS_NODE_INST(6, ASN1_TAG_OCTET_STRING, sys_string_get, sys_string_set, inst->sys_location);
-	REG_SYS_NODE_INST(7, ASN1_TAG_INTEGER, sys_services_get, NULL, NULL);
+	REG_SYS_NODE_INST(1, ASN1_TAG_OCTET_STRING, sys_descr_get, NULL);
+	REG_SYS_NODE_INST(2, ASN1_TAG_OID, sys_object_id_get, NULL);
+	REG_SYS_NODE_INST(3, SNMP_TAG_TIMETICKS, sys_uptime_get, NULL);
+	REG_SYS_NODE_INST(4, ASN1_TAG_OCTET_STRING, sys_string_get, sys_string_set);
+	REG_SYS_NODE_INST(5, ASN1_TAG_OCTET_STRING, sys_string_get, sys_string_set);
+	REG_SYS_NODE_INST(6, ASN1_TAG_OCTET_STRING, sys_string_get, sys_string_set);
+	REG_SYS_NODE_INST(7, ASN1_TAG_INTEGER, sys_services_get, NULL);
 
 	return 0;
 }
@@ -619,14 +699,11 @@ int snmp_mib_get_next(struct snmp_agent *inst, const struct snmp_oid *oid, struc
 	}
 }
 
-#define MIB_COUNTER_INC(inst, field)                                                               \
-	do {                                                                                       \
-		struct snmp_agent *_i = (inst) ? (inst) : snmp_agent_get_default();                \
-		snmp_counter_inc(&_i->counters.field);                                             \
-		if (_i == snmp_agent_get_default()) {                                              \
-			snmp_counter_inc(&g_snmp_counters.field);                                  \
-		}                                                                                  \
-	} while (0)
+/*
+ * Every protocol event increments exactly one counter, on the agent that received the
+ * message (design contract 6.2). No global mirror exists any more.
+ */
+#define MIB_COUNTER_INC(inst, field) snmp_counter_inc(&(inst)->counters.field)
 
 static int snmp_map_error_to_version(int err, int version)
 {
@@ -792,12 +869,8 @@ int snmp_mib_set(struct snmp_agent *inst, const struct snmp_oid *oid, const stru
 
 int snmp_mib_dispatch(struct snmp_agent *inst, struct snmp_pdu *pdu)
 {
-	if (!pdu)
+	if (!inst || !pdu)
 		return -EINVAL;
-
-	if (!inst) {
-		inst = snmp_agent_get_default();
-	}
 
 	pdu->error_status = 0;
 	pdu->error_index = 0;
@@ -885,11 +958,8 @@ int snmp_mib_dispatch(struct snmp_agent *inst, struct snmp_pdu *pdu)
 		memcpy(pdu->varbinds, res_vb, new_cnt * sizeof(struct snmp_varbind));
 		snmp_mib_unlock(inst);
 
-		/* RFC 1907: count total variables processed by GetBulk */
+		/* RFC 1907: count total variables processed by GetBulk, once, here. */
 		inst->counters.snmpInTotalReqVars += new_cnt;
-		if (inst == snmp_agent_get_default()) {
-			g_snmp_counters.snmpInTotalReqVars += new_cnt;
-		}
 
 		pdu->type = SNMP_PDU_GET_RESP;
 		MIB_COUNTER_INC(inst, snmpOutGetResponses);
@@ -1222,6 +1292,24 @@ int snmp_mib_table_remove_row(struct snmp_mib_table *table, uint32_t index)
 
 	snmp_mib_unlock(snmp_agent_get_default());
 	return -ENOENT;
+}
+
+/* --- Statistics snapshot (design contract 3.5) --- */
+
+void snmp_agent_get_counters(const struct snmp_agent *agent, struct snmp_mib2_counters *out)
+{
+	if (!agent || !out)
+		return;
+	*out = agent->counters;
+}
+
+void snmp_agent_zero_counters(struct snmp_agent *agent)
+{
+	if (!agent)
+		return;
+	memset(&agent->counters, 0, sizeof(agent->counters));
+	/* RFC 1907: snmpEnableAuthenTraps is enabled by default (1). */
+	agent->counters.snmpEnableAuthenTraps = 1;
 }
 
 #endif /* CONFIG_SNMP_AGENT */
