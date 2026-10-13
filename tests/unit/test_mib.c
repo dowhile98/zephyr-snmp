@@ -13,7 +13,13 @@
 #include "snmp/snmp_mib.h"
 #include "snmp/snmp_core.h"
 
-#define ASSERT(cond) do { if (!(cond)) { printf("FAIL: %s:%d: %s\n", __FILE__, __LINE__, #cond); exit(1); } } while(0)
+#define ASSERT(cond)                                                                               \
+	do {                                                                                       \
+		if (!(cond)) {                                                                     \
+			printf("FAIL: %s:%d: %s\n", __FILE__, __LINE__, #cond);                    \
+			exit(1);                                                                   \
+		}                                                                                  \
+	} while (0)
 #define ASSERT_EQ(a, b) ASSERT((a) == (b))
 
 /*
@@ -45,7 +51,7 @@ __attribute__((unused)) static int my_set_cb(struct snmp_agent *agent, struct sn
 		test_counter = vb->val.uint_val;
 		return 0;
 	}
-    return -22;
+	return -22;
 }
 
 void test_mib_register_get(void)
@@ -155,8 +161,8 @@ void test_mib_duplicate_oid(void)
 
 static int32_t g_test_table_data[3][3] = {
     {0, 0, 0},
-    {0, 101, 102},  /* row 1: col 1, col 2 */
-    {0, 201, 202}   /* row 2: col 1, col 2 */
+    {0, 101, 102}, /* row 1: col 1, col 2 */
+    {0, 201, 202}  /* row 2: col 1, col 2 */
 };
 
 static int test_col1_get(struct snmp_agent *agent, const struct snmp_table_row *row, uint8_t column,
@@ -187,8 +193,8 @@ static int test_col2_set(struct snmp_agent *agent, struct snmp_table_row *row, u
 	if (vb->type != ASN1_TAG_INTEGER) {
 		return -EINVAL;
 	}
-    g_test_table_data[row->index][2] = vb->val.int_val;
-    return 0;
+	g_test_table_data[row->index][2] = vb->val.int_val;
+	return 0;
 }
 
 static const uint8_t g_test_cols[] = {1, 2};
@@ -196,10 +202,8 @@ static const uint8_t g_test_types[] = {ASN1_TAG_INTEGER, ASN1_TAG_INTEGER};
 static snmp_table_get_cb_t g_test_get_cbs[] = {test_col1_get, test_col2_get};
 static snmp_table_set_cb_t g_test_set_cbs[] = {NULL, test_col2_set};
 
-static struct snmp_table_row g_test_rows[2] = {
-    {.index = 1, .next = NULL, .user_data = NULL},
-    {.index = 2, .next = NULL, .user_data = NULL}
-};
+static struct snmp_table_row g_test_rows[2] = {{.index = 1, .next = NULL, .user_data = NULL},
+					       {.index = 2, .next = NULL, .user_data = NULL}};
 
 static struct snmp_mib_table g_test_tbl = {
     .table_oid = {.len = 9, .ids = {1, 3, 6, 1, 4, 1, 99, 10, 1}},
@@ -209,8 +213,7 @@ static struct snmp_mib_table g_test_tbl = {
     .get_cbs = g_test_get_cbs,
     .set_cbs = g_test_set_cbs,
     .rows = NULL,
-    .user_data = NULL
-};
+    .user_data = NULL};
 
 void test_table_register_get(void)
 {
@@ -487,51 +490,51 @@ static void setup_2pc_test_nodes(void)
 
 	/* Node 1: 1.3.6.1.4.1.9999.1.0 (legacy) */
 	struct snmp_mib_node node1 = {
-		.oid = {.len = 8, .ids = {1, 3, 6, 1, 4, 1, 9999, 1}},
-		.type = ASN1_TAG_INTEGER,
-		.get_cb = get_legacy_val1,
-		.set_cb = set_legacy_val1,
-		.set_tx_cb = NULL,
+	    .oid = {.len = 8, .ids = {1, 3, 6, 1, 4, 1, 9999, 1}},
+	    .type = ASN1_TAG_INTEGER,
+	    .get_cb = get_legacy_val1,
+	    .set_cb = set_legacy_val1,
+	    .set_tx_cb = NULL,
 	};
 	snmp_mib_register(&s_mib_agent, &node1);
 
 	/* Node 2: 1.3.6.1.4.1.9999.2.0 (legacy) */
 	struct snmp_mib_node node2 = {
-		.oid = {.len = 8, .ids = {1, 3, 6, 1, 4, 1, 9999, 2}},
-		.type = ASN1_TAG_INTEGER,
-		.get_cb = get_legacy_val2,
-		.set_cb = set_legacy_val2,
-		.set_tx_cb = NULL,
+	    .oid = {.len = 8, .ids = {1, 3, 6, 1, 4, 1, 9999, 2}},
+	    .type = ASN1_TAG_INTEGER,
+	    .get_cb = get_legacy_val2,
+	    .set_cb = set_legacy_val2,
+	    .set_tx_cb = NULL,
 	};
 	snmp_mib_register(&s_mib_agent, &node2);
 
 	/* Node A: 1.3.6.1.4.1.9999.3.0 (2PC) */
 	struct snmp_mib_node node_a = {
-		.oid = {.len = 8, .ids = {1, 3, 6, 1, 4, 1, 9999, 3}},
-		.type = ASN1_TAG_INTEGER,
-		.get_cb = get_tx_val_a,
-		.set_cb = NULL,
-		.set_tx_cb = set_tx_val_a,
+	    .oid = {.len = 8, .ids = {1, 3, 6, 1, 4, 1, 9999, 3}},
+	    .type = ASN1_TAG_INTEGER,
+	    .get_cb = get_tx_val_a,
+	    .set_cb = NULL,
+	    .set_tx_cb = set_tx_val_a,
 	};
 	snmp_mib_register(&s_mib_agent, &node_a);
 
 	/* Node B: 1.3.6.1.4.1.9999.4.0 (2PC) */
 	struct snmp_mib_node node_b = {
-		.oid = {.len = 8, .ids = {1, 3, 6, 1, 4, 1, 9999, 4}},
-		.type = ASN1_TAG_INTEGER,
-		.get_cb = get_tx_val_b,
-		.set_cb = NULL,
-		.set_tx_cb = set_tx_val_b,
+	    .oid = {.len = 8, .ids = {1, 3, 6, 1, 4, 1, 9999, 4}},
+	    .type = ASN1_TAG_INTEGER,
+	    .get_cb = get_tx_val_b,
+	    .set_cb = NULL,
+	    .set_tx_cb = set_tx_val_b,
 	};
 	snmp_mib_register(&s_mib_agent, &node_b);
 
 	/* Read-only Node: 1.3.6.1.4.1.9999.5.0 */
 	struct snmp_mib_node node_ro = {
-		.oid = {.len = 8, .ids = {1, 3, 6, 1, 4, 1, 9999, 5}},
-		.type = ASN1_TAG_INTEGER,
-		.get_cb = get_legacy_val1,
-		.set_cb = NULL,
-		.set_tx_cb = NULL,
+	    .oid = {.len = 8, .ids = {1, 3, 6, 1, 4, 1, 9999, 5}},
+	    .type = ASN1_TAG_INTEGER,
+	    .get_cb = get_legacy_val1,
+	    .set_cb = NULL,
+	    .set_tx_cb = NULL,
 	};
 	snmp_mib_register(&s_mib_agent, &node_ro);
 }
@@ -548,13 +551,15 @@ static void test_set_2pc_atomic_failure_legacy(void)
 
 	/* Varbind 0: valid Node 1 */
 	pdu.varbinds[0].oid.len = 8;
-	memcpy(pdu.varbinds[0].oid.ids, (uint32_t[]){1, 3, 6, 1, 4, 1, 9999, 1}, 8 * sizeof(uint32_t));
+	memcpy(pdu.varbinds[0].oid.ids, (uint32_t[]){1, 3, 6, 1, 4, 1, 9999, 1},
+	       8 * sizeof(uint32_t));
 	pdu.varbinds[0].type = ASN1_TAG_INTEGER;
 	pdu.varbinds[0].val.int_val = 100;
 
 	/* Varbind 1: Node 2 with WRONG TYPE */
 	pdu.varbinds[1].oid.len = 8;
-	memcpy(pdu.varbinds[1].oid.ids, (uint32_t[]){1, 3, 6, 1, 4, 1, 9999, 2}, 8 * sizeof(uint32_t));
+	memcpy(pdu.varbinds[1].oid.ids, (uint32_t[]){1, 3, 6, 1, 4, 1, 9999, 2},
+	       8 * sizeof(uint32_t));
 	pdu.varbinds[1].type = ASN1_TAG_OCTET_STRING;
 	pdu.varbinds[1].val.octet_str.len = 4;
 	memcpy(pdu.varbinds[1].val.octet_str.data, "test", 4);
@@ -583,13 +588,15 @@ static void test_set_2pc_atomic_failure_tx(void)
 
 	/* Varbind 0: Node A */
 	pdu.varbinds[0].oid.len = 8;
-	memcpy(pdu.varbinds[0].oid.ids, (uint32_t[]){1, 3, 6, 1, 4, 1, 9999, 3}, 8 * sizeof(uint32_t));
+	memcpy(pdu.varbinds[0].oid.ids, (uint32_t[]){1, 3, 6, 1, 4, 1, 9999, 3},
+	       8 * sizeof(uint32_t));
 	pdu.varbinds[0].type = ASN1_TAG_INTEGER;
 	pdu.varbinds[0].val.int_val = 500;
 
 	/* Varbind 1: Node B (Reserve fails) */
 	pdu.varbinds[1].oid.len = 8;
-	memcpy(pdu.varbinds[1].oid.ids, (uint32_t[]){1, 3, 6, 1, 4, 1, 9999, 4}, 8 * sizeof(uint32_t));
+	memcpy(pdu.varbinds[1].oid.ids, (uint32_t[]){1, 3, 6, 1, 4, 1, 9999, 4},
+	       8 * sizeof(uint32_t));
 	pdu.varbinds[1].type = ASN1_TAG_INTEGER;
 	pdu.varbinds[1].val.int_val = 600;
 
@@ -618,13 +625,15 @@ static void test_set_2pc_rollback_on_commit_failure(void)
 
 	/* Varbind 0: Node A */
 	pdu.varbinds[0].oid.len = 8;
-	memcpy(pdu.varbinds[0].oid.ids, (uint32_t[]){1, 3, 6, 1, 4, 1, 9999, 3}, 8 * sizeof(uint32_t));
+	memcpy(pdu.varbinds[0].oid.ids, (uint32_t[]){1, 3, 6, 1, 4, 1, 9999, 3},
+	       8 * sizeof(uint32_t));
 	pdu.varbinds[0].type = ASN1_TAG_INTEGER;
 	pdu.varbinds[0].val.int_val = 500;
 
 	/* Varbind 1: Node B (Commit fails) */
 	pdu.varbinds[1].oid.len = 8;
-	memcpy(pdu.varbinds[1].oid.ids, (uint32_t[]){1, 3, 6, 1, 4, 1, 9999, 4}, 8 * sizeof(uint32_t));
+	memcpy(pdu.varbinds[1].oid.ids, (uint32_t[]){1, 3, 6, 1, 4, 1, 9999, 4},
+	       8 * sizeof(uint32_t));
 	pdu.varbinds[1].type = ASN1_TAG_INTEGER;
 	pdu.varbinds[1].val.int_val = 600;
 
@@ -651,12 +660,14 @@ static void test_set_2pc_atomic_success(void)
 	pdu.varbind_cnt = 2;
 
 	pdu.varbinds[0].oid.len = 8;
-	memcpy(pdu.varbinds[0].oid.ids, (uint32_t[]){1, 3, 6, 1, 4, 1, 9999, 1}, 8 * sizeof(uint32_t));
+	memcpy(pdu.varbinds[0].oid.ids, (uint32_t[]){1, 3, 6, 1, 4, 1, 9999, 1},
+	       8 * sizeof(uint32_t));
 	pdu.varbinds[0].type = ASN1_TAG_INTEGER;
 	pdu.varbinds[0].val.int_val = 111;
 
 	pdu.varbinds[1].oid.len = 8;
-	memcpy(pdu.varbinds[1].oid.ids, (uint32_t[]){1, 3, 6, 1, 4, 1, 9999, 3}, 8 * sizeof(uint32_t));
+	memcpy(pdu.varbinds[1].oid.ids, (uint32_t[]){1, 3, 6, 1, 4, 1, 9999, 3},
+	       8 * sizeof(uint32_t));
 	pdu.varbinds[1].type = ASN1_TAG_INTEGER;
 	pdu.varbinds[1].val.int_val = 222;
 
@@ -685,7 +696,8 @@ static void test_smiv2_error_code_mapping_v2c_and_v1(void)
 	pdu_v2_ro.type = SNMP_PDU_SET_REQ;
 	pdu_v2_ro.varbind_cnt = 1;
 	pdu_v2_ro.varbinds[0].oid.len = 8;
-	memcpy(pdu_v2_ro.varbinds[0].oid.ids, (uint32_t[]){1, 3, 6, 1, 4, 1, 9999, 5}, 8 * sizeof(uint32_t));
+	memcpy(pdu_v2_ro.varbinds[0].oid.ids, (uint32_t[]){1, 3, 6, 1, 4, 1, 9999, 5},
+	       8 * sizeof(uint32_t));
 	pdu_v2_ro.varbinds[0].type = ASN1_TAG_INTEGER;
 	pdu_v2_ro.varbinds[0].val.int_val = 999;
 
@@ -700,7 +712,8 @@ static void test_smiv2_error_code_mapping_v2c_and_v1(void)
 	pdu_v1_ro.type = SNMP_PDU_SET_REQ;
 	pdu_v1_ro.varbind_cnt = 1;
 	pdu_v1_ro.varbinds[0].oid.len = 8;
-	memcpy(pdu_v1_ro.varbinds[0].oid.ids, (uint32_t[]){1, 3, 6, 1, 4, 1, 9999, 5}, 8 * sizeof(uint32_t));
+	memcpy(pdu_v1_ro.varbinds[0].oid.ids, (uint32_t[]){1, 3, 6, 1, 4, 1, 9999, 5},
+	       8 * sizeof(uint32_t));
 	pdu_v1_ro.varbinds[0].type = ASN1_TAG_INTEGER;
 	pdu_v1_ro.varbinds[0].val.int_val = 999;
 
@@ -715,7 +728,8 @@ static void test_smiv2_error_code_mapping_v2c_and_v1(void)
 	pdu_v2_type.type = SNMP_PDU_SET_REQ;
 	pdu_v2_type.varbind_cnt = 1;
 	pdu_v2_type.varbinds[0].oid.len = 8;
-	memcpy(pdu_v2_type.varbinds[0].oid.ids, (uint32_t[]){1, 3, 6, 1, 4, 1, 9999, 1}, 8 * sizeof(uint32_t));
+	memcpy(pdu_v2_type.varbinds[0].oid.ids, (uint32_t[]){1, 3, 6, 1, 4, 1, 9999, 1},
+	       8 * sizeof(uint32_t));
 	pdu_v2_type.varbinds[0].type = ASN1_TAG_OCTET_STRING;
 
 	snmp_mib_dispatch(&s_mib_agent, &pdu_v2_type);
@@ -729,7 +743,8 @@ static void test_smiv2_error_code_mapping_v2c_and_v1(void)
 	pdu_v1_type.type = SNMP_PDU_SET_REQ;
 	pdu_v1_type.varbind_cnt = 1;
 	pdu_v1_type.varbinds[0].oid.len = 8;
-	memcpy(pdu_v1_type.varbinds[0].oid.ids, (uint32_t[]){1, 3, 6, 1, 4, 1, 9999, 1}, 8 * sizeof(uint32_t));
+	memcpy(pdu_v1_type.varbinds[0].oid.ids, (uint32_t[]){1, 3, 6, 1, 4, 1, 9999, 1},
+	       8 * sizeof(uint32_t));
 	pdu_v1_type.varbinds[0].type = ASN1_TAG_OCTET_STRING;
 
 	snmp_mib_dispatch(&s_mib_agent, &pdu_v1_type);
@@ -765,7 +780,8 @@ static void test_multi_instance_independence(void)
 	req_pdu.request_id = 12345;
 	req_pdu.varbind_cnt = 1;
 	req_pdu.varbinds[0].oid.len = 8;
-	memcpy(req_pdu.varbinds[0].oid.ids, (uint32_t[]){1, 3, 6, 1, 4, 1, 9999, 1}, 8 * sizeof(uint32_t));
+	memcpy(req_pdu.varbinds[0].oid.ids, (uint32_t[]){1, 3, 6, 1, 4, 1, 9999, 1},
+	       8 * sizeof(uint32_t));
 	req_pdu.varbinds[0].type = ASN1_TAG_NULL;
 
 	uint8_t req_buf[256];
@@ -897,4 +913,3 @@ void test_interleaved_scalar_and_table_walk(void)
 	ASSERT_EQ(ret, 0);
 	ASSERT_EQ(vb.type, SNMP_TAG_EXCEPT_END_MIB_VIEW);
 }
-

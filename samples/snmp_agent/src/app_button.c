@@ -96,8 +96,8 @@ int app_button_init(struct snmp_agent *agent)
 	}
 
 	s_hardware_available = true;
-	LOG_INF("User Button initialized on %s pin %d (Interrupt active edge)",
-		s_btn.port->name, s_btn.pin);
+	LOG_INF("User Button initialized on %s pin %d (Interrupt active edge)", s_btn.port->name,
+		s_btn.pin);
 	return 0;
 #else
 	LOG_WRN("No 'sw0' alias found in DeviceTree; manual triggering available");
@@ -115,9 +115,7 @@ int app_button_trigger_notification(void)
 #if defined(CONFIG_SNMP_TRAP_ENABLED)
 	/* Notification OID: 1.3.6.1.4.1.<enterprise>.1.2.1 (buttonPressed) */
 	struct snmp_oid trap_oid = {
-		.len = 9,
-		.ids = {1, 3, 6, 1, 4, 1, CONFIG_SNMP_SAMPLE_ENTERPRISE_ID, 1, 2, 1}
-	};
+	    .len = 9, .ids = {1, 3, 6, 1, 4, 1, CONFIG_SNMP_SAMPLE_ENTERPRISE_ID, 1, 2, 1}};
 
 	struct snmp_varbind varbinds[2];
 
@@ -176,4 +174,3 @@ int app_button_simulate_press(void)
 	LOG_INF(">>> Simulated Button Press! Total Count: %u <<<", s_button_counter);
 	return app_button_trigger_notification();
 }
-

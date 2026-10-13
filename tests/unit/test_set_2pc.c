@@ -4,18 +4,20 @@
  */
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <errno.h>
 #include <snmp/snmp_ber.h>
 #include <snmp/snmp_mib.h>
 #include <snmp/snmp_core.h>
 
-#define ASSERT(cond) do { \
-    if (!(cond)) { \
-        printf("FAIL (%s:%d: %s)\n", __FILE__, __LINE__, #cond); \
-        return; \
-    } \
-} while(0)
+#define ASSERT(cond)                                                                               \
+	do {                                                                                       \
+		if (!(cond)) {                                                                     \
+			printf("FAIL (%s:%d: %s)\n", __FILE__, __LINE__, #cond);                   \
+			exit(1);                                                                   \
+		}                                                                                  \
+	} while (0)
 
 #define ASSERT_EQ(a, b) ASSERT((a) == (b))
 #define ASSERT_NE(a, b) ASSERT((a) != (b))
@@ -170,51 +172,51 @@ static void setup_test_nodes(void)
 
 	/* Node 1: 1.3.6.1.4.1.9999.1.0 (legacy) */
 	struct snmp_mib_node node1 = {
-		.oid = {.len = 8, .ids = {1, 3, 6, 1, 4, 1, 9999, 1}},
-		.type = ASN1_TAG_INTEGER,
-		.get_cb = get_legacy_val1,
-		.set_cb = set_legacy_val1,
-		.set_tx_cb = NULL,
+	    .oid = {.len = 8, .ids = {1, 3, 6, 1, 4, 1, 9999, 1}},
+	    .type = ASN1_TAG_INTEGER,
+	    .get_cb = get_legacy_val1,
+	    .set_cb = set_legacy_val1,
+	    .set_tx_cb = NULL,
 	};
 	snmp_mib_register(&s_2pc_agent, &node1);
 
 	/* Node 2: 1.3.6.1.4.1.9999.2.0 (legacy) */
 	struct snmp_mib_node node2 = {
-		.oid = {.len = 8, .ids = {1, 3, 6, 1, 4, 1, 9999, 2}},
-		.type = ASN1_TAG_INTEGER,
-		.get_cb = get_legacy_val2,
-		.set_cb = set_legacy_val2,
-		.set_tx_cb = NULL,
+	    .oid = {.len = 8, .ids = {1, 3, 6, 1, 4, 1, 9999, 2}},
+	    .type = ASN1_TAG_INTEGER,
+	    .get_cb = get_legacy_val2,
+	    .set_cb = set_legacy_val2,
+	    .set_tx_cb = NULL,
 	};
 	snmp_mib_register(&s_2pc_agent, &node2);
 
 	/* Node A: 1.3.6.1.4.1.9999.3.0 (2PC) */
 	struct snmp_mib_node node_a = {
-		.oid = {.len = 8, .ids = {1, 3, 6, 1, 4, 1, 9999, 3}},
-		.type = ASN1_TAG_INTEGER,
-		.get_cb = get_tx_val_a,
-		.set_cb = NULL,
-		.set_tx_cb = set_tx_val_a,
+	    .oid = {.len = 8, .ids = {1, 3, 6, 1, 4, 1, 9999, 3}},
+	    .type = ASN1_TAG_INTEGER,
+	    .get_cb = get_tx_val_a,
+	    .set_cb = NULL,
+	    .set_tx_cb = set_tx_val_a,
 	};
 	snmp_mib_register(&s_2pc_agent, &node_a);
 
 	/* Node B: 1.3.6.1.4.1.9999.4.0 (2PC) */
 	struct snmp_mib_node node_b = {
-		.oid = {.len = 8, .ids = {1, 3, 6, 1, 4, 1, 9999, 4}},
-		.type = ASN1_TAG_INTEGER,
-		.get_cb = get_tx_val_b,
-		.set_cb = NULL,
-		.set_tx_cb = set_tx_val_b,
+	    .oid = {.len = 8, .ids = {1, 3, 6, 1, 4, 1, 9999, 4}},
+	    .type = ASN1_TAG_INTEGER,
+	    .get_cb = get_tx_val_b,
+	    .set_cb = NULL,
+	    .set_tx_cb = set_tx_val_b,
 	};
 	snmp_mib_register(&s_2pc_agent, &node_b);
 
 	/* Read-only Node: 1.3.6.1.4.1.9999.5.0 */
 	struct snmp_mib_node node_ro = {
-		.oid = {.len = 8, .ids = {1, 3, 6, 1, 4, 1, 9999, 5}},
-		.type = ASN1_TAG_INTEGER,
-		.get_cb = get_legacy_val1,
-		.set_cb = NULL,
-		.set_tx_cb = NULL,
+	    .oid = {.len = 8, .ids = {1, 3, 6, 1, 4, 1, 9999, 5}},
+	    .type = ASN1_TAG_INTEGER,
+	    .get_cb = get_legacy_val1,
+	    .set_cb = NULL,
+	    .set_tx_cb = NULL,
 	};
 	snmp_mib_register(&s_2pc_agent, &node_ro);
 }
@@ -231,13 +233,15 @@ void test_set_2pc_atomic_failure_legacy(void)
 
 	/* Varbind 0: valid target Node 1 */
 	pdu.varbinds[0].oid.len = 8;
-	memcpy(pdu.varbinds[0].oid.ids, (uint32_t[]){1, 3, 6, 1, 4, 1, 9999, 1}, 8 * sizeof(uint32_t));
+	memcpy(pdu.varbinds[0].oid.ids, (uint32_t[]){1, 3, 6, 1, 4, 1, 9999, 1},
+	       8 * sizeof(uint32_t));
 	pdu.varbinds[0].type = ASN1_TAG_INTEGER;
 	pdu.varbinds[0].val.int_val = 100;
 
 	/* Varbind 1: Node 2 with WRONG ASN.1 TYPE (Octet String instead of Integer) */
 	pdu.varbinds[1].oid.len = 8;
-	memcpy(pdu.varbinds[1].oid.ids, (uint32_t[]){1, 3, 6, 1, 4, 1, 9999, 2}, 8 * sizeof(uint32_t));
+	memcpy(pdu.varbinds[1].oid.ids, (uint32_t[]){1, 3, 6, 1, 4, 1, 9999, 2},
+	       8 * sizeof(uint32_t));
 	pdu.varbinds[1].type = ASN1_TAG_OCTET_STRING;
 	pdu.varbinds[1].val.octet_str.len = 4;
 	memcpy(pdu.varbinds[1].val.octet_str.data, "test", 4);
@@ -267,13 +271,15 @@ void test_set_2pc_atomic_failure_tx(void)
 
 	/* Varbind 0: Node A */
 	pdu.varbinds[0].oid.len = 8;
-	memcpy(pdu.varbinds[0].oid.ids, (uint32_t[]){1, 3, 6, 1, 4, 1, 9999, 3}, 8 * sizeof(uint32_t));
+	memcpy(pdu.varbinds[0].oid.ids, (uint32_t[]){1, 3, 6, 1, 4, 1, 9999, 3},
+	       8 * sizeof(uint32_t));
 	pdu.varbinds[0].type = ASN1_TAG_INTEGER;
 	pdu.varbinds[0].val.int_val = 500;
 
 	/* Varbind 1: Node B (will fail in Reserve phase) */
 	pdu.varbinds[1].oid.len = 8;
-	memcpy(pdu.varbinds[1].oid.ids, (uint32_t[]){1, 3, 6, 1, 4, 1, 9999, 4}, 8 * sizeof(uint32_t));
+	memcpy(pdu.varbinds[1].oid.ids, (uint32_t[]){1, 3, 6, 1, 4, 1, 9999, 4},
+	       8 * sizeof(uint32_t));
 	pdu.varbinds[1].type = ASN1_TAG_INTEGER;
 	pdu.varbinds[1].val.int_val = 600;
 
@@ -302,13 +308,15 @@ void test_set_2pc_rollback_on_commit_failure(void)
 
 	/* Varbind 0: Node A */
 	pdu.varbinds[0].oid.len = 8;
-	memcpy(pdu.varbinds[0].oid.ids, (uint32_t[]){1, 3, 6, 1, 4, 1, 9999, 3}, 8 * sizeof(uint32_t));
+	memcpy(pdu.varbinds[0].oid.ids, (uint32_t[]){1, 3, 6, 1, 4, 1, 9999, 3},
+	       8 * sizeof(uint32_t));
 	pdu.varbinds[0].type = ASN1_TAG_INTEGER;
 	pdu.varbinds[0].val.int_val = 500;
 
 	/* Varbind 1: Node B (fails in Commit phase) */
 	pdu.varbinds[1].oid.len = 8;
-	memcpy(pdu.varbinds[1].oid.ids, (uint32_t[]){1, 3, 6, 1, 4, 1, 9999, 4}, 8 * sizeof(uint32_t));
+	memcpy(pdu.varbinds[1].oid.ids, (uint32_t[]){1, 3, 6, 1, 4, 1, 9999, 4},
+	       8 * sizeof(uint32_t));
 	pdu.varbinds[1].type = ASN1_TAG_INTEGER;
 	pdu.varbinds[1].val.int_val = 600;
 
@@ -336,13 +344,15 @@ void test_set_2pc_atomic_success(void)
 
 	/* Varbind 0: Node 1 (legacy) -> 111 */
 	pdu.varbinds[0].oid.len = 8;
-	memcpy(pdu.varbinds[0].oid.ids, (uint32_t[]){1, 3, 6, 1, 4, 1, 9999, 1}, 8 * sizeof(uint32_t));
+	memcpy(pdu.varbinds[0].oid.ids, (uint32_t[]){1, 3, 6, 1, 4, 1, 9999, 1},
+	       8 * sizeof(uint32_t));
 	pdu.varbinds[0].type = ASN1_TAG_INTEGER;
 	pdu.varbinds[0].val.int_val = 111;
 
 	/* Varbind 1: Node A (2PC) -> 222 */
 	pdu.varbinds[1].oid.len = 8;
-	memcpy(pdu.varbinds[1].oid.ids, (uint32_t[]){1, 3, 6, 1, 4, 1, 9999, 3}, 8 * sizeof(uint32_t));
+	memcpy(pdu.varbinds[1].oid.ids, (uint32_t[]){1, 3, 6, 1, 4, 1, 9999, 3},
+	       8 * sizeof(uint32_t));
 	pdu.varbinds[1].type = ASN1_TAG_INTEGER;
 	pdu.varbinds[1].val.int_val = 222;
 
@@ -371,7 +381,8 @@ void test_smiv2_error_code_mapping_v2c_and_v1(void)
 	pdu_v2_ro.type = SNMP_PDU_SET_REQ;
 	pdu_v2_ro.varbind_cnt = 1;
 	pdu_v2_ro.varbinds[0].oid.len = 8;
-	memcpy(pdu_v2_ro.varbinds[0].oid.ids, (uint32_t[]){1, 3, 6, 1, 4, 1, 9999, 5}, 8 * sizeof(uint32_t));
+	memcpy(pdu_v2_ro.varbinds[0].oid.ids, (uint32_t[]){1, 3, 6, 1, 4, 1, 9999, 5},
+	       8 * sizeof(uint32_t));
 	pdu_v2_ro.varbinds[0].type = ASN1_TAG_INTEGER;
 	pdu_v2_ro.varbinds[0].val.int_val = 999;
 
@@ -386,7 +397,8 @@ void test_smiv2_error_code_mapping_v2c_and_v1(void)
 	pdu_v1_ro.type = SNMP_PDU_SET_REQ;
 	pdu_v1_ro.varbind_cnt = 1;
 	pdu_v1_ro.varbinds[0].oid.len = 8;
-	memcpy(pdu_v1_ro.varbinds[0].oid.ids, (uint32_t[]){1, 3, 6, 1, 4, 1, 9999, 5}, 8 * sizeof(uint32_t));
+	memcpy(pdu_v1_ro.varbinds[0].oid.ids, (uint32_t[]){1, 3, 6, 1, 4, 1, 9999, 5},
+	       8 * sizeof(uint32_t));
 	pdu_v1_ro.varbinds[0].type = ASN1_TAG_INTEGER;
 	pdu_v1_ro.varbinds[0].val.int_val = 999;
 
@@ -401,7 +413,8 @@ void test_smiv2_error_code_mapping_v2c_and_v1(void)
 	pdu_v2_type.type = SNMP_PDU_SET_REQ;
 	pdu_v2_type.varbind_cnt = 1;
 	pdu_v2_type.varbinds[0].oid.len = 8;
-	memcpy(pdu_v2_type.varbinds[0].oid.ids, (uint32_t[]){1, 3, 6, 1, 4, 1, 9999, 1}, 8 * sizeof(uint32_t));
+	memcpy(pdu_v2_type.varbinds[0].oid.ids, (uint32_t[]){1, 3, 6, 1, 4, 1, 9999, 1},
+	       8 * sizeof(uint32_t));
 	pdu_v2_type.varbinds[0].type = ASN1_TAG_OCTET_STRING;
 
 	snmp_mib_dispatch(&s_2pc_agent, &pdu_v2_type);
@@ -415,7 +428,8 @@ void test_smiv2_error_code_mapping_v2c_and_v1(void)
 	pdu_v1_type.type = SNMP_PDU_SET_REQ;
 	pdu_v1_type.varbind_cnt = 1;
 	pdu_v1_type.varbinds[0].oid.len = 8;
-	memcpy(pdu_v1_type.varbinds[0].oid.ids, (uint32_t[]){1, 3, 6, 1, 4, 1, 9999, 1}, 8 * sizeof(uint32_t));
+	memcpy(pdu_v1_type.varbinds[0].oid.ids, (uint32_t[]){1, 3, 6, 1, 4, 1, 9999, 1},
+	       8 * sizeof(uint32_t));
 	pdu_v1_type.varbinds[0].type = ASN1_TAG_OCTET_STRING;
 
 	snmp_mib_dispatch(&s_2pc_agent, &pdu_v1_type);
@@ -451,7 +465,8 @@ void test_multi_instance_independence(void)
 	req_pdu.request_id = 12345;
 	req_pdu.varbind_cnt = 1;
 	req_pdu.varbinds[0].oid.len = 8;
-	memcpy(req_pdu.varbinds[0].oid.ids, (uint32_t[]){1, 3, 6, 1, 4, 1, 9999, 1}, 8 * sizeof(uint32_t));
+	memcpy(req_pdu.varbinds[0].oid.ids, (uint32_t[]){1, 3, 6, 1, 4, 1, 9999, 1},
+	       8 * sizeof(uint32_t));
 	req_pdu.varbinds[0].type = ASN1_TAG_NULL;
 
 	uint8_t req_buf[256];

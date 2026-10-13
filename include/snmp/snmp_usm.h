@@ -28,18 +28,18 @@ extern "C" {
 struct snmp_agent;
 
 struct snmp_usm_user {
-	char        user_name[32];
-	uint8_t     auth_protocol;  /* 0=none, 1=SHA, 2=MD5 */
-	char        auth_pass[64];
-	uint8_t     priv_protocol;  /* 0=none, 1=AES, 2=DES */
-	char        priv_pass[64];
+	char user_name[32];
+	uint8_t auth_protocol; /* 0=none, 1=SHA, 2=MD5 */
+	char auth_pass[64];
+	uint8_t priv_protocol; /* 0=none, 1=AES, 2=DES */
+	char priv_pass[64];
 
 	/* Localized keys (derived at init) */
-	uint8_t  auth_key[20];       /* SHA1=20, MD5=16 */
+	uint8_t auth_key[20]; /* SHA1=20, MD5=16 */
 	uint16_t auth_key_len;
-	uint8_t  priv_key[20];       /* AES=16, DES=16 */
+	uint8_t priv_key[20]; /* AES=16, DES=16 */
 	uint16_t priv_key_len;
-	bool     in_use;
+	bool in_use;
 };
 
 /* ---- Instance-based APIs ---- */

@@ -14,21 +14,23 @@ static int tests_passed = 0;
 static int tests_failed = 0;
 
 #define TEST(name) void name(void)
-#define RUN_TEST(name) do { \
-    tests_run++; \
-    printf("  %-50s ", #name); \
-    fflush(stdout); \
-    name(); \
-    tests_passed++; \
-    printf("PASS\n"); \
-} while(0)
+#define RUN_TEST(name)                                                                             \
+	do {                                                                                       \
+		tests_run++;                                                                       \
+		printf("  %-50s ", #name);                                                         \
+		fflush(stdout);                                                                    \
+		name();                                                                            \
+		tests_passed++;                                                                    \
+		printf("PASS\n");                                                                  \
+	} while (0)
 
-#define ASSERT(cond) do { \
-    if (!(cond)) { \
-        printf("FAIL (%s:%d: %s)\n", __FILE__, __LINE__, #cond); \
-        exit(1); \
-    } \
-} while(0)
+#define ASSERT(cond)                                                                               \
+	do {                                                                                       \
+		if (!(cond)) {                                                                     \
+			printf("FAIL (%s:%d: %s)\n", __FILE__, __LINE__, #cond);                   \
+			exit(1);                                                                   \
+		}                                                                                  \
+	} while (0)
 
 #define ASSERT_EQ(a, b) ASSERT((a) == (b))
 #define ASSERT_NE(a, b) ASSERT((a) != (b))
@@ -58,45 +60,59 @@ extern void test_table_set(void);
 extern void test_interleaved_scalar_and_table_walk(void);
 extern void test_multi_instance_coexistence(void);
 extern void test_multi_instance_counter_isolation(void);
+extern void test_set_2pc_atomic_failure_legacy(void);
+extern void test_set_2pc_atomic_failure_tx(void);
+extern void test_set_2pc_rollback_on_commit_failure(void);
+extern void test_set_2pc_atomic_success(void);
+extern void test_smiv2_error_code_mapping_v2c_and_v1(void);
+extern void test_multi_instance_independence(void);
 
 int main(void)
 {
-    printf("SNMP Agent Unit Tests\n");
-    printf("=====================\n\n");
+	printf("SNMP Agent Unit Tests\n");
+	printf("=====================\n\n");
 
-    printf("BER Encode/Decode:\n");
-    RUN_TEST(test_ber_integer_roundtrip);
-    RUN_TEST(test_ber_octet_string_roundtrip);
-    RUN_TEST(test_ber_oid_roundtrip);
-    RUN_TEST(test_ber_uint32_roundtrip);
-    RUN_TEST(test_ber_uint64_roundtrip);
-    RUN_TEST(test_ber_null_roundtrip);
-    RUN_TEST(test_ber_sequence_roundtrip);
-    RUN_TEST(test_ber_decode_malformed_header);
-    RUN_TEST(test_ber_decode_truncated_packet);
-    RUN_TEST(test_ber_encode_buffer_overflow);
+	printf("BER Encode/Decode:\n");
+	RUN_TEST(test_ber_integer_roundtrip);
+	RUN_TEST(test_ber_octet_string_roundtrip);
+	RUN_TEST(test_ber_oid_roundtrip);
+	RUN_TEST(test_ber_uint32_roundtrip);
+	RUN_TEST(test_ber_uint64_roundtrip);
+	RUN_TEST(test_ber_null_roundtrip);
+	RUN_TEST(test_ber_sequence_roundtrip);
+	RUN_TEST(test_ber_decode_malformed_header);
+	RUN_TEST(test_ber_decode_truncated_packet);
+	RUN_TEST(test_ber_encode_buffer_overflow);
 
-    printf("\nOID Handling:\n");
-    RUN_TEST(test_oid_equal);
-    RUN_TEST(test_oid_compare_lexicographic);
-    RUN_TEST(test_oid_encode_decode_roundtrip);
-    RUN_TEST(test_oid_max_depth);
+	printf("\nOID Handling:\n");
+	RUN_TEST(test_oid_equal);
+	RUN_TEST(test_oid_compare_lexicographic);
+	RUN_TEST(test_oid_encode_decode_roundtrip);
+	RUN_TEST(test_oid_max_depth);
 
-    printf("\nMIB Engine:\n");
-    RUN_TEST(test_mib_register_get);
-    RUN_TEST(test_mib_get_next);
-    RUN_TEST(test_mib_duplicate_oid);
-    RUN_TEST(test_table_register_get);
-    RUN_TEST(test_table_get_next_order);
-    RUN_TEST(test_table_set);
-    RUN_TEST(test_interleaved_scalar_and_table_walk);
+	printf("\nMIB Engine:\n");
+	RUN_TEST(test_mib_register_get);
+	RUN_TEST(test_mib_get_next);
+	RUN_TEST(test_mib_duplicate_oid);
+	RUN_TEST(test_table_register_get);
+	RUN_TEST(test_table_get_next_order);
+	RUN_TEST(test_table_set);
+	RUN_TEST(test_interleaved_scalar_and_table_walk);
 
-    printf("\nMulti-Instance Engine:\n");
-    RUN_TEST(test_multi_instance_coexistence);
-    RUN_TEST(test_multi_instance_counter_isolation);
+	printf("\nMulti-Instance Engine:\n");
+	RUN_TEST(test_multi_instance_coexistence);
+	RUN_TEST(test_multi_instance_counter_isolation);
 
-    printf("\n=====================\n");
-    printf("Results: %d passed, 0 failed, %d total\n", tests_passed, tests_run);
+	printf("\nTwo-Phase Commit (2PC) SET Operations:\n");
+	RUN_TEST(test_set_2pc_atomic_failure_legacy);
+	RUN_TEST(test_set_2pc_atomic_failure_tx);
+	RUN_TEST(test_set_2pc_rollback_on_commit_failure);
+	RUN_TEST(test_set_2pc_atomic_success);
+	RUN_TEST(test_smiv2_error_code_mapping_v2c_and_v1);
+	RUN_TEST(test_multi_instance_independence);
 
-    return tests_failed > 0 ? 1 : 0;
+	printf("\n=====================\n");
+	printf("Results: %d passed, 0 failed, %d total\n", tests_passed, tests_run);
+
+	return tests_failed > 0 ? 1 : 0;
 }

@@ -14,23 +14,16 @@ static int32_t s_temperature = 25;
 static uint32_t s_humidity = 55;
 static const char *s_description = "NUCLEO-H743ZI Sensor Node";
 
-static const char *s_table_names[] = {
-	"CPU Temp",
-	"Amb Humidity",
-	"Core Voltage"
-};
+static const char *s_table_names[] = {"CPU Temp", "Amb Humidity", "Core Voltage"};
 
-static int32_t s_table_static_values[] = {
-	25,
-	55,
-	3300
-};
+static int32_t s_table_static_values[] = {25, 55, 3300};
 
 int app_sensor_init(void)
 {
 	s_temperature = 25;
 	s_humidity = 55;
-	LOG_INF("Sensor module initialized (Initial Temp: %d C, Hum: %u%%)", s_temperature, s_humidity);
+	LOG_INF("Sensor module initialized (Initial Temp: %d C, Hum: %u%%)", s_temperature,
+		s_humidity);
 	return 0;
 }
 

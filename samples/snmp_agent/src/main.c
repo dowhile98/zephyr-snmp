@@ -70,7 +70,8 @@ static void print_banner(const char *ip_str)
 		CONFIG_SNMP_SAMPLE_WAN_PORT, "NUCLEO-H743ZI-WAN");
 #endif
 #if defined(CONFIG_SNMP_TRAP_ENABLED)
-	LOG_INF("  - Trap Destination: %s : %d", CONFIG_SNMP_SAMPLE_TRAP_DEST, CONFIG_SNMP_TRAP_PORT);
+	LOG_INF("  - Trap Destination: %s : %d", CONFIG_SNMP_SAMPLE_TRAP_DEST,
+		CONFIG_SNMP_TRAP_PORT);
 #endif
 	LOG_INF("Private MIB Structure (1.3.6.1.4.1.%d.1):", CONFIG_SNMP_SAMPLE_ENTERPRISE_ID);
 	LOG_INF("  .1.1.0 sensorValue       (INTEGER, temp in C)   [R/W]");
@@ -82,19 +83,19 @@ static void print_banner(const char *ip_str)
 	LOG_INF("  .1.3.1 sensorTable       (Columns: idx, name, val)");
 	LOG_INF("  .1.2.1 buttonPressed     (Notification/Trap)");
 	LOG_INF("Validation Command Examples:");
-	LOG_INF("  snmpget  -v2c -c %s %s 1.3.6.1.4.1.%d.1.1.0",
-		CONFIG_SNMP_COMMUNITY_READ, ip_str, CONFIG_SNMP_SAMPLE_ENTERPRISE_ID);
-	LOG_INF("  snmpset  -v2c -c %s %s 1.3.6.1.4.1.%d.1.2.0 i 1",
-		CONFIG_SNMP_COMMUNITY_WRITE, ip_str, CONFIG_SNMP_SAMPLE_ENTERPRISE_ID);
-	LOG_INF("  snmpwalk -v2c -c %s %s 1.3.6.1.4.1.%d.1",
-		CONFIG_SNMP_COMMUNITY_READ, ip_str, CONFIG_SNMP_SAMPLE_ENTERPRISE_ID);
-	LOG_INF("  snmpbulkwalk -v2c -c %s %s 1.3.6.1.4.1.%d.1.3",
-		CONFIG_SNMP_COMMUNITY_READ, ip_str, CONFIG_SNMP_SAMPLE_ENTERPRISE_ID);
+	LOG_INF("  snmpget  -v2c -c %s %s 1.3.6.1.4.1.%d.1.1.0", CONFIG_SNMP_COMMUNITY_READ, ip_str,
+		CONFIG_SNMP_SAMPLE_ENTERPRISE_ID);
+	LOG_INF("  snmpset  -v2c -c %s %s 1.3.6.1.4.1.%d.1.2.0 i 1", CONFIG_SNMP_COMMUNITY_WRITE,
+		ip_str, CONFIG_SNMP_SAMPLE_ENTERPRISE_ID);
+	LOG_INF("  snmpwalk -v2c -c %s %s 1.3.6.1.4.1.%d.1", CONFIG_SNMP_COMMUNITY_READ, ip_str,
+		CONFIG_SNMP_SAMPLE_ENTERPRISE_ID);
+	LOG_INF("  snmpbulkwalk -v2c -c %s %s 1.3.6.1.4.1.%d.1.3", CONFIG_SNMP_COMMUNITY_READ,
+		ip_str, CONFIG_SNMP_SAMPLE_ENTERPRISE_ID);
 	LOG_INF("================================================================");
 }
 
-static void net_event_handler(struct net_mgmt_event_callback *cb,
-			      uint64_t mgmt_event, struct net_if *iface)
+static void net_event_handler(struct net_mgmt_event_callback *cb, uint64_t mgmt_event,
+			      struct net_if *iface)
 {
 	ARG_UNUSED(cb);
 	ARG_UNUSED(iface);
@@ -121,8 +122,8 @@ static int cmd_app_button(const struct shell *sh, size_t argc, char **argv)
 static int cmd_app_led(const struct shell *sh, size_t argc, char **argv)
 {
 	if (argc < 2) {
-		shell_print(sh, "User LED state: %s (%d)",
-			    app_led_get_state() ? "ON" : "OFF", app_led_get_state());
+		shell_print(sh, "User LED state: %s (%d)", app_led_get_state() ? "ON" : "OFF",
+			    app_led_get_state());
 		return 0;
 	}
 	int val = atoi(argv[1]);
@@ -148,12 +149,12 @@ static int cmd_app_sensor(const struct shell *sh, size_t argc, char **argv)
 	return 0;
 }
 
-SHELL_STATIC_SUBCMD_SET_CREATE(sub_app,
-	SHELL_CMD(button, NULL, "Simulate User Button press and send SNMP Trap", cmd_app_button),
-	SHELL_CMD_ARG(led, NULL, "Get or set User LED [0|1]", cmd_app_led, 1, 1),
-	SHELL_CMD(sensor, NULL, "Display current sensor and device values", cmd_app_sensor),
-	SHELL_SUBCMD_SET_END
-);
+SHELL_STATIC_SUBCMD_SET_CREATE(
+    sub_app,
+    SHELL_CMD(button, NULL, "Simulate User Button press and send SNMP Trap", cmd_app_button),
+    SHELL_CMD_ARG(led, NULL, "Get or set User LED [0|1]", cmd_app_led, 1, 1),
+    SHELL_CMD(sensor, NULL, "Display current sensor and device values", cmd_app_sensor),
+    SHELL_SUBCMD_SET_END);
 
 SHELL_CMD_REGISTER(app, &sub_app, "SNMP validation sample commands", NULL);
 #endif
@@ -245,9 +246,10 @@ int main(void)
 		for (int i = 0; i < NET_IF_MAX_IPV4_ADDR; i++) {
 			if (iface->config.ip.ipv4->unicast[i].ipv4.is_used &&
 			    iface->config.ip.ipv4->unicast[i].ipv4.address.in_addr.s_addr != 0) {
-				net_addr_ntop(AF_INET,
-					      &iface->config.ip.ipv4->unicast[i].ipv4.address.in_addr,
-					      ip_buf, sizeof(ip_buf));
+				net_addr_ntop(
+				    AF_INET,
+				    &iface->config.ip.ipv4->unicast[i].ipv4.address.in_addr, ip_buf,
+				    sizeof(ip_buf));
 				has_ip = true;
 				break;
 			}
@@ -260,9 +262,10 @@ int main(void)
 		if (iface && iface->config.ip.ipv4) {
 			for (int i = 0; i < NET_IF_MAX_IPV4_ADDR; i++) {
 				if (iface->config.ip.ipv4->unicast[i].ipv4.is_used) {
-					net_addr_ntop(AF_INET,
-						      &iface->config.ip.ipv4->unicast[i].ipv4.address.in_addr,
-						      ip_buf, sizeof(ip_buf));
+					net_addr_ntop(
+					    AF_INET,
+					    &iface->config.ip.ipv4->unicast[i].ipv4.address.in_addr,
+					    ip_buf, sizeof(ip_buf));
 					break;
 				}
 			}

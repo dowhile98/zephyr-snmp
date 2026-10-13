@@ -11,14 +11,11 @@
 
 bool snmp_oid_equal(const struct snmp_oid *o1, const struct snmp_oid *o2)
 {
-	if (!o1 || !o2 || o1->len != o2->len)
-	{
+	if (!o1 || !o2 || o1->len != o2->len) {
 		return false;
 	}
-	for (uint8_t i = 0; i < o1->len; i++)
-	{
-		if (o1->ids[i] != o2->ids[i])
-		{
+	for (uint8_t i = 0; i < o1->len; i++) {
+		if (o1->ids[i] != o2->ids[i]) {
 			return false;
 		}
 	}
@@ -35,8 +32,7 @@ int snmp_oid_compare(const struct snmp_oid *o1, const struct snmp_oid *o2)
 		return 1;
 
 	uint8_t min_len = (o1->len < o2->len) ? o1->len : o2->len;
-	for (uint8_t i = 0; i < min_len; i++)
-	{
+	for (uint8_t i = 0; i < min_len; i++) {
 		if (o1->ids[i] < o2->ids[i])
 			return -1;
 		if (o1->ids[i] > o2->ids[i])
@@ -49,41 +45,34 @@ int snmp_oid_compare(const struct snmp_oid *o1, const struct snmp_oid *o2)
 	return 0;
 }
 
-int snmp_ber_decode_header(const uint8_t *buf, size_t buf_len, size_t *off, uint8_t *tag, size_t *len)
+int snmp_ber_decode_header(const uint8_t *buf, size_t buf_len, size_t *off, uint8_t *tag,
+			   size_t *len)
 {
-	if (!buf || !off || !tag || !len || *off >= buf_len)
-	{
+	if (!buf || !off || !tag || !len || *off >= buf_len) {
 		return -EINVAL;
 	}
 
 	*tag = buf[(*off)++];
-	if (*off >= buf_len)
-	{
+	if (*off >= buf_len) {
 		return -EINVAL;
 	}
 
 	uint8_t len_byte = buf[(*off)++];
-	if ((len_byte & 0x80) == 0)
-	{
+	if ((len_byte & 0x80) == 0) {
 		*len = len_byte;
-	}
-	else
-	{
+	} else {
 		/* RFC 1157 §3.2.1 & RFC 3416 §3: Indefinite length (0x80) prohibited */
 		uint8_t num_bytes = len_byte & 0x7F;
-		if (num_bytes == 0 || num_bytes > 4 || (*off + num_bytes) > buf_len)
-		{
+		if (num_bytes == 0 || num_bytes > 4 || (*off + num_bytes) > buf_len) {
 			return -EBADMSG;
 		}
 		*len = 0;
-		for (uint8_t i = 0; i < num_bytes; i++)
-		{
+		for (uint8_t i = 0; i < num_bytes; i++) {
 			*len = (*len << 8) | buf[(*off)++];
 		}
 	}
 
-	if (*off + *len > buf_len)
-	{
+	if (*off + *len > buf_len) {
 		return -EBADMSG;
 	}
 	return 0;
@@ -91,52 +80,36 @@ int snmp_ber_decode_header(const uint8_t *buf, size_t buf_len, size_t *off, uint
 
 int snmp_ber_encode_header(uint8_t *buf, size_t buf_len, size_t *off, uint8_t tag, size_t len)
 {
-	if (!buf || !off)
-	{
+	if (!buf || !off) {
 		return -EINVAL;
 	}
 
 	size_t needed = 1;
-	if (len < 128)
-	{
+	if (len < 128) {
 		needed += 1;
-	}
-	else if (len <= 0xFF)
-	{
+	} else if (len <= 0xFF) {
 		needed += 2;
-	}
-	else if (len <= 0xFFFF)
-	{
+	} else if (len <= 0xFFFF) {
 		needed += 3;
-	}
-	else
-	{
+	} else {
 		needed += 5;
 	}
 
-	if (*off + needed > buf_len)
-	{
+	if (*off + needed > buf_len) {
 		return -ENOBUFS;
 	}
 
 	buf[(*off)++] = tag;
-	if (len < 128)
-	{
+	if (len < 128) {
 		buf[(*off)++] = (uint8_t)len;
-	}
-	else if (len <= 0xFF)
-	{
+	} else if (len <= 0xFF) {
 		buf[(*off)++] = 0x81;
 		buf[(*off)++] = (uint8_t)len;
-	}
-	else if (len <= 0xFFFF)
-	{
+	} else if (len <= 0xFFFF) {
 		buf[(*off)++] = 0x82;
 		buf[(*off)++] = (uint8_t)(len >> 8);
 		buf[(*off)++] = (uint8_t)(len & 0xFF);
-	}
-	else
-	{
+	} else {
 		buf[(*off)++] = 0x84;
 		buf[(*off)++] = (uint8_t)(len >> 24);
 		buf[(*off)++] = (uint8_t)(len >> 16);
@@ -158,8 +131,7 @@ int snmp_ber_decode_int(const uint8_t *buf, size_t buf_len, size_t *off, int32_t
 		return -EBADMSG;
 
 	int32_t res = (buf[*off] & 0x80) ? -1 : 0;
-	for (size_t i = 0; i < len; i++)
-	{
+	for (size_t i = 0; i < len; i++) {
 		res = (res << 8) | buf[(*off)++];
 	}
 	*val = res;
@@ -171,26 +143,19 @@ int snmp_ber_encode_int(uint8_t *buf, size_t buf_len, size_t *off, uint8_t tag, 
 	uint8_t tmp[4];
 	size_t len = 0;
 
-	if (val >= -128 && val <= 127)
-	{
+	if (val >= -128 && val <= 127) {
 		tmp[0] = (uint8_t)val;
 		len = 1;
-	}
-	else if (val >= -32768 && val <= 32767)
-	{
+	} else if (val >= -32768 && val <= 32767) {
 		tmp[0] = (uint8_t)(val >> 8);
 		tmp[1] = (uint8_t)val;
 		len = 2;
-	}
-	else if (val >= -8388608 && val <= 8388607)
-	{
+	} else if (val >= -8388608 && val <= 8388607) {
 		tmp[0] = (uint8_t)(val >> 16);
 		tmp[1] = (uint8_t)(val >> 8);
 		tmp[2] = (uint8_t)val;
 		len = 3;
-	}
-	else
-	{
+	} else {
 		tmp[0] = (uint8_t)(val >> 24);
 		tmp[1] = (uint8_t)(val >> 16);
 		tmp[2] = (uint8_t)(val >> 8);
@@ -225,8 +190,7 @@ int snmp_ber_decode_uint(const uint8_t *buf, size_t buf_len, size_t *off, uint32
 	}
 
 	uint32_t res = 0;
-	for (size_t i = 0; i < len; i++)
-	{
+	for (size_t i = 0; i < len; i++) {
 		res = (res << 8) | buf[(*off)++];
 	}
 	*val = res;
@@ -238,38 +202,29 @@ int snmp_ber_encode_uint(uint8_t *buf, size_t buf_len, size_t *off, uint8_t tag,
 	uint8_t tmp[5];
 	size_t len = 0;
 
-	if ((val & 0x80000000) != 0)
-	{
+	if ((val & 0x80000000) != 0) {
 		tmp[0] = 0x00;
 		tmp[1] = (uint8_t)(val >> 24);
 		tmp[2] = (uint8_t)(val >> 16);
 		tmp[3] = (uint8_t)(val >> 8);
 		tmp[4] = (uint8_t)val;
 		len = 5;
-	}
-	else if (val >= 0x800000)
-	{
+	} else if (val >= 0x800000) {
 		tmp[0] = (uint8_t)(val >> 24);
 		tmp[1] = (uint8_t)(val >> 16);
 		tmp[2] = (uint8_t)(val >> 8);
 		tmp[3] = (uint8_t)val;
 		len = 4;
-	}
-	else if (val >= 0x8000)
-	{
+	} else if (val >= 0x8000) {
 		tmp[0] = (uint8_t)(val >> 16);
 		tmp[1] = (uint8_t)(val >> 8);
 		tmp[2] = (uint8_t)val;
 		len = 3;
-	}
-	else if (val >= 0x80)
-	{
+	} else if (val >= 0x80) {
 		tmp[0] = (uint8_t)(val >> 8);
 		tmp[1] = (uint8_t)val;
 		len = 2;
-	}
-	else
-	{
+	} else {
 		tmp[0] = (uint8_t)val;
 		len = 1;
 	}
@@ -296,8 +251,7 @@ int snmp_ber_decode_uint64(const uint8_t *buf, size_t buf_len, size_t *off, uint
 		return -EBADMSG;
 
 	uint64_t res = 0;
-	for (size_t i = 0; i < len; i++)
-	{
+	for (size_t i = 0; i < len; i++) {
 		res = (res << 8) | buf[(*off)++];
 	}
 	*val = res;
@@ -309,25 +263,19 @@ int snmp_ber_encode_uint64(uint8_t *buf, size_t buf_len, size_t *off, uint8_t ta
 	uint8_t tmp[9];
 	size_t len = 0;
 
-	if ((val & 0x8000000000000000ULL) != 0)
-	{
+	if ((val & 0x8000000000000000ULL) != 0) {
 		tmp[0] = 0x00;
-		for (int i = 0; i < 8; i++)
-		{
+		for (int i = 0; i < 8; i++) {
 			tmp[1 + i] = (uint8_t)(val >> (56 - i * 8));
 		}
 		len = 9;
-	}
-	else
-	{
+	} else {
 		uint8_t raw[8];
-		for (int i = 0; i < 8; i++)
-		{
+		for (int i = 0; i < 8; i++) {
 			raw[i] = (uint8_t)(val >> (56 - i * 8));
 		}
 		size_t start = 0;
-		while (start < 7 && raw[start] == 0 && (raw[start + 1] & 0x80) == 0)
-		{
+		while (start < 7 && raw[start] == 0 && (raw[start + 1] & 0x80) == 0) {
 			start++;
 		}
 		len = 8 - start;
@@ -345,7 +293,8 @@ int snmp_ber_encode_uint64(uint8_t *buf, size_t buf_len, size_t *off, uint8_t ta
 	return 0;
 }
 
-int snmp_ber_decode_octet_string(const uint8_t *buf, size_t buf_len, size_t *off, uint8_t *out, uint16_t max_out, uint16_t *out_len)
+int snmp_ber_decode_octet_string(const uint8_t *buf, size_t buf_len, size_t *off, uint8_t *out,
+				 uint16_t max_out, uint16_t *out_len)
 {
 	uint8_t tag;
 	size_t len;
@@ -364,7 +313,8 @@ int snmp_ber_decode_octet_string(const uint8_t *buf, size_t buf_len, size_t *off
 	return 0;
 }
 
-int snmp_ber_encode_octet_string(uint8_t *buf, size_t buf_len, size_t *off, uint8_t tag, const uint8_t *str, uint16_t str_len)
+int snmp_ber_encode_octet_string(uint8_t *buf, size_t buf_len, size_t *off, uint8_t tag,
+				 const uint8_t *str, uint16_t str_len)
 {
 	int ret = snmp_ber_encode_header(buf, buf_len, off, tag, str_len);
 	if (ret < 0)
@@ -372,8 +322,7 @@ int snmp_ber_encode_octet_string(uint8_t *buf, size_t buf_len, size_t *off, uint
 	if (*off + str_len > buf_len)
 		return -ENOBUFS;
 
-	if (str && str_len > 0)
-	{
+	if (str && str_len > 0) {
 		memcpy(&buf[*off], str, str_len);
 		*off += str_len;
 	}
@@ -394,19 +343,16 @@ int snmp_ber_decode_oid(const uint8_t *buf, size_t buf_len, size_t *off, struct 
 	size_t end_off = start_off + len;
 
 	oid->len = 0;
-	if (start_off < end_off)
-	{
+	if (start_off < end_off) {
 		uint8_t first = buf[start_off++];
 		oid->ids[0] = first / 40;
 		oid->ids[1] = first % 40;
 		oid->len = 2;
 	}
 
-	while (start_off < end_off)
-	{
+	while (start_off < end_off) {
 		uint32_t val = 0;
-		while (start_off < end_off)
-		{
+		while (start_off < end_off) {
 			uint8_t b = buf[start_off++];
 			val = (val << 7) | (b & 0x7F);
 			if ((b & 0x80) == 0)
@@ -433,20 +379,17 @@ int snmp_ber_encode_oid(uint8_t *buf, size_t buf_len, size_t *off, const struct 
 	size_t tmp_len = 0;
 
 	tmp[tmp_len++] = (uint8_t)(oid->ids[0] * 40 + oid->ids[1]);
-	for (uint8_t i = 2; i < oid->len; i++)
-	{
+	for (uint8_t i = 2; i < oid->len; i++) {
 		uint32_t val = oid->ids[i];
 		uint8_t sub_tmp[5];
 		int sub_len = 0;
 
-		do
-		{
+		do {
 			sub_tmp[sub_len++] = (uint8_t)(val & 0x7F);
 			val >>= 7;
 		} while (val > 0);
 
-		for (int j = sub_len - 1; j >= 0; j--)
-		{
+		for (int j = sub_len - 1; j >= 0; j--) {
 			uint8_t b = sub_tmp[j];
 			if (j > 0)
 				b |= 0x80;
@@ -470,7 +413,8 @@ int snmp_ber_encode_null(uint8_t *buf, size_t buf_len, size_t *off, uint8_t tag)
 	return snmp_ber_encode_header(buf, buf_len, off, tag, 0);
 }
 
-int snmp_ber_decode_pdu_body(const uint8_t *buf, size_t buf_len, size_t *in_out_off, struct snmp_pdu *pdu)
+int snmp_ber_decode_pdu_body(const uint8_t *buf, size_t buf_len, size_t *in_out_off,
+			     struct snmp_pdu *pdu)
 {
 	if (!buf || !in_out_off || !pdu)
 		return -EINVAL;
@@ -483,8 +427,7 @@ int snmp_ber_decode_pdu_body(const uint8_t *buf, size_t buf_len, size_t *in_out_
 	if (ret < 0)
 		return ret;
 
-	if (pdu->type == SNMP_PDU_TRAP_V1)
-	{
+	if (pdu->type == SNMP_PDU_TRAP_V1) {
 		ret = snmp_ber_decode_oid(buf, buf_len, &off, &pdu->enterprise);
 		if (ret < 0)
 			return ret;
@@ -505,24 +448,19 @@ int snmp_ber_decode_pdu_body(const uint8_t *buf, size_t buf_len, size_t *in_out_
 		ret = snmp_ber_decode_uint(buf, buf_len, &off, &pdu->timestamp);
 		if (ret < 0)
 			return ret;
-	}
-	else
-	{
+	} else {
 		ret = snmp_ber_decode_int(buf, buf_len, &off, &pdu->request_id);
 		if (ret < 0)
 			return ret;
 
-		if (pdu->type == SNMP_PDU_GET_BULK_REQ)
-		{
+		if (pdu->type == SNMP_PDU_GET_BULK_REQ) {
 			ret = snmp_ber_decode_int(buf, buf_len, &off, &pdu->non_repeaters);
 			if (ret < 0)
 				return ret;
 			ret = snmp_ber_decode_int(buf, buf_len, &off, &pdu->max_repetitions);
 			if (ret < 0)
 				return ret;
-		}
-		else
-		{
+		} else {
 			ret = snmp_ber_decode_int(buf, buf_len, &off, &pdu->error_status);
 			if (ret < 0)
 				return ret;
@@ -541,8 +479,7 @@ int snmp_ber_decode_pdu_body(const uint8_t *buf, size_t buf_len, size_t *in_out_
 	if (vb_end > buf_len)
 		return -EBADMSG;
 
-	while (off < vb_end && pdu->varbind_cnt < CONFIG_SNMP_MAX_VARBINDS)
-	{
+	while (off < vb_end && pdu->varbind_cnt < CONFIG_SNMP_MAX_VARBINDS) {
 		size_t vb_len;
 		ret = snmp_ber_decode_header(buf, buf_len, &off, &tag, &vb_len);
 		if (ret < 0 || tag != ASN1_TAG_SEQUENCE)
@@ -559,18 +496,20 @@ int snmp_ber_decode_pdu_body(const uint8_t *buf, size_t buf_len, size_t *in_out_
 			return ret;
 		off = val_start;
 
-		switch (vb->type)
-		{
+		switch (vb->type) {
 		case ASN1_TAG_INTEGER:
 			ret = snmp_ber_decode_int(buf, buf_len, &off, &vb->val.int_val);
 			break;
 		case ASN1_TAG_OCTET_STRING:
 		case SNMP_TAG_OPAQUE:
-			ret = snmp_ber_decode_octet_string(buf, buf_len, &off, vb->val.octet_str.data, sizeof(vb->val.octet_str.data), &vb->val.octet_str.len);
+			ret = snmp_ber_decode_octet_string(
+			    buf, buf_len, &off, vb->val.octet_str.data,
+			    sizeof(vb->val.octet_str.data), &vb->val.octet_str.len);
 			break;
 
 		case SNMP_TAG_IPADDRESS:
-			ret = snmp_ber_decode_octet_string(buf, buf_len, &off, vb->val.ip_addr, 4, NULL);
+			ret = snmp_ber_decode_octet_string(buf, buf_len, &off, vb->val.ip_addr, 4,
+							   NULL);
 			break;
 		case ASN1_TAG_NULL:
 		case SNMP_TAG_EXCEPT_NO_SUCH_OBJ:
@@ -623,7 +562,8 @@ int snmp_ber_decode_pdu(const uint8_t *buf, size_t buf_len, struct snmp_pdu *pdu
 		return ret;
 
 	uint16_t comm_len = 0;
-	ret = snmp_ber_decode_octet_string(buf, buf_len, &off, pdu->community, sizeof(pdu->community) - 1, &comm_len);
+	ret = snmp_ber_decode_octet_string(buf, buf_len, &off, pdu->community,
+					   sizeof(pdu->community) - 1, &comm_len);
 	if (ret < 0)
 		return ret;
 	pdu->community_len = comm_len;
@@ -783,7 +723,8 @@ static int ber_push_uint64(uint8_t *buf, size_t *pos, uint8_t tag, uint64_t val)
 	return ber_push_header(buf, pos, tag, len);
 }
 
-static int ber_push_octet_string(uint8_t *buf, size_t *pos, uint8_t tag, const uint8_t *data, size_t len)
+static int ber_push_octet_string(uint8_t *buf, size_t *pos, uint8_t tag, const uint8_t *data,
+				 size_t len)
 {
 	int ret = ber_push_bytes(buf, pos, data, len);
 	if (ret < 0) {
@@ -828,7 +769,8 @@ static int ber_push_pdu_body(uint8_t *buf, size_t *pos, const struct snmp_pdu *p
 			break;
 		case ASN1_TAG_OCTET_STRING:
 		case SNMP_TAG_OPAQUE:
-			ret = ber_push_octet_string(buf, pos, vb->type, vb->val.octet_str.data, vb->val.octet_str.len);
+			ret = ber_push_octet_string(buf, pos, vb->type, vb->val.octet_str.data,
+						    vb->val.octet_str.len);
 			break;
 		case SNMP_TAG_IPADDRESS:
 			ret = ber_push_octet_string(buf, pos, vb->type, vb->val.ip_addr, 4);
@@ -879,36 +821,48 @@ static int ber_push_pdu_body(uint8_t *buf, size_t *pos, const struct snmp_pdu *p
 
 	if (pdu->type == SNMP_PDU_TRAP_V1) {
 		ret = ber_push_uint(buf, pos, SNMP_TAG_TIMETICKS, pdu->timestamp);
-		if (ret < 0) return ret;
+		if (ret < 0)
+			return ret;
 		ret = ber_push_int(buf, pos, ASN1_TAG_INTEGER, pdu->specific_trap);
-		if (ret < 0) return ret;
+		if (ret < 0)
+			return ret;
 		ret = ber_push_int(buf, pos, ASN1_TAG_INTEGER, pdu->generic_trap);
-		if (ret < 0) return ret;
+		if (ret < 0)
+			return ret;
 		ret = ber_push_octet_string(buf, pos, SNMP_TAG_IPADDRESS, pdu->agent_addr, 4);
-		if (ret < 0) return ret;
+		if (ret < 0)
+			return ret;
 		ret = ber_push_oid(buf, pos, &pdu->enterprise);
-		if (ret < 0) return ret;
+		if (ret < 0)
+			return ret;
 	} else if (pdu->type == SNMP_PDU_GET_BULK_REQ) {
 		ret = ber_push_int(buf, pos, ASN1_TAG_INTEGER, pdu->max_repetitions);
-		if (ret < 0) return ret;
+		if (ret < 0)
+			return ret;
 		ret = ber_push_int(buf, pos, ASN1_TAG_INTEGER, pdu->non_repeaters);
-		if (ret < 0) return ret;
+		if (ret < 0)
+			return ret;
 		ret = ber_push_int(buf, pos, ASN1_TAG_INTEGER, pdu->request_id);
-		if (ret < 0) return ret;
+		if (ret < 0)
+			return ret;
 	} else {
 		ret = ber_push_int(buf, pos, ASN1_TAG_INTEGER, pdu->error_index);
-		if (ret < 0) return ret;
+		if (ret < 0)
+			return ret;
 		ret = ber_push_int(buf, pos, ASN1_TAG_INTEGER, pdu->error_status);
-		if (ret < 0) return ret;
+		if (ret < 0)
+			return ret;
 		ret = ber_push_int(buf, pos, ASN1_TAG_INTEGER, pdu->request_id);
-		if (ret < 0) return ret;
+		if (ret < 0)
+			return ret;
 	}
 
 	size_t pdu_len = vb_list_end - *pos;
 	return ber_push_header(buf, pos, pdu->type, pdu_len);
 }
 
-int snmp_ber_encode_pdu_body(uint8_t *buf, size_t buf_len, size_t *out_len, const struct snmp_pdu *pdu)
+int snmp_ber_encode_pdu_body(uint8_t *buf, size_t buf_len, size_t *out_len,
+			     const struct snmp_pdu *pdu)
 {
 	if (!buf || !pdu || !out_len) {
 		return -EINVAL;
@@ -942,7 +896,8 @@ int snmp_ber_encode_pdu(uint8_t *buf, size_t buf_len, size_t *out_len, const str
 		return ret;
 	}
 
-	ret = ber_push_octet_string(buf, &pos, ASN1_TAG_OCTET_STRING, pdu->community, pdu->community_len);
+	ret = ber_push_octet_string(buf, &pos, ASN1_TAG_OCTET_STRING, pdu->community,
+				    pdu->community_len);
 	if (ret < 0) {
 		return ret;
 	}
@@ -1029,8 +984,8 @@ int snmp_ber_decode_v3_msg(const uint8_t *buf, size_t buf_len, struct snmp_v3_ms
 		return -EBADMSG;
 
 	uint16_t tmp_len;
-	ret = snmp_ber_decode_octet_string(sec_raw, sec_len, &usm_off,
-					   msg->usm.engine_id, SNMP_V3_ENGINE_ID_MAX_LEN, &tmp_len);
+	ret = snmp_ber_decode_octet_string(sec_raw, sec_len, &usm_off, msg->usm.engine_id,
+					   SNMP_V3_ENGINE_ID_MAX_LEN, &tmp_len);
 	if (ret < 0)
 		return ret;
 	msg->usm.engine_id_len = tmp_len;
@@ -1043,21 +998,21 @@ int snmp_ber_decode_v3_msg(const uint8_t *buf, size_t buf_len, struct snmp_v3_ms
 	if (ret < 0)
 		return ret;
 
-	ret = snmp_ber_decode_octet_string(sec_raw, sec_len, &usm_off,
-					   msg->usm.user_name, sizeof(msg->usm.user_name) - 1, &tmp_len);
+	ret = snmp_ber_decode_octet_string(sec_raw, sec_len, &usm_off, msg->usm.user_name,
+					   sizeof(msg->usm.user_name) - 1, &tmp_len);
 	if (ret < 0)
 		return ret;
 	msg->usm.user_name_len = tmp_len;
 	msg->usm.user_name[tmp_len] = '\0';
 
-	ret = snmp_ber_decode_octet_string(sec_raw, sec_len, &usm_off,
-					   msg->usm.auth_params, SNMP_V3_AUTH_PARAMS_LEN, &tmp_len);
+	ret = snmp_ber_decode_octet_string(sec_raw, sec_len, &usm_off, msg->usm.auth_params,
+					   SNMP_V3_AUTH_PARAMS_LEN, &tmp_len);
 	if (ret < 0)
 		return ret;
 	msg->usm.auth_params_len = tmp_len;
 
-	ret = snmp_ber_decode_octet_string(sec_raw, sec_len, &usm_off,
-					   msg->usm.priv_params, SNMP_V3_PRIV_PARAMS_LEN, &tmp_len);
+	ret = snmp_ber_decode_octet_string(sec_raw, sec_len, &usm_off, msg->usm.priv_params,
+					   SNMP_V3_PRIV_PARAMS_LEN, &tmp_len);
 	if (ret < 0)
 		return ret;
 	msg->usm.priv_params_len = tmp_len;
@@ -1078,15 +1033,13 @@ int snmp_ber_decode_v3_msg(const uint8_t *buf, size_t buf_len, struct snmp_v3_ms
 		return 0;
 	}
 
-	ret = snmp_ber_decode_octet_string(buf, buf_len, &off,
-					   msg->scoped.context_engine_id,
+	ret = snmp_ber_decode_octet_string(buf, buf_len, &off, msg->scoped.context_engine_id,
 					   SNMP_V3_ENGINE_ID_MAX_LEN, &tmp_len);
 	if (ret < 0)
 		return ret;
 	msg->scoped.context_engine_id_len = tmp_len;
 
-	ret = snmp_ber_decode_octet_string(buf, buf_len, &off,
-					   msg->scoped.context_name,
+	ret = snmp_ber_decode_octet_string(buf, buf_len, &off, msg->scoped.context_name,
 					   sizeof(msg->scoped.context_name) - 1, &tmp_len);
 	if (ret < 0)
 		return ret;
@@ -1101,7 +1054,8 @@ int snmp_ber_decode_v3_msg(const uint8_t *buf, size_t buf_len, struct snmp_v3_ms
 	return 0;
 }
 
-int snmp_ber_encode_v3_msg(uint8_t *buf, size_t buf_len, size_t *out_len, const struct snmp_v3_msg *msg)
+int snmp_ber_encode_v3_msg(uint8_t *buf, size_t buf_len, size_t *out_len,
+			   const struct snmp_v3_msg *msg)
 {
 	if (!buf || !msg || !out_len) {
 		return -EINVAL;
@@ -1115,7 +1069,8 @@ int snmp_ber_encode_v3_msg(uint8_t *buf, size_t buf_len, size_t *out_len, const 
 	size_t scoped_end = pos;
 	if (msg->global.msg_flags & 0x02) {
 		ret = ber_push_octet_string(buf, &pos, ASN1_TAG_OCTET_STRING,
-					   msg->scoped.priv_ciphertext, msg->scoped.priv_ciphertext_len);
+					    msg->scoped.priv_ciphertext,
+					    msg->scoped.priv_ciphertext_len);
 		if (ret < 0) {
 			return ret;
 		}
@@ -1125,12 +1080,13 @@ int snmp_ber_encode_v3_msg(uint8_t *buf, size_t buf_len, size_t *out_len, const 
 			return ret;
 		}
 		ret = ber_push_octet_string(buf, &pos, ASN1_TAG_OCTET_STRING,
-					   msg->scoped.context_name, msg->scoped.context_name_len);
+					    msg->scoped.context_name, msg->scoped.context_name_len);
 		if (ret < 0) {
 			return ret;
 		}
 		ret = ber_push_octet_string(buf, &pos, ASN1_TAG_OCTET_STRING,
-					   msg->scoped.context_engine_id, msg->scoped.context_engine_id_len);
+					    msg->scoped.context_engine_id,
+					    msg->scoped.context_engine_id_len);
 		if (ret < 0) {
 			return ret;
 		}
@@ -1144,18 +1100,18 @@ int snmp_ber_encode_v3_msg(uint8_t *buf, size_t buf_len, size_t *out_len, const 
 	/* 2. msgSecurityParameters (USM SEQUENCE inside OCTET STRING) */
 	size_t sec_params_end = pos;
 	size_t usm_end = pos;
-	ret = ber_push_octet_string(buf, &pos, ASN1_TAG_OCTET_STRING,
-				   msg->usm.priv_params, msg->usm.priv_params_len);
+	ret = ber_push_octet_string(buf, &pos, ASN1_TAG_OCTET_STRING, msg->usm.priv_params,
+				    msg->usm.priv_params_len);
+	if (ret < 0) {
+		return ret;
+	}
+	ret = ber_push_octet_string(buf, &pos, ASN1_TAG_OCTET_STRING, msg->usm.auth_params,
+				    msg->usm.auth_params_len);
 	if (ret < 0) {
 		return ret;
 	}
 	ret = ber_push_octet_string(buf, &pos, ASN1_TAG_OCTET_STRING,
-				   msg->usm.auth_params, msg->usm.auth_params_len);
-	if (ret < 0) {
-		return ret;
-	}
-	ret = ber_push_octet_string(buf, &pos, ASN1_TAG_OCTET_STRING,
-				   (const uint8_t *)msg->usm.user_name, msg->usm.user_name_len);
+				    (const uint8_t *)msg->usm.user_name, msg->usm.user_name_len);
 	if (ret < 0) {
 		return ret;
 	}
@@ -1167,8 +1123,8 @@ int snmp_ber_encode_v3_msg(uint8_t *buf, size_t buf_len, size_t *out_len, const 
 	if (ret < 0) {
 		return ret;
 	}
-	ret = ber_push_octet_string(buf, &pos, ASN1_TAG_OCTET_STRING,
-				   msg->usm.engine_id, msg->usm.engine_id_len);
+	ret = ber_push_octet_string(buf, &pos, ASN1_TAG_OCTET_STRING, msg->usm.engine_id,
+				    msg->usm.engine_id_len);
 	if (ret < 0) {
 		return ret;
 	}

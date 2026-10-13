@@ -55,8 +55,7 @@ static const char *vacm_resolve_group(const struct snmp_agent *inst, int securit
 
 	/* Pass 1: exact security model match */
 	for (size_t i = 0; i < CONFIG_SNMP_VACM_MAX_GROUPS; i++) {
-		if (inst->groups[i].in_use &&
-		    inst->groups[i].security_model == security_model &&
+		if (inst->groups[i].in_use && inst->groups[i].security_model == security_model &&
 		    strcmp(inst->groups[i].security_name, security_name) == 0) {
 			return inst->groups[i].group_name;
 		}
@@ -241,10 +240,7 @@ int snmp_vacm_init(struct snmp_agent *inst)
 	}
 
 	/* View "fullView": includes internet subtree (1.3.6.1) */
-	struct snmp_oid internet_oid = {
-		.len = 4,
-		.ids = {1, 3, 6, 1}
-	};
+	struct snmp_oid internet_oid = {.len = 4, .ids = {1, 3, 6, 1}};
 	ret = snmp_vacm_add_view_tree(inst, "fullView", &internet_oid, NULL, 0,
 				      SNMP_VACM_VIEW_INCLUDED);
 	if (ret < 0) {
@@ -266,10 +262,7 @@ int snmp_vacm_init(struct snmp_agent *inst)
 	}
 
 	/* View "restrictedView": includes system group (1.3.6.1.2.1.1) */
-	struct snmp_oid system_oid = {
-		.len = 7,
-		.ids = {1, 3, 6, 1, 2, 1, 1}
-	};
+	struct snmp_oid system_oid = {.len = 7, .ids = {1, 3, 6, 1, 2, 1, 1}};
 	ret = snmp_vacm_add_view_tree(inst, "restrictedView", &system_oid, NULL, 0,
 				      SNMP_VACM_VIEW_INCLUDED);
 	if (ret < 0) {
@@ -321,8 +314,7 @@ int snmp_vacm_add_group_mapping(struct snmp_agent *inst, int security_model,
 
 	/* Update existing mapping if already present */
 	for (size_t i = 0; i < CONFIG_SNMP_VACM_MAX_GROUPS; i++) {
-		if (inst->groups[i].in_use &&
-		    inst->groups[i].security_model == security_model &&
+		if (inst->groups[i].in_use && inst->groups[i].security_model == security_model &&
 		    strcmp(inst->groups[i].security_name, security_name) == 0) {
 			safe_strncpy(inst->groups[i].group_name, group_name,
 				     sizeof(inst->groups[i].group_name));
@@ -370,8 +362,7 @@ int snmp_vacm_add_access_rule(struct snmp_agent *inst, const char *group_name,
 	for (size_t i = 0; i < CONFIG_SNMP_VACM_MAX_ACCESS_RULES; i++) {
 		struct vacm_access_rule_entry *rule = &inst->access_rules[i];
 
-		if (rule->in_use &&
-		    rule->security_model == security_model &&
+		if (rule->in_use && rule->security_model == security_model &&
 		    rule->min_sec_level == min_sec_level &&
 		    strcmp(rule->group_name, group_name) == 0 &&
 		    strcmp(rule->context_prefix, prefix) == 0) {
@@ -416,8 +407,7 @@ int snmp_vacm_add_view_tree(struct snmp_agent *inst, const char *view_name,
 	if (mask_len > SNMP_VACM_MASK_MAX_LEN) {
 		return -EINVAL;
 	}
-	if (type_included != SNMP_VACM_VIEW_INCLUDED &&
-	    type_included != SNMP_VACM_VIEW_EXCLUDED) {
+	if (type_included != SNMP_VACM_VIEW_INCLUDED && type_included != SNMP_VACM_VIEW_EXCLUDED) {
 		return -EINVAL;
 	}
 
@@ -483,8 +473,8 @@ int snmp_vacm_check_access_ex(struct snmp_agent *inst, const char *context_name,
 	}
 
 	/* 3. Access table lookup & security level verification */
-	const struct vacm_access_rule_entry *rule = vacm_find_access_rule(
-		inst, group, ctx, security_model, sec_level);
+	const struct vacm_access_rule_entry *rule =
+	    vacm_find_access_rule(inst, group, ctx, security_model, sec_level);
 	if (!rule) {
 		return -EACCES;
 	}
@@ -530,7 +520,8 @@ int snmp_vacm_check_access(struct snmp_agent *inst, const struct snmp_v3_msg *ms
 
 	char user_name[sizeof(msg->usm.user_name) + 1];
 	size_t name_len = msg->usm.user_name_len < sizeof(msg->usm.user_name)
-			  ? msg->usm.user_name_len : sizeof(msg->usm.user_name);
+			      ? msg->usm.user_name_len
+			      : sizeof(msg->usm.user_name);
 	memcpy(user_name, msg->usm.user_name, name_len);
 	user_name[name_len] = '\0';
 

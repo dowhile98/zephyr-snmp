@@ -14,12 +14,13 @@
 #include <snmp/snmp_mib.h>
 #include <snmp/snmp_core.h>
 
-#define ASSERT(cond) do { \
-	if (!(cond)) { \
-		printf("FAIL (%s:%d: %s)\n", __FILE__, __LINE__, #cond); \
-		exit(1); \
-	} \
-} while(0)
+#define ASSERT(cond)                                                                               \
+	do {                                                                                       \
+		if (!(cond)) {                                                                     \
+			printf("FAIL (%s:%d: %s)\n", __FILE__, __LINE__, #cond);                   \
+			exit(1);                                                                   \
+		}                                                                                  \
+	} while (0)
 
 #define ASSERT_EQ(a, b) ASSERT((a) == (b))
 #define ASSERT_NE(a, b) ASSERT((a) != (b))
@@ -44,10 +45,8 @@ static int get_val_2222(struct snmp_agent *agent, const struct snmp_mib_node *no
 	return 0;
 }
 
-static size_t build_get_req_packet(uint8_t *buf, size_t buf_sz,
-				   const char *community,
-				   const struct snmp_oid *oid,
-				   int32_t req_id)
+static size_t build_get_req_packet(uint8_t *buf, size_t buf_sz, const char *community,
+				   const struct snmp_oid *oid, int32_t req_id)
 {
 	struct snmp_pdu pdu;
 	memset(&pdu, 0, sizeof(pdu));
@@ -203,10 +202,7 @@ void test_multi_instance_coexistence(void)
 	       resp_pdu.error_status == SNMP_ERR_NO_SUCH_NAME);
 
 	/* 11. Query MIB-II sysName on lan_agent -> should return "router-lan" */
-	struct snmp_oid sysname_oid = {
-		.len = 9,
-		.ids = {1, 3, 6, 1, 2, 1, 1, 5, 0}
-	};
+	struct snmp_oid sysname_oid = {.len = 9, .ids = {1, 3, 6, 1, 2, 1, 1, 5, 0}};
 	req_len = build_get_req_packet(req_buf, sizeof(req_buf), "lan_pub", &sysname_oid, 105);
 	ret = snmp_agent_process_pdu(&lan_agent, req_buf, req_len, resp_buf, sizeof(resp_buf),
 				     &resp_len);

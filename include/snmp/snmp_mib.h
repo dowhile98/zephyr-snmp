@@ -31,32 +31,32 @@ struct snmp_agent;
  * @brief Two-Phase Commit (2PC) SET transaction action phases per RFC 3416 §4.2.5.
  */
 enum snmp_set_action {
-	SNMP_SET_RESERVE,  /**< Phase 1: validate types, values, and reserve resources */
-	SNMP_SET_COMMIT,   /**< Phase 2: apply modifications */
-	SNMP_SET_UNDO,     /**< Phase 3: rollback on partial failure */
-	SNMP_SET_CLEANUP   /**< Phase 4: release transaction resources */
+	SNMP_SET_RESERVE, /**< Phase 1: validate types, values, and reserve resources */
+	SNMP_SET_COMMIT,  /**< Phase 2: apply modifications */
+	SNMP_SET_UNDO,	  /**< Phase 3: rollback on partial failure */
+	SNMP_SET_CLEANUP  /**< Phase 4: release transaction resources */
 };
 
 /* RFC 3416 Protocol Error Status Codes */
-#define SNMP_ERR_NO_ERROR              0
-#define SNMP_ERR_TOO_BIG               1
-#define SNMP_ERR_NO_SUCH_NAME          2
-#define SNMP_ERR_BAD_VALUE             3
-#define SNMP_ERR_READ_ONLY             4
-#define SNMP_ERR_GEN_ERR               5
-#define SNMP_ERR_NO_ACCESS             6
-#define SNMP_ERR_WRONG_TYPE            7
-#define SNMP_ERR_WRONG_LENGTH          8
-#define SNMP_ERR_WRONG_ENCODING        9
-#define SNMP_ERR_WRONG_VALUE           10
-#define SNMP_ERR_NO_CREATION           11
-#define SNMP_ERR_INCONSISTENT_VALUE    12
-#define SNMP_ERR_RESOURCE_UNAVAILABLE  13
-#define SNMP_ERR_COMMIT_FAILED         14
-#define SNMP_ERR_UNDO_FAILED           15
-#define SNMP_ERR_AUTHORIZATION_ERR     16
-#define SNMP_ERR_NOT_WRITABLE          17
-#define SNMP_ERR_INCONSISTENT_NAME     18
+#define SNMP_ERR_NO_ERROR 0
+#define SNMP_ERR_TOO_BIG 1
+#define SNMP_ERR_NO_SUCH_NAME 2
+#define SNMP_ERR_BAD_VALUE 3
+#define SNMP_ERR_READ_ONLY 4
+#define SNMP_ERR_GEN_ERR 5
+#define SNMP_ERR_NO_ACCESS 6
+#define SNMP_ERR_WRONG_TYPE 7
+#define SNMP_ERR_WRONG_LENGTH 8
+#define SNMP_ERR_WRONG_ENCODING 9
+#define SNMP_ERR_WRONG_VALUE 10
+#define SNMP_ERR_NO_CREATION 11
+#define SNMP_ERR_INCONSISTENT_VALUE 12
+#define SNMP_ERR_RESOURCE_UNAVAILABLE 13
+#define SNMP_ERR_COMMIT_FAILED 14
+#define SNMP_ERR_UNDO_FAILED 15
+#define SNMP_ERR_AUTHORIZATION_ERR 16
+#define SNMP_ERR_NOT_WRITABLE 17
+#define SNMP_ERR_INCONSISTENT_NAME 18
 
 /**
  * @brief Read callback for a scalar MIB node.
@@ -106,36 +106,36 @@ struct snmp_mib_node {
 
 /* --- Global SNMP MIB-II Group (1.3.6.1.2.1.11) Counters --- */
 struct snmp_mib2_counters {
-	uint32_t snmpInPkts;               /* 11.1.0 */
-	uint32_t snmpOutPkts;              /* 11.2.0 */
-	uint32_t snmpInBadVersions;        /* 11.3.0 */
-	uint32_t snmpInBadCommunityNames;  /* 11.4.0 */
-	uint32_t snmpInBadCommunityUses;   /* 11.5.0 */
-	uint32_t snmpInASNParseErrs;       /* 11.6.0 */
-	uint32_t snmpInTooBigs;            /* 11.8.0 */
-	uint32_t snmpInNoSuchNames;        /* 11.9.0 */
-	uint32_t snmpInBadValues;          /* 11.10.0 */
-	uint32_t snmpInReadOnlys;          /* 11.11.0 */
-	uint32_t snmpInGenErrs;            /* 11.12.0 */
-	uint32_t snmpInTotalReqVars;       /* 11.13.0 */
-	uint32_t snmpInTotalSetVars;       /* 11.14.0 */
-	uint32_t snmpInGetRequests;        /* 11.15.0 */
-	uint32_t snmpInGetNexts;           /* 11.16.0 */
-	uint32_t snmpInSetRequests;        /* 11.17.0 */
-	uint32_t snmpInGetResponses;       /* 11.18.0 */
-	uint32_t snmpInTraps;              /* 11.19.0 */
-	uint32_t snmpOutTooBigs;           /* 11.20.0 */
-	uint32_t snmpOutNoSuchNames;       /* 11.21.0 */
-	uint32_t snmpOutBadValues;         /* 11.22.0 */
-	uint32_t snmpOutGenErrs;           /* 11.24.0 */
-	uint32_t snmpOutGetRequests;       /* 11.25.0 */
-	uint32_t snmpOutGetNexts;          /* 11.26.0 */
-	uint32_t snmpOutSetRequests;       /* 11.27.0 */
-	uint32_t snmpOutGetResponses;      /* 11.28.0 */
-	uint32_t snmpOutTraps;             /* 11.29.0 */
-	int32_t  snmpEnableAuthenTraps;    /* 11.30.0 (1=enabled, 2=disabled) */
-	uint32_t snmpSilentDrops;          /* 11.31.0 */
-	uint32_t snmpProxyDrops;           /* 11.32.0 */
+	uint32_t snmpInPkts;		  /* 11.1.0 */
+	uint32_t snmpOutPkts;		  /* 11.2.0 */
+	uint32_t snmpInBadVersions;	  /* 11.3.0 */
+	uint32_t snmpInBadCommunityNames; /* 11.4.0 */
+	uint32_t snmpInBadCommunityUses;  /* 11.5.0 */
+	uint32_t snmpInASNParseErrs;	  /* 11.6.0 */
+	uint32_t snmpInTooBigs;		  /* 11.8.0 */
+	uint32_t snmpInNoSuchNames;	  /* 11.9.0 */
+	uint32_t snmpInBadValues;	  /* 11.10.0 */
+	uint32_t snmpInReadOnlys;	  /* 11.11.0 */
+	uint32_t snmpInGenErrs;		  /* 11.12.0 */
+	uint32_t snmpInTotalReqVars;	  /* 11.13.0 */
+	uint32_t snmpInTotalSetVars;	  /* 11.14.0 */
+	uint32_t snmpInGetRequests;	  /* 11.15.0 */
+	uint32_t snmpInGetNexts;	  /* 11.16.0 */
+	uint32_t snmpInSetRequests;	  /* 11.17.0 */
+	uint32_t snmpInGetResponses;	  /* 11.18.0 */
+	uint32_t snmpInTraps;		  /* 11.19.0 */
+	uint32_t snmpOutTooBigs;	  /* 11.20.0 */
+	uint32_t snmpOutNoSuchNames;	  /* 11.21.0 */
+	uint32_t snmpOutBadValues;	  /* 11.22.0 */
+	uint32_t snmpOutGenErrs;	  /* 11.24.0 */
+	uint32_t snmpOutGetRequests;	  /* 11.25.0 */
+	uint32_t snmpOutGetNexts;	  /* 11.26.0 */
+	uint32_t snmpOutSetRequests;	  /* 11.27.0 */
+	uint32_t snmpOutGetResponses;	  /* 11.28.0 */
+	uint32_t snmpOutTraps;		  /* 11.29.0 */
+	int32_t snmpEnableAuthenTraps;	  /* 11.30.0 (1=enabled, 2=disabled) */
+	uint32_t snmpSilentDrops;	  /* 11.31.0 */
+	uint32_t snmpProxyDrops;	  /* 11.32.0 */
 };
 
 /**

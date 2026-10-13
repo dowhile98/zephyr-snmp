@@ -18,45 +18,45 @@ extern "C" {
 #ifdef CONFIG_SNMP_AGENT
 
 /* --- ASN.1 Primitive & Application Tags --- */
-#define ASN1_TAG_INTEGER           0x02
-#define ASN1_TAG_OCTET_STRING      0x04
-#define ASN1_TAG_NULL              0x05
-#define ASN1_TAG_OID               0x06
-#define ASN1_TAG_SEQUENCE          0x30
+#define ASN1_TAG_INTEGER 0x02
+#define ASN1_TAG_OCTET_STRING 0x04
+#define ASN1_TAG_NULL 0x05
+#define ASN1_TAG_OID 0x06
+#define ASN1_TAG_SEQUENCE 0x30
 
-#define SNMP_TAG_IPADDRESS         0x40
-#define SNMP_TAG_COUNTER32         0x41
-#define SNMP_TAG_GAUGE32           0x42
-#define SNMP_TAG_TIMETICKS         0x43
-#define SNMP_TAG_OPAQUE            0x44
-#define SNMP_TAG_COUNTER64         0x46
-#define SNMP_TAG_UNSIGNED32        0x47
+#define SNMP_TAG_IPADDRESS 0x40
+#define SNMP_TAG_COUNTER32 0x41
+#define SNMP_TAG_GAUGE32 0x42
+#define SNMP_TAG_TIMETICKS 0x43
+#define SNMP_TAG_OPAQUE 0x44
+#define SNMP_TAG_COUNTER64 0x46
+#define SNMP_TAG_UNSIGNED32 0x47
 
 /* --- SNMP Exception Tags --- */
-#define SNMP_TAG_EXCEPT_NO_SUCH_OBJ  0x80
+#define SNMP_TAG_EXCEPT_NO_SUCH_OBJ 0x80
 #define SNMP_TAG_EXCEPT_NO_SUCH_INST 0x81
 #define SNMP_TAG_EXCEPT_END_MIB_VIEW 0x82
 
 /* --- SNMP PDU Tags --- */
-#define SNMP_PDU_GET_REQ           0xA0
-#define SNMP_PDU_GET_NEXT_REQ      0xA1
-#define SNMP_PDU_GET_RESP          0xA2
-#define SNMP_PDU_RESPONSE          SNMP_PDU_GET_RESP
-#define SNMP_PDU_SET_REQ           0xA3
-#define SNMP_PDU_TRAP_V1           0xA4
-#define SNMP_PDU_GET_BULK_REQ      0xA5
-#define SNMP_PDU_INFORM_REQ        0xA6
-#define SNMP_PDU_TRAP_V2           0xA7
-#define SNMP_PDU_REPORT            0xA8
+#define SNMP_PDU_GET_REQ 0xA0
+#define SNMP_PDU_GET_NEXT_REQ 0xA1
+#define SNMP_PDU_GET_RESP 0xA2
+#define SNMP_PDU_RESPONSE SNMP_PDU_GET_RESP
+#define SNMP_PDU_SET_REQ 0xA3
+#define SNMP_PDU_TRAP_V1 0xA4
+#define SNMP_PDU_GET_BULK_REQ 0xA5
+#define SNMP_PDU_INFORM_REQ 0xA6
+#define SNMP_PDU_TRAP_V2 0xA7
+#define SNMP_PDU_REPORT 0xA8
 
 /* --- Generic Trap Types (v1) --- */
-#define SNMP_TRAP_COLDSTART        0
-#define SNMP_TRAP_WARMSTART        1
-#define SNMP_TRAP_LINKDOWN         2
-#define SNMP_TRAP_LINKUP           3
-#define SNMP_TRAP_AUTHFAIL         4
-#define SNMP_TRAP_EGPNEIGHBORLOSS  5
-#define SNMP_TRAP_ENTERPRISESPEC   6
+#define SNMP_TRAP_COLDSTART 0
+#define SNMP_TRAP_WARMSTART 1
+#define SNMP_TRAP_LINKDOWN 2
+#define SNMP_TRAP_LINKUP 3
+#define SNMP_TRAP_AUTHFAIL 4
+#define SNMP_TRAP_EGPNEIGHBORLOSS 5
+#define SNMP_TRAP_ENTERPRISESPEC 6
 
 /* --- Data Types & Limits --- */
 struct snmp_oid {
@@ -75,7 +75,6 @@ union snmp_val {
 	struct snmp_oid oid;
 	uint8_t ip_addr[4];
 };
-
 
 struct snmp_varbind {
 	struct snmp_oid oid;
@@ -109,56 +108,58 @@ struct snmp_pdu {
 
 /* --- SNMPv3 Message Structures (RFC 3412) --- */
 
-#define SNMP_V3_ENGINE_ID_MAX_LEN   32
-#define SNMP_V3_AUTH_PARAMS_LEN     12  /* HMAC-SHA1 or HMAC-MD5 */
-#define SNMP_V3_PRIV_PARAMS_LEN     16  /* AES-128-CFB IV */
+#define SNMP_V3_ENGINE_ID_MAX_LEN 32
+#define SNMP_V3_AUTH_PARAMS_LEN 12 /* HMAC-SHA1 or HMAC-MD5 */
+#define SNMP_V3_PRIV_PARAMS_LEN 16 /* AES-128-CFB IV */
 
 struct snmp_v3_global_data {
 	int32_t msg_id;
 	int32_t msg_max_size;
-	uint8_t msg_flags;           /* bit0=auth, bit1=priv, bit2=reportable */
-	int32_t msg_security_model;  /* 3 = USM */
+	uint8_t msg_flags;	    /* bit0=auth, bit1=priv, bit2=reportable */
+	int32_t msg_security_model; /* 3 = USM */
 };
 
 struct snmp_v3_usm_params {
-	uint8_t  engine_id[SNMP_V3_ENGINE_ID_MAX_LEN];
+	uint8_t engine_id[SNMP_V3_ENGINE_ID_MAX_LEN];
 	uint16_t engine_id_len;
-	int32_t  engine_boots;
-	int32_t  engine_time;
-	uint8_t  user_name[32];
+	int32_t engine_boots;
+	int32_t engine_time;
+	uint8_t user_name[32];
 	uint16_t user_name_len;
-	uint8_t  auth_params[SNMP_V3_AUTH_PARAMS_LEN];
+	uint8_t auth_params[SNMP_V3_AUTH_PARAMS_LEN];
 	uint16_t auth_params_len;
-	uint8_t  priv_params[SNMP_V3_PRIV_PARAMS_LEN];
+	uint8_t priv_params[SNMP_V3_PRIV_PARAMS_LEN];
 	uint16_t priv_params_len;
 };
 
 struct snmp_v3_scoped_pdu {
-	uint8_t  context_engine_id[SNMP_V3_ENGINE_ID_MAX_LEN];
+	uint8_t context_engine_id[SNMP_V3_ENGINE_ID_MAX_LEN];
 	uint16_t context_engine_id_len;
-	uint8_t  context_name[32];
+	uint8_t context_name[32];
 	uint16_t context_name_len;
-	struct   snmp_pdu pdu;       /* embedded v1/v2c-style PDU */
-	size_t   encrypted_raw_off;  /* offset in raw packet (priv mode) */
-	size_t   encrypted_raw_len;  /* length of encrypted data (priv mode) */
-	uint8_t  priv_ciphertext[CONFIG_SNMP_MAX_PDU_SIZE];
-	size_t   priv_ciphertext_len;
+	struct snmp_pdu pdu;	  /* embedded v1/v2c-style PDU */
+	size_t encrypted_raw_off; /* offset in raw packet (priv mode) */
+	size_t encrypted_raw_len; /* length of encrypted data (priv mode) */
+	uint8_t priv_ciphertext[CONFIG_SNMP_MAX_PDU_SIZE];
+	size_t priv_ciphertext_len;
 };
 
 struct snmp_v3_msg {
-	struct snmp_v3_global_data  global;
-	struct snmp_v3_usm_params   usm;
-	struct snmp_v3_scoped_pdu   scoped;
+	struct snmp_v3_global_data global;
+	struct snmp_v3_usm_params usm;
+	struct snmp_v3_scoped_pdu scoped;
 };
 
 /* --- Function Declarations --- */
 
 /* Primitive decoders */
-int snmp_ber_decode_header(const uint8_t *buf, size_t buf_len, size_t *off, uint8_t *tag, size_t *len);
+int snmp_ber_decode_header(const uint8_t *buf, size_t buf_len, size_t *off, uint8_t *tag,
+			   size_t *len);
 int snmp_ber_decode_int(const uint8_t *buf, size_t buf_len, size_t *off, int32_t *val);
 int snmp_ber_decode_uint(const uint8_t *buf, size_t buf_len, size_t *off, uint32_t *val);
 int snmp_ber_decode_uint64(const uint8_t *buf, size_t buf_len, size_t *off, uint64_t *val);
-int snmp_ber_decode_octet_string(const uint8_t *buf, size_t buf_len, size_t *off, uint8_t *out, uint16_t max_out, uint16_t *out_len);
+int snmp_ber_decode_octet_string(const uint8_t *buf, size_t buf_len, size_t *off, uint8_t *out,
+				 uint16_t max_out, uint16_t *out_len);
 int snmp_ber_decode_oid(const uint8_t *buf, size_t buf_len, size_t *off, struct snmp_oid *oid);
 
 /* Primitive encoders */
@@ -166,7 +167,8 @@ int snmp_ber_encode_header(uint8_t *buf, size_t buf_len, size_t *off, uint8_t ta
 int snmp_ber_encode_int(uint8_t *buf, size_t buf_len, size_t *off, uint8_t tag, int32_t val);
 int snmp_ber_encode_uint(uint8_t *buf, size_t buf_len, size_t *off, uint8_t tag, uint32_t val);
 int snmp_ber_encode_uint64(uint8_t *buf, size_t buf_len, size_t *off, uint8_t tag, uint64_t val);
-int snmp_ber_encode_octet_string(uint8_t *buf, size_t buf_len, size_t *off, uint8_t tag, const uint8_t *str, uint16_t str_len);
+int snmp_ber_encode_octet_string(uint8_t *buf, size_t buf_len, size_t *off, uint8_t tag,
+				 const uint8_t *str, uint16_t str_len);
 int snmp_ber_encode_oid(uint8_t *buf, size_t buf_len, size_t *off, const struct snmp_oid *oid);
 int snmp_ber_encode_null(uint8_t *buf, size_t buf_len, size_t *off, uint8_t tag);
 
@@ -174,11 +176,13 @@ int snmp_ber_encode_null(uint8_t *buf, size_t buf_len, size_t *off, uint8_t tag)
 int snmp_ber_decode_pdu(const uint8_t *buf, size_t buf_len, struct snmp_pdu *pdu);
 int snmp_ber_decode_pdu_body(const uint8_t *buf, size_t buf_len, size_t *off, struct snmp_pdu *pdu);
 int snmp_ber_encode_pdu(uint8_t *buf, size_t buf_len, size_t *out_len, const struct snmp_pdu *pdu);
-int snmp_ber_encode_pdu_body(uint8_t *buf, size_t buf_len, size_t *out_len, const struct snmp_pdu *pdu);
+int snmp_ber_encode_pdu_body(uint8_t *buf, size_t buf_len, size_t *out_len,
+			     const struct snmp_pdu *pdu);
 
 /* PDU level APIs (v3) */
 int snmp_ber_decode_v3_msg(const uint8_t *buf, size_t buf_len, struct snmp_v3_msg *msg);
-int snmp_ber_encode_v3_msg(uint8_t *buf, size_t buf_len, size_t *out_len, const struct snmp_v3_msg *msg);
+int snmp_ber_encode_v3_msg(uint8_t *buf, size_t buf_len, size_t *out_len,
+			   const struct snmp_v3_msg *msg);
 
 /* Utility helpers */
 bool snmp_oid_equal(const struct snmp_oid *o1, const struct snmp_oid *o2);

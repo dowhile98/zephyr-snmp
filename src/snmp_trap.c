@@ -103,7 +103,8 @@ static int snmp_trap_send_v3(struct snmp_agent *inst, const struct snmp_oid *tra
 	msg.global.msg_flags = is_inform ? 0x04 : 0x00;
 	msg.global.msg_security_model = 3;
 
-	const char *user_name = inst->user_cnt > 0 ? inst->users[0].user_name : CONFIG_SNMP_V3_USER_NAME;
+	const char *user_name =
+	    inst->user_cnt > 0 ? inst->users[0].user_name : CONFIG_SNMP_V3_USER_NAME;
 	size_t u_len = strlen(user_name);
 	if (u_len > sizeof(msg.usm.user_name)) {
 		u_len = sizeof(msg.usm.user_name);
@@ -133,8 +134,9 @@ static int snmp_trap_send_v3(struct snmp_agent *inst, const struct snmp_oid *tra
 	msg.scoped.pdu.varbind_cnt = 2;
 
 	if (varbinds && varbind_cnt > 0) {
-		for (uint8_t i = 0; i < varbind_cnt &&
-			    msg.scoped.pdu.varbind_cnt < CONFIG_SNMP_MAX_VARBINDS; i++) {
+		for (uint8_t i = 0;
+		     i < varbind_cnt && msg.scoped.pdu.varbind_cnt < CONFIG_SNMP_MAX_VARBINDS;
+		     i++) {
 			msg.scoped.pdu.varbinds[msg.scoped.pdu.varbind_cnt++] = varbinds[i];
 		}
 	}
@@ -226,8 +228,7 @@ int snmp_trap_send(struct snmp_agent *inst, const struct snmp_oid *trap_oid,
 #if defined(CONFIG_NET_IPV4)
 	struct net_if *iface = inst->bound_iface ? inst->bound_iface : net_if_get_default();
 	if (!iface || !net_if_is_up(iface) || !iface->config.ip.ipv4 ||
-		iface->config.ip.ipv4->unicast[0].ipv4.address.in_addr.s_addr == 0)
-	{
+	    iface->config.ip.ipv4->unicast[0].ipv4.address.in_addr.s_addr == 0) {
 		return -ENETDOWN;
 	}
 #endif
@@ -235,14 +236,14 @@ int snmp_trap_send(struct snmp_agent *inst, const struct snmp_oid *trap_oid,
 	k_mutex_lock(&inst->lock, K_FOREVER);
 
 	int sock = zsock_socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-	if (sock < 0)
-	{
+	if (sock < 0) {
 		k_mutex_unlock(&inst->lock);
 		return -errno;
 	}
 
 	int broadcast_enable = 1;
-	zsock_setsockopt(sock, SOL_SOCKET, SO_BROADCAST, &broadcast_enable, sizeof(broadcast_enable));
+	zsock_setsockopt(sock, SOL_SOCKET, SO_BROADCAST, &broadcast_enable,
+			 sizeof(broadcast_enable));
 	/* Multi-homed egress: leave through the interface this agent is bound to. */
 	(void)snmp_sock_bind_to_iface(sock, inst->bound_iface);
 
@@ -250,12 +251,14 @@ int snmp_trap_send(struct snmp_agent *inst, const struct snmp_oid *trap_oid,
 
 	const char *comm = (inst->read_community[0] != '\0') ? inst->read_community :
 #ifdef CONFIG_SNMP_COMMUNITY_READ
-			   CONFIG_SNMP_COMMUNITY_READ;
+							     CONFIG_SNMP_COMMUNITY_READ;
 #else
-			   "public";
+							     "public";
 #endif
 
-#if defined(CONFIG_SNMP_TRAP_FORMAT_V1) || (!defined(CONFIG_SNMP_TRAP_FORMAT_V2C) && !defined(CONFIG_SNMP_VERSION_2C) && defined(CONFIG_SNMP_VERSION_1))
+#if defined(CONFIG_SNMP_TRAP_FORMAT_V1) ||                                                         \
+    (!defined(CONFIG_SNMP_TRAP_FORMAT_V2C) && !defined(CONFIG_SNMP_VERSION_2C) &&                  \
+     defined(CONFIG_SNMP_VERSION_1))
 	inst->current_pdu.version = 0;
 	inst->current_pdu.type = SNMP_PDU_TRAP_V1;
 	inst->current_pdu.enterprise = *trap_oid;
@@ -266,7 +269,8 @@ int snmp_trap_send(struct snmp_agent *inst, const struct snmp_oid *trap_oid,
 #if defined(CONFIG_NET_IPV4)
 	struct net_if *iface_v1 = inst->bound_iface ? inst->bound_iface : net_if_get_default();
 	if (iface_v1 && iface_v1->config.ip.ipv4) {
-		memcpy(inst->current_pdu.agent_addr, &iface_v1->config.ip.ipv4->unicast[0].ipv4.address.in_addr, 4);
+		memcpy(inst->current_pdu.agent_addr,
+		       &iface_v1->config.ip.ipv4->unicast[0].ipv4.address.in_addr, 4);
 	}
 #endif
 	strncpy((char *)inst->current_pdu.community, comm, sizeof(inst->current_pdu.community) - 1);
@@ -281,7 +285,7 @@ int snmp_trap_send(struct snmp_agent *inst, const struct snmp_oid *trap_oid,
 	inst->current_pdu.community_len = strlen((char *)inst->current_pdu.community);
 
 	/* sysUpTime.0 (1.3.6.1.2.1.1.3.0) and snmpTrapOID.0 (1.3.6.1.6.3.1.1.4.1.0) */
-	static const uint32_t uptime_oid[9]  = {1, 3, 6, 1, 2, 1, 1, 3, 0};
+	static const uint32_t uptime_oid[9] = {1, 3, 6, 1, 2, 1, 1, 3, 0};
 	static const uint32_t trap_oid_spec[11] = {1, 3, 6, 1, 6, 3, 1, 1, 4, 1, 0};
 
 	inst->current_pdu.varbinds[0].oid.len = 9;
@@ -297,18 +301,18 @@ int snmp_trap_send(struct snmp_agent *inst, const struct snmp_oid *trap_oid,
 	inst->current_pdu.varbind_cnt = 2;
 #endif
 
-	if (varbinds && varbind_cnt > 0)
-	{
-		for (uint8_t i = 0; i < varbind_cnt && inst->current_pdu.varbind_cnt < CONFIG_SNMP_MAX_VARBINDS; i++)
-		{
+	if (varbinds && varbind_cnt > 0) {
+		for (uint8_t i = 0;
+		     i < varbind_cnt && inst->current_pdu.varbind_cnt < CONFIG_SNMP_MAX_VARBINDS;
+		     i++) {
 			inst->current_pdu.varbinds[inst->current_pdu.varbind_cnt++] = varbinds[i];
 		}
 	}
 
 	size_t tx_len = 0;
-	int ret = snmp_ber_encode_pdu(inst->tx_buf, sizeof(inst->tx_buf), &tx_len, &inst->current_pdu);
-	if (ret < 0)
-	{
+	int ret =
+	    snmp_ber_encode_pdu(inst->tx_buf, sizeof(inst->tx_buf), &tx_len, &inst->current_pdu);
+	if (ret < 0) {
 		zsock_close(sock);
 		k_mutex_unlock(&inst->lock);
 		return ret;
@@ -321,15 +325,13 @@ int snmp_trap_send(struct snmp_agent *inst, const struct snmp_oid *trap_oid,
 	dest.sin_port = htons(CONFIG_SNMP_TRAP_PORT);
 	dest.sin_addr.s_addr = INADDR_BROADCAST;
 
-	if (inst->trap_dest_cnt > 0)
-	{
-		for (uint8_t d = 0; d < inst->trap_dest_cnt; d++)
-		{
-			zsock_sendto(sock, inst->tx_buf, tx_len, 0, (struct sockaddr *)&inst->trap_dests[d], sizeof(inst->trap_dests[d]));
+	if (inst->trap_dest_cnt > 0) {
+		for (uint8_t d = 0; d < inst->trap_dest_cnt; d++) {
+			zsock_sendto(sock, inst->tx_buf, tx_len, 0,
+				     (struct sockaddr *)&inst->trap_dests[d],
+				     sizeof(inst->trap_dests[d]));
 		}
-	}
-	else
-	{
+	} else {
 		zsock_sendto(sock, inst->tx_buf, tx_len, 0, (struct sockaddr *)&dest, sizeof(dest));
 	}
 
@@ -342,9 +344,8 @@ int snmp_trap_send(struct snmp_agent *inst, const struct snmp_oid *trap_oid,
 
 int snmp_trap_send_coldstart(struct snmp_agent *inst)
 {
-	static const struct snmp_oid cold_start_oid = {
-		.len = 10,
-		.ids = {1, 3, 6, 1, 6, 3, 1, 1, 5, 1}};
+	static const struct snmp_oid cold_start_oid = {.len = 10,
+						       .ids = {1, 3, 6, 1, 6, 3, 1, 1, 5, 1}};
 	return snmp_trap_send(inst, &cold_start_oid, NULL, 0, false);
 }
 
@@ -357,9 +358,8 @@ int snmp_trap_send_auth_failure(struct snmp_agent *inst)
 	if (inst->counters.snmpEnableAuthenTraps != 1) {
 		return 0; /* Traps disabled for this agent */
 	}
-	static const struct snmp_oid auth_fail_oid = {
-		.len = 10,
-		.ids = {1, 3, 6, 1, 6, 3, 1, 1, 5, 5}};
+	static const struct snmp_oid auth_fail_oid = {.len = 10,
+						      .ids = {1, 3, 6, 1, 6, 3, 1, 1, 5, 5}};
 	return snmp_trap_send(inst, &auth_fail_oid, NULL, 0, false);
 }
 

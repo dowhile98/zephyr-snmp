@@ -15,7 +15,7 @@ typedef uint32_t atomic_t;
 
 static inline void atomic_inc(atomic_t *target)
 {
-    (*target)++;
+	(*target)++;
 }
 
 #endif /* ZEPHYR_SYS_ATOMIC_STUB_H_ */

@@ -26,7 +26,7 @@
 
 #define HMAC_SHA1_LEN 12
 #define HMAC_MD5_LEN 12
-#define AES_IV_LEN    16
+#define AES_IV_LEN 16
 #define SNMP_ENGINE_BOOTS_MAX 2147483647U
 
 /*
@@ -68,9 +68,8 @@ static int usm_boots_key(const struct snmp_agent *inst, char *out, size_t out_sz
 
 /* ---- HMAC computation ---- */
 
-static int hmac_compute(psa_algorithm_t alg, const uint8_t *key, size_t key_len,
-			const uint8_t *in, size_t in_len,
-			uint8_t *mac, size_t mac_sz, size_t *mac_len)
+static int hmac_compute(psa_algorithm_t alg, const uint8_t *key, size_t key_len, const uint8_t *in,
+			size_t in_len, uint8_t *mac, size_t mac_sz, size_t *mac_len)
 {
 	psa_key_attributes_t attrs = PSA_KEY_ATTRIBUTES_INIT;
 	psa_set_key_usage_flags(&attrs, PSA_KEY_USAGE_SIGN_MESSAGE);
@@ -109,8 +108,7 @@ static int hmac_compute(psa_algorithm_t alg, const uint8_t *key, size_t key_len,
 
 /* ---- Password-to-Key (RFC 3414 A.2.1) ---- */
 
-static int usm_password_to_key(psa_algorithm_t hash_alg,
-			       const char *password, size_t pw_len,
+static int usm_password_to_key(psa_algorithm_t hash_alg, const char *password, size_t pw_len,
 			       uint8_t *ku, size_t ku_sz, size_t *ku_len)
 {
 	if (!password || !pw_len || !ku || !ku_len)
@@ -149,10 +147,8 @@ static int usm_password_to_key(psa_algorithm_t hash_alg,
 
 /* ---- Key localization (RFC 3414 A.2.2 & RFC 3826 §2.4) ---- */
 
-static int usm_key_localize(uint8_t *out_key, uint16_t *out_len,
-			    const char *password, uint8_t algo,
-			    const uint8_t *engine_id, uint16_t engine_id_len,
-			    bool is_priv)
+static int usm_key_localize(uint8_t *out_key, uint16_t *out_len, const char *password, uint8_t algo,
+			    const uint8_t *engine_id, uint16_t engine_id_len, bool is_priv)
 {
 	if (!out_key || !out_len || !password || !engine_id)
 		return -EINVAL;
@@ -161,8 +157,8 @@ static int usm_key_localize(uint8_t *out_key, uint16_t *out_len,
 
 	uint8_t ku[64];
 	size_t ku_len = 0;
-	int ret = usm_password_to_key(hash_alg, password, strlen(password),
-				      ku, sizeof(ku), &ku_len);
+	int ret =
+	    usm_password_to_key(hash_alg, password, strlen(password), ku, sizeof(ku), &ku_len);
 	if (ret < 0)
 		return ret;
 
@@ -178,8 +174,8 @@ static int usm_key_localize(uint8_t *out_key, uint16_t *out_len,
 
 	uint8_t kul[64];
 	size_t kul_len = 0;
-	psa_status_t status = psa_hash_compute(hash_alg, buffer, total_len,
-					       kul, sizeof(kul), &kul_len);
+	psa_status_t status =
+	    psa_hash_compute(hash_alg, buffer, total_len, kul, sizeof(kul), &kul_len);
 	if (status != PSA_SUCCESS)
 		return -EIO;
 
@@ -200,9 +196,8 @@ static int usm_key_localize(uint8_t *out_key, uint16_t *out_len,
 
 /* ---- AES-128-CFB Encrypt ---- */
 
-static int aes128_cfb_encrypt(const uint8_t *key, const uint8_t *iv,
-			      const uint8_t *plaintext, size_t pt_len,
-			      uint8_t *ciphertext, size_t ct_sz, size_t *ct_len)
+static int aes128_cfb_encrypt(const uint8_t *key, const uint8_t *iv, const uint8_t *plaintext,
+			      size_t pt_len, uint8_t *ciphertext, size_t ct_sz, size_t *ct_len)
 {
 	psa_key_attributes_t attrs = PSA_KEY_ATTRIBUTES_INIT;
 	psa_set_key_usage_flags(&attrs, PSA_KEY_USAGE_ENCRYPT);
@@ -252,9 +247,8 @@ static int aes128_cfb_encrypt(const uint8_t *key, const uint8_t *iv,
 
 /* ---- AES-128-CFB Decrypt ---- */
 
-static int aes128_cfb_decrypt(const uint8_t *key, const uint8_t *iv,
-			      const uint8_t *ciphertext, size_t ct_len,
-			      uint8_t *plaintext, size_t pt_sz, size_t *pt_len)
+static int aes128_cfb_decrypt(const uint8_t *key, const uint8_t *iv, const uint8_t *ciphertext,
+			      size_t ct_len, uint8_t *plaintext, size_t pt_sz, size_t *pt_len)
 {
 	psa_key_attributes_t attrs = PSA_KEY_ATTRIBUTES_INIT;
 	psa_set_key_usage_flags(&attrs, PSA_KEY_USAGE_DECRYPT);
@@ -304,8 +298,8 @@ static int aes128_cfb_decrypt(const uint8_t *key, const uint8_t *iv,
 
 /* ---- Find encrypted scopedPDU OCTET STRING in raw buffer ---- */
 
-static int find_encrypted_scopedpdu(const uint8_t *buf, size_t buf_len,
-				    const uint8_t **ct_data, size_t *ct_len)
+static int find_encrypted_scopedpdu(const uint8_t *buf, size_t buf_len, const uint8_t **ct_data,
+				    size_t *ct_len)
 {
 	size_t off = 0;
 	uint8_t tag;
@@ -363,15 +357,13 @@ static int parse_scopedpdu_plaintext(const uint8_t *data, size_t data_len,
 	if (ret < 0 || tag != ASN1_TAG_SEQUENCE)
 		return -EBADMSG;
 
-	ret = snmp_ber_decode_octet_string(data, data_len, &off,
-					   scoped->context_engine_id,
+	ret = snmp_ber_decode_octet_string(data, data_len, &off, scoped->context_engine_id,
 					   SNMP_V3_ENGINE_ID_MAX_LEN, &tmp_len);
 	if (ret < 0)
 		return ret;
 	scoped->context_engine_id_len = tmp_len;
 
-	ret = snmp_ber_decode_octet_string(data, data_len, &off,
-					   scoped->context_name,
+	ret = snmp_ber_decode_octet_string(data, data_len, &off, scoped->context_name,
 					   sizeof(scoped->context_name) - 1, &tmp_len);
 	if (ret < 0)
 		return ret;
@@ -383,8 +375,8 @@ static int parse_scopedpdu_plaintext(const uint8_t *data, size_t data_len,
 
 /* ---- Build plaintext scopedPDU bytes for encryption ---- */
 
-static int build_scopedpdu_plaintext(const struct snmp_v3_msg *msg,
-				     uint8_t *out, size_t out_sz, size_t *out_len)
+static int build_scopedpdu_plaintext(const struct snmp_v3_msg *msg, uint8_t *out, size_t out_sz,
+				     size_t *out_len)
 {
 	int ret;
 	uint8_t body[CONFIG_SNMP_MAX_PDU_SIZE];
@@ -403,7 +395,8 @@ static int build_scopedpdu_plaintext(const struct snmp_v3_msg *msg,
 		return ret;
 
 	size_t pdu_len = 0;
-	ret = snmp_ber_encode_pdu_body(&body[body_off], sizeof(body) - body_off, &pdu_len, &msg->scoped.pdu);
+	ret = snmp_ber_encode_pdu_body(&body[body_off], sizeof(body) - body_off, &pdu_len,
+				       &msg->scoped.pdu);
 	if (ret < 0)
 		return ret;
 	body_off += pdu_len;
@@ -435,14 +428,13 @@ static struct snmp_usm_user *usm_find_user(struct snmp_agent *inst, const char *
 
 /* ---- HMAC verification ---- */
 
-static int usm_verify_auth(const struct snmp_v3_msg *msg,
-			   struct snmp_usm_user *user)
+static int usm_verify_auth(const struct snmp_v3_msg *msg, struct snmp_usm_user *user)
 {
 	if (!msg || !user || user->auth_protocol == 0)
 		return 0;
 
-	psa_algorithm_t alg = (user->auth_protocol == 1) ? PSA_ALG_HMAC(PSA_ALG_SHA_1)
-							 : PSA_ALG_HMAC(PSA_ALG_MD5);
+	psa_algorithm_t alg =
+	    (user->auth_protocol == 1) ? PSA_ALG_HMAC(PSA_ALG_SHA_1) : PSA_ALG_HMAC(PSA_ALG_MD5);
 
 	struct snmp_v3_msg hash_msg = *msg;
 	memset(hash_msg.usm.auth_params, 0, sizeof(hash_msg.usm.auth_params));
@@ -456,8 +448,7 @@ static int usm_verify_auth(const struct snmp_v3_msg *msg,
 
 	uint8_t computed_hash[20];
 	size_t hash_len;
-	ret = hmac_compute(alg, user->auth_key, user->auth_key_len,
-			   encoded, encoded_len,
+	ret = hmac_compute(alg, user->auth_key, user->auth_key_len, encoded, encoded_len,
 			   computed_hash, sizeof(computed_hash), &hash_len);
 	if (ret < 0)
 		return ret;
@@ -484,18 +475,21 @@ int snmp_usm_add_user(struct snmp_agent *inst, const struct snmp_usm_user *user)
 
 	/* Update existing if found */
 	for (size_t i = 0; i < CONFIG_SNMP_V3_MAX_USERS; i++) {
-		if (inst->users[i].in_use && strcmp(inst->users[i].user_name, user->user_name) == 0) {
+		if (inst->users[i].in_use &&
+		    strcmp(inst->users[i].user_name, user->user_name) == 0) {
 			inst->users[i] = *user;
 			inst->users[i].in_use = true;
 			if (inst->users[i].auth_protocol > 0) {
-				usm_key_localize(inst->users[i].auth_key, &inst->users[i].auth_key_len,
-						 inst->users[i].auth_pass, inst->users[i].auth_protocol,
-						 inst->engine_id, inst->engine_id_len, false);
+				usm_key_localize(
+				    inst->users[i].auth_key, &inst->users[i].auth_key_len,
+				    inst->users[i].auth_pass, inst->users[i].auth_protocol,
+				    inst->engine_id, inst->engine_id_len, false);
 			}
 			if (inst->users[i].priv_protocol > 0) {
-				usm_key_localize(inst->users[i].priv_key, &inst->users[i].priv_key_len,
-						 inst->users[i].priv_pass, inst->users[i].priv_protocol,
-						 inst->engine_id, inst->engine_id_len, true);
+				usm_key_localize(
+				    inst->users[i].priv_key, &inst->users[i].priv_key_len,
+				    inst->users[i].priv_pass, inst->users[i].priv_protocol,
+				    inst->engine_id, inst->engine_id_len, true);
 			}
 			return 0;
 		}
@@ -507,14 +501,16 @@ int snmp_usm_add_user(struct snmp_agent *inst, const struct snmp_usm_user *user)
 			inst->users[i] = *user;
 			inst->users[i].in_use = true;
 			if (inst->users[i].auth_protocol > 0) {
-				usm_key_localize(inst->users[i].auth_key, &inst->users[i].auth_key_len,
-						 inst->users[i].auth_pass, inst->users[i].auth_protocol,
-						 inst->engine_id, inst->engine_id_len, false);
+				usm_key_localize(
+				    inst->users[i].auth_key, &inst->users[i].auth_key_len,
+				    inst->users[i].auth_pass, inst->users[i].auth_protocol,
+				    inst->engine_id, inst->engine_id_len, false);
 			}
 			if (inst->users[i].priv_protocol > 0) {
-				usm_key_localize(inst->users[i].priv_key, &inst->users[i].priv_key_len,
-						 inst->users[i].priv_pass, inst->users[i].priv_protocol,
-						 inst->engine_id, inst->engine_id_len, true);
+				usm_key_localize(
+				    inst->users[i].priv_key, &inst->users[i].priv_key_len,
+				    inst->users[i].priv_pass, inst->users[i].priv_protocol,
+				    inst->engine_id, inst->engine_id_len, true);
 			}
 			inst->user_cnt++;
 			return 0;
@@ -532,9 +528,8 @@ int snmp_usm_init(struct snmp_agent *inst)
 	psa_crypto_init();
 
 	if (inst->engine_id_len == 0) {
-		static const uint8_t default_engine_id[12] = {
-			0x80, 0x00, 0x1F, 0x88, 0x80, 'Z', 'E', 'P', 'H', 'Y', 'R', '1'
-		};
+		static const uint8_t default_engine_id[12] = {0x80, 0x00, 0x1F, 0x88, 0x80, 'Z',
+							      'E',  'P',  'H',	'Y',  'R',  '1'};
 		memcpy(inst->engine_id, default_engine_id, sizeof(default_engine_id));
 		inst->engine_id_len = sizeof(default_engine_id);
 	}
@@ -555,15 +550,18 @@ int snmp_usm_init(struct snmp_agent *inst)
 
 	if (inst->user_cnt == 0) {
 		struct snmp_usm_user default_user = {
-			.auth_protocol = 1,
-			.priv_protocol = 1,
-			.in_use = true,
+		    .auth_protocol = 1,
+		    .priv_protocol = 1,
+		    .in_use = true,
 		};
-		strncpy(default_user.user_name, CONFIG_SNMP_V3_USER_NAME, sizeof(default_user.user_name) - 1);
+		strncpy(default_user.user_name, CONFIG_SNMP_V3_USER_NAME,
+			sizeof(default_user.user_name) - 1);
 		default_user.user_name[sizeof(default_user.user_name) - 1] = '\0';
-		strncpy(default_user.auth_pass, CONFIG_SNMP_V3_AUTH_PASS, sizeof(default_user.auth_pass) - 1);
+		strncpy(default_user.auth_pass, CONFIG_SNMP_V3_AUTH_PASS,
+			sizeof(default_user.auth_pass) - 1);
 		default_user.auth_pass[sizeof(default_user.auth_pass) - 1] = '\0';
-		strncpy(default_user.priv_pass, CONFIG_SNMP_V3_PRIV_PASS, sizeof(default_user.priv_pass) - 1);
+		strncpy(default_user.priv_pass, CONFIG_SNMP_V3_PRIV_PASS,
+			sizeof(default_user.priv_pass) - 1);
 		default_user.priv_pass[sizeof(default_user.priv_pass) - 1] = '\0';
 		snmp_usm_add_user(inst, &default_user);
 	} else {
@@ -571,14 +569,16 @@ int snmp_usm_init(struct snmp_agent *inst)
 		for (size_t i = 0; i < CONFIG_SNMP_V3_MAX_USERS; i++) {
 			if (inst->users[i].in_use) {
 				if (inst->users[i].auth_protocol > 0) {
-					usm_key_localize(inst->users[i].auth_key, &inst->users[i].auth_key_len,
-							 inst->users[i].auth_pass, inst->users[i].auth_protocol,
-							 inst->engine_id, inst->engine_id_len, false);
+					usm_key_localize(
+					    inst->users[i].auth_key, &inst->users[i].auth_key_len,
+					    inst->users[i].auth_pass, inst->users[i].auth_protocol,
+					    inst->engine_id, inst->engine_id_len, false);
 				}
 				if (inst->users[i].priv_protocol > 0) {
-					usm_key_localize(inst->users[i].priv_key, &inst->users[i].priv_key_len,
-							 inst->users[i].priv_pass, inst->users[i].priv_protocol,
-							 inst->engine_id, inst->engine_id_len, true);
+					usm_key_localize(
+					    inst->users[i].priv_key, &inst->users[i].priv_key_len,
+					    inst->users[i].priv_pass, inst->users[i].priv_protocol,
+					    inst->engine_id, inst->engine_id_len, true);
 				}
 			}
 		}
@@ -594,12 +594,14 @@ int snmp_usm_verify_incoming(struct snmp_agent *inst, struct snmp_v3_msg *msg,
 		return -EINVAL;
 
 	/* RFC 3414 §2.2: if engine boots reaches 2147483647, stop processing */
-	if (inst->engine_boots >= SNMP_ENGINE_BOOTS_MAX || msg->usm.engine_boots >= SNMP_ENGINE_BOOTS_MAX) {
+	if (inst->engine_boots >= SNMP_ENGINE_BOOTS_MAX ||
+	    msg->usm.engine_boots >= SNMP_ENGINE_BOOTS_MAX) {
 		INC_STAT(inst, snmpSilentDrops);
 		return -EACCES;
 	}
 
-	if ((msg->usm.engine_boots == 0 && msg->usm.engine_time == 0) || msg->usm.engine_id_len == 0) {
+	if ((msg->usm.engine_boots == 0 && msg->usm.engine_time == 0) ||
+	    msg->usm.engine_id_len == 0) {
 		memset(&msg->scoped.pdu, 0, sizeof(msg->scoped.pdu));
 		msg->scoped.pdu.type = SNMP_PDU_REPORT;
 		msg->scoped.pdu.version = 3;
@@ -638,7 +640,8 @@ int snmp_usm_verify_incoming(struct snmp_agent *inst, struct snmp_v3_msg *msg,
 			return ret;
 		}
 
-		/* RFC 3826 §3.1.1.1 & §3.1.4: 16-byte IV = boots (4 BE) || time (4 BE) || salt (8) */
+		/* RFC 3826 §3.1.1.1 & §3.1.4: 16-byte IV = boots (4 BE) || time (4 BE) || salt (8)
+		 */
 		uint8_t iv[AES_IV_LEN];
 		iv[0] = (uint8_t)(msg->usm.engine_boots >> 24);
 		iv[1] = (uint8_t)(msg->usm.engine_boots >> 16);
@@ -652,8 +655,8 @@ int snmp_usm_verify_incoming(struct snmp_agent *inst, struct snmp_v3_msg *msg,
 
 		uint8_t pt[CONFIG_SNMP_MAX_PDU_SIZE];
 		size_t pt_len;
-		ret = aes128_cfb_decrypt(user->priv_key, iv, ct_data, ct_len,
-					 pt, sizeof(pt), &pt_len);
+		ret = aes128_cfb_decrypt(user->priv_key, iv, ct_data, ct_len, pt, sizeof(pt),
+					 &pt_len);
 		if (ret < 0) {
 			INC_STAT(inst, snmpSilentDrops);
 			return ret;
@@ -711,14 +714,16 @@ int snmp_usm_build_outgoing(struct snmp_agent *inst, struct snmp_v3_msg *msg)
 	msg->usm.engine_time = (uint32_t)(k_uptime_get() / 1000);
 
 	uint8_t pdu_type = msg->scoped.pdu.type;
-	if (pdu_type == SNMP_PDU_TRAP_V2 || pdu_type == SNMP_PDU_RESPONSE || pdu_type == SNMP_PDU_REPORT) {
+	if (pdu_type == SNMP_PDU_TRAP_V2 || pdu_type == SNMP_PDU_RESPONSE ||
+	    pdu_type == SNMP_PDU_REPORT) {
 		msg->global.msg_flags = 0x00;
 	} else {
 		msg->global.msg_flags = 0x04;
 	}
 	if (user->auth_protocol > 0) {
 		msg->global.msg_flags |= 0x01;
-		msg->usm.auth_params_len = (user->auth_protocol == 1) ? HMAC_SHA1_LEN : HMAC_MD5_LEN;
+		msg->usm.auth_params_len =
+		    (user->auth_protocol == 1) ? HMAC_SHA1_LEN : HMAC_MD5_LEN;
 	}
 	if (user->priv_protocol > 0) {
 		msg->global.msg_flags |= 0x02;
@@ -756,9 +761,8 @@ int snmp_usm_build_outgoing(struct snmp_agent *inst, struct snmp_v3_msg *msg)
 
 		uint8_t ciphertext[CONFIG_SNMP_MAX_PDU_SIZE];
 		size_t ct_len;
-		ret = aes128_cfb_encrypt(user->priv_key, iv,
-					 plaintext, pt_len,
-					 ciphertext, sizeof(ciphertext), &ct_len);
+		ret = aes128_cfb_encrypt(user->priv_key, iv, plaintext, pt_len, ciphertext,
+					 sizeof(ciphertext), &ct_len);
 		if (ret < 0)
 			return ret;
 
@@ -783,8 +787,7 @@ int snmp_usm_build_outgoing(struct snmp_agent *inst, struct snmp_v3_msg *msg)
 								 : PSA_ALG_HMAC(PSA_ALG_MD5);
 		uint8_t full_hash[20];
 		size_t fh_len;
-		ret = hmac_compute(alg, user->auth_key, user->auth_key_len,
-				   hash_target, hash_len,
+		ret = hmac_compute(alg, user->auth_key, user->auth_key_len, hash_target, hash_len,
 				   full_hash, sizeof(full_hash), &fh_len);
 		if (ret < 0)
 			return ret;

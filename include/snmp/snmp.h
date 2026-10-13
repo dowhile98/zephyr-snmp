@@ -120,9 +120,6 @@ extern "C" {
  */
 #endif /* CONFIG_SNMP_AGENT */
 
-
-
-
 #ifdef __cplusplus
 }
 #endif

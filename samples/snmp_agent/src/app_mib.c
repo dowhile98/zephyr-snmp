@@ -189,33 +189,19 @@ static int cb_table_col3_get(struct snmp_agent *agent, const struct snmp_table_r
 }
 
 static const uint8_t s_sensor_cols[] = {1, 2, 3};
-static const uint8_t s_sensor_types[] = {
-	ASN1_TAG_INTEGER,
-	ASN1_TAG_OCTET_STRING,
-	ASN1_TAG_INTEGER
-};
-static snmp_table_get_cb_t s_sensor_get_cbs[] = {
-	cb_table_col1_get,
-	cb_table_col2_get,
-	cb_table_col3_get
-};
+static const uint8_t s_sensor_types[] = {ASN1_TAG_INTEGER, ASN1_TAG_OCTET_STRING, ASN1_TAG_INTEGER};
+static snmp_table_get_cb_t s_sensor_get_cbs[] = {cb_table_col1_get, cb_table_col2_get,
+						 cb_table_col3_get};
 
-static struct snmp_table_row s_sensor_rows[3] = {
-	{.index = 1},
-	{.index = 2},
-	{.index = 3}
-};
+static struct snmp_table_row s_sensor_rows[3] = {{.index = 1}, {.index = 2}, {.index = 3}};
 
 static struct snmp_mib_table s_sensor_table = {
-	.table_oid = {
-		.len = 10,
-		.ids = {1, 3, 6, 1, 4, 1, CONFIG_SNMP_SAMPLE_ENTERPRISE_ID, 1, 3, 1}
-	},
-	.column_cnt = 3,
-	.column_subids = s_sensor_cols,
-	.column_types = s_sensor_types,
-	.get_cbs = s_sensor_get_cbs,
-	.set_cbs = NULL,
+    .table_oid = {.len = 10, .ids = {1, 3, 6, 1, 4, 1, CONFIG_SNMP_SAMPLE_ENTERPRISE_ID, 1, 3, 1}},
+    .column_cnt = 3,
+    .column_subids = s_sensor_cols,
+    .column_types = s_sensor_types,
+    .get_cbs = s_sensor_get_cbs,
+    .set_cbs = NULL,
 };
 
 int app_mib_init(struct snmp_agent *agent)
@@ -223,19 +209,18 @@ int app_mib_init(struct snmp_agent *agent)
 	int ret;
 
 	/* Configure Enterprise OID for sysObjectID and Traps */
-	struct snmp_oid ent_oid = {
-		.len = 7,
-		.ids = {1, 3, 6, 1, 4, 1, CONFIG_SNMP_SAMPLE_ENTERPRISE_ID}
-	};
+	struct snmp_oid ent_oid = {.len = 7,
+				   .ids = {1, 3, 6, 1, 4, 1, CONFIG_SNMP_SAMPLE_ENTERPRISE_ID}};
 	snmp_set_device_enterprise_oid(agent, &ent_oid);
 
 #if defined(CONFIG_SNMP_SAMPLE_SENSOR_OBJECT) || !defined(CONFIG_SNMP_SAMPLE_SENSOR_OBJECT)
 	/* 1. Register sensorValue (1.3.6.1.4.1.<enterprise>.1.1.1.0) */
 	static const struct snmp_mib_node node_sensor_val = {
-		.oid = {.len = 11, .ids = {1, 3, 6, 1, 4, 1, CONFIG_SNMP_SAMPLE_ENTERPRISE_ID, 1, 1, 1, 0}},
-		.type = ASN1_TAG_INTEGER,
-		.get_cb = cb_get_sensor_value,
-		.set_cb = cb_set_sensor_value,
+	    .oid = {.len = 11,
+		    .ids = {1, 3, 6, 1, 4, 1, CONFIG_SNMP_SAMPLE_ENTERPRISE_ID, 1, 1, 1, 0}},
+	    .type = ASN1_TAG_INTEGER,
+	    .get_cb = cb_get_sensor_value,
+	    .set_cb = cb_set_sensor_value,
 	};
 	ret = snmp_mib_register(agent, &node_sensor_val);
 	if (ret < 0) {
@@ -245,10 +230,11 @@ int app_mib_init(struct snmp_agent *agent)
 
 	/* 4. Register sensorHumidity (1.3.6.1.4.1.<enterprise>.1.1.4.0) */
 	static const struct snmp_mib_node node_humidity = {
-		.oid = {.len = 11, .ids = {1, 3, 6, 1, 4, 1, CONFIG_SNMP_SAMPLE_ENTERPRISE_ID, 1, 1, 4, 0}},
-		.type = SNMP_TAG_GAUGE32,
-		.get_cb = cb_get_sensor_humidity,
-		.set_cb = NULL,
+	    .oid = {.len = 11,
+		    .ids = {1, 3, 6, 1, 4, 1, CONFIG_SNMP_SAMPLE_ENTERPRISE_ID, 1, 1, 4, 0}},
+	    .type = SNMP_TAG_GAUGE32,
+	    .get_cb = cb_get_sensor_humidity,
+	    .set_cb = NULL,
 	};
 	ret = snmp_mib_register(agent, &node_humidity);
 	if (ret < 0) {
@@ -258,10 +244,11 @@ int app_mib_init(struct snmp_agent *agent)
 
 	/* 5. Register sensorDescription (1.3.6.1.4.1.<enterprise>.1.1.5.0) */
 	static const struct snmp_mib_node node_desc = {
-		.oid = {.len = 11, .ids = {1, 3, 6, 1, 4, 1, CONFIG_SNMP_SAMPLE_ENTERPRISE_ID, 1, 1, 5, 0}},
-		.type = ASN1_TAG_OCTET_STRING,
-		.get_cb = cb_get_sensor_desc,
-		.set_cb = NULL,
+	    .oid = {.len = 11,
+		    .ids = {1, 3, 6, 1, 4, 1, CONFIG_SNMP_SAMPLE_ENTERPRISE_ID, 1, 1, 5, 0}},
+	    .type = ASN1_TAG_OCTET_STRING,
+	    .get_cb = cb_get_sensor_desc,
+	    .set_cb = NULL,
 	};
 	ret = snmp_mib_register(agent, &node_desc);
 	if (ret < 0) {
@@ -271,10 +258,11 @@ int app_mib_init(struct snmp_agent *agent)
 
 	/* 6. Register sensorStatusOid (1.3.6.1.4.1.<enterprise>.1.1.6.0) */
 	static const struct snmp_mib_node node_status_oid = {
-		.oid = {.len = 11, .ids = {1, 3, 6, 1, 4, 1, CONFIG_SNMP_SAMPLE_ENTERPRISE_ID, 1, 1, 6, 0}},
-		.type = ASN1_TAG_OID,
-		.get_cb = cb_get_sensor_status_oid,
-		.set_cb = NULL,
+	    .oid = {.len = 11,
+		    .ids = {1, 3, 6, 1, 4, 1, CONFIG_SNMP_SAMPLE_ENTERPRISE_ID, 1, 1, 6, 0}},
+	    .type = ASN1_TAG_OID,
+	    .get_cb = cb_get_sensor_status_oid,
+	    .set_cb = NULL,
 	};
 	ret = snmp_mib_register(agent, &node_status_oid);
 	if (ret < 0) {
@@ -286,10 +274,11 @@ int app_mib_init(struct snmp_agent *agent)
 #if defined(CONFIG_SNMP_SAMPLE_LED_OBJECT) || !defined(CONFIG_SNMP_SAMPLE_LED_OBJECT)
 	/* 2. Register ledState (1.3.6.1.4.1.<enterprise>.1.1.2.0) */
 	static const struct snmp_mib_node node_led = {
-		.oid = {.len = 11, .ids = {1, 3, 6, 1, 4, 1, CONFIG_SNMP_SAMPLE_ENTERPRISE_ID, 1, 1, 2, 0}},
-		.type = ASN1_TAG_INTEGER,
-		.get_cb = cb_get_led_state,
-		.set_cb = cb_set_led_state,
+	    .oid = {.len = 11,
+		    .ids = {1, 3, 6, 1, 4, 1, CONFIG_SNMP_SAMPLE_ENTERPRISE_ID, 1, 1, 2, 0}},
+	    .type = ASN1_TAG_INTEGER,
+	    .get_cb = cb_get_led_state,
+	    .set_cb = cb_set_led_state,
 	};
 	ret = snmp_mib_register(agent, &node_led);
 	if (ret < 0) {
@@ -301,10 +290,11 @@ int app_mib_init(struct snmp_agent *agent)
 #if defined(CONFIG_SNMP_SAMPLE_BUTTON_TRAP) || !defined(CONFIG_SNMP_SAMPLE_BUTTON_TRAP)
 	/* 3. Register buttonCounter (1.3.6.1.4.1.<enterprise>.1.1.3.0) */
 	static const struct snmp_mib_node node_btn = {
-		.oid = {.len = 11, .ids = {1, 3, 6, 1, 4, 1, CONFIG_SNMP_SAMPLE_ENTERPRISE_ID, 1, 1, 3, 0}},
-		.type = SNMP_TAG_COUNTER32,
-		.get_cb = cb_get_button_counter,
-		.set_cb = NULL,
+	    .oid = {.len = 11,
+		    .ids = {1, 3, 6, 1, 4, 1, CONFIG_SNMP_SAMPLE_ENTERPRISE_ID, 1, 1, 3, 0}},
+	    .type = SNMP_TAG_COUNTER32,
+	    .get_cb = cb_get_button_counter,
+	    .set_cb = NULL,
 	};
 	ret = snmp_mib_register(agent, &node_btn);
 	if (ret < 0) {

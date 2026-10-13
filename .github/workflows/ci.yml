@@ -24,6 +24,7 @@ jobs:
           cmake ..
           make
           ./snmp_unit_tests
+          ./vacm_unit_tests
 
   check-format:
     runs-on: ubuntu-latest
@@ -33,7 +34,7 @@ jobs:
       - name: Check formatting (clang-format)
         run: |
           sudo apt-get install -y clang-format
-          find src include samples -name '*.c' -o -name '*.h' | xargs clang-format --dry-run --Werror || true
+          find src include samples tests/unit -name '*.c' -o -name '*.h' | xargs clang-format --dry-run --Werror
 
   build-zephyr:
     runs-on: ubuntu-latest

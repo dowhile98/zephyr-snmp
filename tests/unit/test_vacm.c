@@ -21,12 +21,13 @@
 static struct snmp_agent s_vacm_test_agent;
 
 /* Assert macros defined in main.c */
-#define ASSERT(cond) do { \
-    if (!(cond)) { \
-        printf("FAIL (%s:%d: %s)\n", __FILE__, __LINE__, #cond); \
-        exit(1); \
-    } \
-} while(0)
+#define ASSERT(cond)                                                                               \
+	do {                                                                                       \
+		if (!(cond)) {                                                                     \
+			printf("FAIL (%s:%d: %s)\n", __FILE__, __LINE__, #cond);                   \
+			exit(1);                                                                   \
+		}                                                                                  \
+	} while (0)
 
 #define ASSERT_EQ(a, b) ASSERT((a) == (b))
 #define ASSERT_NE(a, b) ASSERT((a) != (b))
@@ -36,10 +37,7 @@ void test_vacm_group_mapping_resolution(void)
 	int ret = snmp_vacm_init(&s_vacm_test_agent);
 	ASSERT_EQ(ret, 0);
 
-	struct snmp_oid sys_oid = {
-		.len = 8,
-		.ids = {1, 3, 6, 1, 2, 1, 1, 1, 0}
-	};
+	struct snmp_oid sys_oid = {.len = 8, .ids = {1, 3, 6, 1, 2, 1, 1, 1, 0}};
 
 	/* Default admin user ("admin") maps to group admin and has full access */
 	ret =
@@ -75,10 +73,7 @@ void test_vacm_security_level_enforcement(void)
 	int ret = snmp_vacm_init(&s_vacm_test_agent);
 	ASSERT_EQ(ret, 0);
 
-	struct snmp_oid sys_oid = {
-		.len = 8,
-		.ids = {1, 3, 6, 1, 2, 1, 1, 1, 0}
-	};
+	struct snmp_oid sys_oid = {.len = 8, .ids = {1, 3, 6, 1, 2, 1, 1, 1, 0}};
 
 	/* Admin group rule requires min_sec_level = authNoPriv (2).
 	 * Request with noAuthNoPriv (1) must be REJECTED.
@@ -104,7 +99,8 @@ void test_vacm_security_level_enforcement(void)
 					SNMP_SEC_LEVEL_AUTH_PRIV, SNMP_VACM_ACCESS_WRITE, &sys_oid);
 	ASSERT_EQ(ret, 0);
 
-	/* Monitor user has rule with min_sec_level = noAuthNoPriv (1) for read, but NO write view */
+	/* Monitor user has rule with min_sec_level = noAuthNoPriv (1) for read, but NO write view
+	 */
 	ret = snmp_vacm_check_access_ex(&s_vacm_test_agent, "", SNMP_SEC_MODEL_USM, "monitor",
 					SNMP_SEC_LEVEL_NOAUTH_NOPRIV, SNMP_VACM_ACCESS_READ,
 					&sys_oid);
@@ -122,21 +118,13 @@ void test_vacm_oid_subtree_matching(void)
 	ASSERT_EQ(ret, 0);
 
 	/* restrictedView includes 1.3.6.1.2.1.1 (system group) */
-	struct snmp_oid sys_descr = {
-		.len = 8,
-		.ids = {1, 3, 6, 1, 2, 1, 1, 1, 0}
-	};
-	struct snmp_oid sys_uptime = {
-		.len = 8,
-		.ids = {1, 3, 6, 1, 2, 1, 1, 3, 0}
-	};
+	struct snmp_oid sys_descr = {.len = 8, .ids = {1, 3, 6, 1, 2, 1, 1, 1, 0}};
+	struct snmp_oid sys_uptime = {.len = 8, .ids = {1, 3, 6, 1, 2, 1, 1, 3, 0}};
 	struct snmp_oid if_number = {
-		.len = 8,
-		.ids = {1, 3, 6, 1, 2, 1, 2, 1, 0} /* 1.3.6.1.2.1.2 is interfaces */
+	    .len = 8, .ids = {1, 3, 6, 1, 2, 1, 2, 1, 0} /* 1.3.6.1.2.1.2 is interfaces */
 	};
 	struct snmp_oid ent_sensor = {
-		.len = 9,
-		.ids = {1, 3, 6, 1, 4, 1, 54321, 1, 0} /* Enterprise OID */
+	    .len = 9, .ids = {1, 3, 6, 1, 4, 1, 54321, 1, 0} /* Enterprise OID */
 	};
 
 	/* monitor user in restrictedView: system group is allowed */
@@ -180,22 +168,13 @@ void test_vacm_oid_subtree_excluded(void)
 	ASSERT_EQ(ret, 0);
 
 	/* In fullView (1.3.6.1 included), add an EXCLUDED subtree: 1.3.6.1.4.1.99999 */
-	struct snmp_oid secret_subtree = {
-		.len = 7,
-		.ids = {1, 3, 6, 1, 4, 1, 99999}
-	};
+	struct snmp_oid secret_subtree = {.len = 7, .ids = {1, 3, 6, 1, 4, 1, 99999}};
 	ret = snmp_vacm_add_view_tree(&s_vacm_test_agent, "fullView", &secret_subtree, NULL, 0,
 				      SNMP_VACM_VIEW_EXCLUDED);
 	ASSERT_EQ(ret, 0);
 
-	struct snmp_oid regular_oid = {
-		.len = 9,
-		.ids = {1, 3, 6, 1, 4, 1, 54321, 1, 0}
-	};
-	struct snmp_oid excluded_oid = {
-		.len = 9,
-		.ids = {1, 3, 6, 1, 4, 1, 99999, 1, 0}
-	};
+	struct snmp_oid regular_oid = {.len = 9, .ids = {1, 3, 6, 1, 4, 1, 54321, 1, 0}};
+	struct snmp_oid excluded_oid = {.len = 9, .ids = {1, 3, 6, 1, 4, 1, 99999, 1, 0}};
 
 	/* Regular enterprise OID is still allowed in fullView */
 	ret = snmp_vacm_check_access_ex(&s_vacm_test_agent, "", SNMP_SEC_MODEL_USM, "admin",
@@ -223,35 +202,33 @@ void test_vacm_wildcard_mask(void)
 	 * index 6:    0 (wildcard)
 	 * index 7:    1 (exact)
 	 */
-	struct snmp_oid pattern_subtree = {
-		.len = 8,
-		.ids = {1, 3, 6, 1, 4, 1, 0, 1}
-	};
-	uint8_t mask[2] = {0xFD, 0x80}; /* 1111 1101 1000 0000:
-					 * bit 0: 0x80 (id 0 = 1) -> 1
-					 * bit 1: 0x40 (id 1 = 3) -> 1
-					 * bit 2: 0x20 (id 2 = 6) -> 1
-					 * bit 3: 0x10 (id 3 = 1) -> 1
-					 * bit 4: 0x08 (id 4 = 4) -> 1
-					 * bit 5: 0x04 (id 5 = 1) -> 1
-					 * bit 6: 0x02 (id 6 = 54321) -> 1
-					 * bit 7: 0x01 (id 7 = 0) -> 0 (wildcard!)
-					 * byte 1 bit 0: 0x80 (id 8 = 1) -> 1 (exact)
-					 * Wait: pattern_subtree.len is 8:
-					 * ids[0]=1, ids[1]=3, ids[2]=6, ids[3]=1,
-					 * ids[4]=4, ids[5]=1, ids[6]=0 (wildcard!), ids[7]=1
-					 * So index 6 is the 7th sub-id!
-					 * In byte 0:
-					 * bit 0 (0x80) -> idx 0
-					 * bit 1 (0x40) -> idx 1
-					 * bit 2 (0x20) -> idx 2
-					 * bit 3 (0x10) -> idx 3
-					 * bit 4 (0x08) -> idx 4
-					 * bit 5 (0x04) -> idx 5
-					 * bit 6 (0x02) -> idx 6 (WILDCARD: 0)
-					 * bit 7 (0x01) -> idx 7 (EXACT: 1)
-					 * Therefore byte 0 = 0x80|0x40|0x20|0x10|0x08|0x04|0x01 = 0xFD!
-					 */
+	struct snmp_oid pattern_subtree = {.len = 8, .ids = {1, 3, 6, 1, 4, 1, 0, 1}};
+	uint8_t mask[2] = {0xFD,
+			   0x80}; /* 1111 1101 1000 0000:
+				   * bit 0: 0x80 (id 0 = 1) -> 1
+				   * bit 1: 0x40 (id 1 = 3) -> 1
+				   * bit 2: 0x20 (id 2 = 6) -> 1
+				   * bit 3: 0x10 (id 3 = 1) -> 1
+				   * bit 4: 0x08 (id 4 = 4) -> 1
+				   * bit 5: 0x04 (id 5 = 1) -> 1
+				   * bit 6: 0x02 (id 6 = 54321) -> 1
+				   * bit 7: 0x01 (id 7 = 0) -> 0 (wildcard!)
+				   * byte 1 bit 0: 0x80 (id 8 = 1) -> 1 (exact)
+				   * Wait: pattern_subtree.len is 8:
+				   * ids[0]=1, ids[1]=3, ids[2]=6, ids[3]=1,
+				   * ids[4]=4, ids[5]=1, ids[6]=0 (wildcard!), ids[7]=1
+				   * So index 6 is the 7th sub-id!
+				   * In byte 0:
+				   * bit 0 (0x80) -> idx 0
+				   * bit 1 (0x40) -> idx 1
+				   * bit 2 (0x20) -> idx 2
+				   * bit 3 (0x10) -> idx 3
+				   * bit 4 (0x08) -> idx 4
+				   * bit 5 (0x04) -> idx 5
+				   * bit 6 (0x02) -> idx 6 (WILDCARD: 0)
+				   * bit 7 (0x01) -> idx 7 (EXACT: 1)
+				   * Therefore byte 0 = 0x80|0x40|0x20|0x10|0x08|0x04|0x01 = 0xFD!
+				   */
 
 	ret = snmp_vacm_add_view_tree(&s_vacm_test_agent, "wildView", &pattern_subtree, mask, 1,
 				      SNMP_VACM_VIEW_INCLUDED);
@@ -263,30 +240,21 @@ void test_vacm_wildcard_mask(void)
 	ASSERT_EQ(ret, 0);
 
 	/* Target A: 1.3.6.1.4.1.10.1.0 (id[6] = 10, id[7] = 1) -> MATCH */
-	struct snmp_oid target_a = {
-		.len = 9,
-		.ids = {1, 3, 6, 1, 4, 1, 10, 1, 0}
-	};
+	struct snmp_oid target_a = {.len = 9, .ids = {1, 3, 6, 1, 4, 1, 10, 1, 0}};
 	ret =
 	    snmp_vacm_check_access_ex(&s_vacm_test_agent, "", SNMP_SEC_MODEL_USM, "admin",
 				      SNMP_SEC_LEVEL_AUTH_NOPRIV, SNMP_VACM_ACCESS_READ, &target_a);
 	ASSERT_EQ(ret, 0);
 
 	/* Target B: 1.3.6.1.4.1.99.1.0 (id[6] = 99, id[7] = 1) -> MATCH */
-	struct snmp_oid target_b = {
-		.len = 9,
-		.ids = {1, 3, 6, 1, 4, 1, 99, 1, 0}
-	};
+	struct snmp_oid target_b = {.len = 9, .ids = {1, 3, 6, 1, 4, 1, 99, 1, 0}};
 	ret =
 	    snmp_vacm_check_access_ex(&s_vacm_test_agent, "", SNMP_SEC_MODEL_USM, "admin",
 				      SNMP_SEC_LEVEL_AUTH_NOPRIV, SNMP_VACM_ACCESS_READ, &target_b);
 	ASSERT_EQ(ret, 0);
 
 	/* Target C: 1.3.6.1.4.1.10.2.0 (id[6] = 10, id[7] = 2 != 1) -> MISMATCH */
-	struct snmp_oid target_c = {
-		.len = 9,
-		.ids = {1, 3, 6, 1, 4, 1, 10, 2, 0}
-	};
+	struct snmp_oid target_c = {.len = 9, .ids = {1, 3, 6, 1, 4, 1, 10, 2, 0}};
 	ret =
 	    snmp_vacm_check_access_ex(&s_vacm_test_agent, "", SNMP_SEC_MODEL_USM, "admin",
 				      SNMP_SEC_LEVEL_AUTH_NOPRIV, SNMP_VACM_ACCESS_READ, &target_c);
@@ -298,10 +266,7 @@ void test_vacm_unknown_context_rejected(void)
 	int ret = snmp_vacm_init(&s_vacm_test_agent);
 	ASSERT_EQ(ret, 0);
 
-	struct snmp_oid sys_oid = {
-		.len = 8,
-		.ids = {1, 3, 6, 1, 2, 1, 1, 1, 0}
-	};
+	struct snmp_oid sys_oid = {.len = 8, .ids = {1, 3, 6, 1, 2, 1, 1, 1, 0}};
 
 	/* Default context "" is valid */
 	ret =
@@ -381,13 +346,14 @@ void test_vacm_check_access_backward_compat(void)
 	ASSERT_EQ(ret, -EACCES);
 }
 
-#define RUN_TEST(name) do { \
-    printf("  %-50s ", #name); \
-    fflush(stdout); \
-    name(); \
-    tests_passed++; \
-    printf("PASS\n"); \
-} while(0)
+#define RUN_TEST(name)                                                                             \
+	do {                                                                                       \
+		printf("  %-50s ", #name);                                                         \
+		fflush(stdout);                                                                    \
+		name();                                                                            \
+		tests_passed++;                                                                    \
+		printf("PASS\n");                                                                  \
+	} while (0)
 
 int main(void)
 {
@@ -407,4 +373,3 @@ int main(void)
 	printf("Results: %d passed, 0 failed, 7 total\n", tests_passed);
 	return 0;
 }
-

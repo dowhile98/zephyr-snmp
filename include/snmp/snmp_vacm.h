@@ -16,20 +16,20 @@ extern "C" {
 #ifdef CONFIG_SNMP_AGENT
 
 /* ---- VACM Access Types ---- */
-#define SNMP_VACM_ACCESS_READ   1
-#define SNMP_VACM_ACCESS_WRITE  2
+#define SNMP_VACM_ACCESS_READ 1
+#define SNMP_VACM_ACCESS_WRITE 2
 #define SNMP_VACM_ACCESS_NOTIFY 3
 
 /* ---- VACM Security Levels (RFC 3411 §3.4.3 / RFC 3415) ---- */
 #define SNMP_SEC_LEVEL_NOAUTH_NOPRIV 1
-#define SNMP_SEC_LEVEL_AUTH_NOPRIV   2
-#define SNMP_SEC_LEVEL_AUTH_PRIV     3
+#define SNMP_SEC_LEVEL_AUTH_NOPRIV 2
+#define SNMP_SEC_LEVEL_AUTH_PRIV 3
 
 /* ---- VACM Security Models ---- */
-#define SNMP_SEC_MODEL_ANY  0
-#define SNMP_SEC_MODEL_V1   1
-#define SNMP_SEC_MODEL_V2C  2
-#define SNMP_SEC_MODEL_USM  3
+#define SNMP_SEC_MODEL_ANY 0
+#define SNMP_SEC_MODEL_V1 1
+#define SNMP_SEC_MODEL_V2C 2
+#define SNMP_SEC_MODEL_USM 3
 
 /* ---- VACM View Tree Family Types (RFC 3415 §4) ---- */
 #define SNMP_VACM_VIEW_INCLUDED 1
@@ -66,7 +66,7 @@ struct vacm_context_entry {
 };
 
 struct vacm_group_mapping_entry {
-	int  security_model;
+	int security_model;
 	char security_name[SNMP_VACM_NAME_MAX_LEN];
 	char group_name[SNMP_VACM_NAME_MAX_LEN];
 	bool in_use;
@@ -75,8 +75,8 @@ struct vacm_group_mapping_entry {
 struct vacm_access_rule_entry {
 	char group_name[SNMP_VACM_NAME_MAX_LEN];
 	char context_prefix[SNMP_VACM_NAME_MAX_LEN];
-	int  security_model;
-	int  min_sec_level;
+	int security_model;
+	int min_sec_level;
 	char read_view[SNMP_VACM_NAME_MAX_LEN];
 	char write_view[SNMP_VACM_NAME_MAX_LEN];
 	char notify_view[SNMP_VACM_NAME_MAX_LEN];
@@ -84,12 +84,12 @@ struct vacm_access_rule_entry {
 };
 
 struct vacm_view_tree_entry {
-	char            view_name[SNMP_VACM_NAME_MAX_LEN];
+	char view_name[SNMP_VACM_NAME_MAX_LEN];
 	struct snmp_oid subtree;
-	uint8_t         mask[SNMP_VACM_MASK_MAX_LEN];
-	size_t          mask_len;
-	int             type; /* SNMP_VACM_VIEW_INCLUDED or SNMP_VACM_VIEW_EXCLUDED */
-	bool            in_use;
+	uint8_t mask[SNMP_VACM_MASK_MAX_LEN];
+	size_t mask_len;
+	int type; /* SNMP_VACM_VIEW_INCLUDED or SNMP_VACM_VIEW_EXCLUDED */
+	bool in_use;
 };
 
 /* ---- Instance-based APIs ---- */
