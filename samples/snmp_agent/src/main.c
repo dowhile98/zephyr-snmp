@@ -48,6 +48,9 @@ static K_SEM_DEFINE(s_ip_ready_sem, 0, 1);
  * on another UDP port with its own identity and its own MIB tree.
  */
 static struct snmp_agent g_agent_lan;
+#if defined(CONFIG_SNMP_SAMPLE_SECOND_INSTANCE)
+static struct snmp_agent g_agent_wan;
+#endif
 
 static void print_banner(const char *ip_str)
 {
@@ -62,6 +65,10 @@ static void print_banner(const char *ip_str)
 	LOG_INF("  - Agent IP / Port : %s : %d", ip_str, CONFIG_SNMP_AGENT_PORT);
 	LOG_INF("  - Read Community  : \"%s\"", CONFIG_SNMP_COMMUNITY_READ);
 	LOG_INF("  - Write Community : \"%s\"", CONFIG_SNMP_COMMUNITY_WRITE);
+#if defined(CONFIG_SNMP_SAMPLE_SECOND_INSTANCE)
+	LOG_INF("  - Second instance: %s : %d (sysName \"%s\")", ip_str,
+		CONFIG_SNMP_SAMPLE_WAN_PORT, "NUCLEO-H743ZI-WAN");
+#endif
 #if defined(CONFIG_SNMP_TRAP_ENABLED)
 	LOG_INF("  - Trap Destination: %s : %d", CONFIG_SNMP_SAMPLE_TRAP_DEST, CONFIG_SNMP_TRAP_PORT);
 #endif
@@ -200,6 +207,35 @@ int main(void)
 	LOG_INF("Configured SNMP Trap destination: %s", CONFIG_SNMP_SAMPLE_TRAP_DEST);
 #endif
 
+#if defined(CONFIG_SNMP_SAMPLE_SECOND_INSTANCE)
+	/*
+	 * 6. Second instance: same interface, different UDP port (two RUNNING agents
+	 * cannot share :161 without an interface binding — plain socket semantics)
+	 * and a distinct sysName. Its MIB tree, counters and community set are fully
+	 * independent of g_agent_lan.
+	 */
+	const struct snmp_agent_cfg cfg_wan = {
+	    .port = CONFIG_SNMP_SAMPLE_WAN_PORT,
+	    .read_community = CONFIG_SNMP_COMMUNITY_READ,
+	    .write_community = CONFIG_SNMP_COMMUNITY_WRITE,
+	    .sys_descr = "Zephyr RTOS SNMP Validation Node (WAN instance)",
+	    .sys_contact = "admin@example.com",
+	    .sys_name = "NUCLEO-H743ZI-WAN",
+	    .sys_location = "Lab Bench 1",
+	    .settings_prefix = "snmp/wan",
+	};
+	ret = snmp_agent_init(&g_agent_wan, &cfg_wan);
+	if (ret < 0) {
+		LOG_ERR("Failed to initialize WAN SNMP agent: %d", ret);
+		return ret;
+	}
+	ret = app_mib_init(&g_agent_wan);
+	if (ret < 0) {
+		LOG_ERR("Failed to register Private MIB on WAN agent: %d", ret);
+		return ret;
+	}
+#endif
+
 	/* Check if interface already has IP assigned; if not, wait for DHCP */
 	struct net_if *iface = net_if_get_default();
 	bool has_ip = false;
@@ -245,6 +281,13 @@ int main(void)
 		LOG_ERR("Failed to start LAN SNMP agent: %d", ret);
 		return ret;
 	}
+#if defined(CONFIG_SNMP_SAMPLE_SECOND_INSTANCE)
+	ret = snmp_agent_start(&g_agent_wan);
+	if (ret < 0) {
+		LOG_ERR("Failed to start WAN SNMP agent: %d", ret);
+		return ret;
+	}
+#endif
 
 #if defined(CONFIG_SNMP_TRAP_ENABLED)
 	snmp_trap_send_coldstart(&g_agent_lan);
