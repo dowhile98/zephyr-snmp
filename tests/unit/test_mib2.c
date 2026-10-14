@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2026 DAECGE
+ * Copyright (c) 2026 StructCore Embedded
  * SPDX-License-Identifier: Apache-2.0
  *
  * MIB-II Network Subsystem Unit Tests (RFC 1213 / RFC 2863)

@@ -22,7 +22,7 @@ security vulnerability, please follow these steps:
 
 ### DO
 
-1. **Reporting**: Open a private security advisory on GitHub under the repository's "Security > Advisories" tab, or email `security@daecge.com` with:
+1. **Reporting**: Open a private security advisory on GitHub under the repository's "Security > Advisories" tab, or email `security@structcore.com` with:
    - Description of the vulnerability
    - Steps to reproduce
    - Potential impact assessment

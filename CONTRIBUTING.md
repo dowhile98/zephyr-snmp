@@ -11,7 +11,7 @@ This project follows the [Zephyr Project Code of Conduct](https://docs.zephyrpro
 ### Reporting Bugs
 
 Before opening a new issue, please check if it already exists in the
-[issue tracker](https://github.com/daecge/zephyr-snmp/issues).
+[issue tracker](https://github.com/structcore-embedded/zephyr-snmp/issues).
 
 When reporting a bug, include:
 
@@ -26,7 +26,7 @@ For security vulnerabilities, see [SECURITY.md](SECURITY.md).
 
 ### Suggesting Features
 
-Open a [GitHub Discussion](https://github.com/daecge/zephyr-snmp/discussions) first
+Open a [GitHub Discussion](https://github.com/structcore-embedded/zephyr-snmp/discussions) first
 to discuss the feature before submitting a PR.
 
 ### Pull Requests
@@ -147,5 +147,5 @@ snmpwalk -v3 -u admin -l authNoPriv -a SHA -A authpass123 <IP> 1.3.6.1.2.1
 
 ## Questions?
 
-Open a [Discussion](https://github.com/daecge/zephyr-snmp/discussions) or
+Open a [Discussion](https://github.com/structcore-embedded/zephyr-snmp/discussions) or
 reach out to the maintainers.

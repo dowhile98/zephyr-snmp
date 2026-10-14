@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2026 DAECGE
+ * Copyright (c) 2026 StructCore Embedded
  * SPDX-License-Identifier: Apache-2.0
  *
  * Unit tests for SNMPv3 View-based Access Control Model (RFC 3415).

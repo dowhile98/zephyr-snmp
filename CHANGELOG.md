@@ -51,5 +51,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Zero dynamic allocation design.
 - Socket Service integration for UDP :161 listener.
 
-[1.0.0]: https://github.com/daecge/zephyr-snmp/releases/tag/v1.0.0
-[0.1.0]: https://github.com/daecge/zephyr-snmp/releases/tag/v0.1.0
+[1.0.0]: https://github.com/structcore-embedded/zephyr-snmp/releases/tag/v1.0.0
+[0.1.0]: https://github.com/structcore-embedded/zephyr-snmp/releases/tag/v0.1.0
