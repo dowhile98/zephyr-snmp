@@ -37,7 +37,7 @@ config SNMP_SAMPLE_BUTTON_TRAP
 
 config SNMP_SAMPLE_TRAP_DEST
 	string "Trap destination IPv4 address"
-	default "192.168.16.100"
+	default "192.168.68.103"
 	depends on SNMP_TRAP_ENABLED
 	help
 	  IP address of the SNMP Manager receiving traps and notifications on UDP port 162.

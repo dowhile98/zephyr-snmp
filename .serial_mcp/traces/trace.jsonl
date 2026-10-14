@@ -1,0 +1,2 @@
+{"event": "tool_call_start", "tool": "serial.list_ports", "args": {}, "connection_id": null, "ts": "2026-10-14T00:11:07.920607+00:00"}
+{"event": "tool_call_end", "tool": "serial.list_ports", "ok": true, "error_code": null, "duration_ms": 24.3, "connection_id": null, "ts": "2026-10-14T00:11:07.945167+00:00"}

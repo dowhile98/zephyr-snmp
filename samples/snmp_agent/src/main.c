@@ -74,18 +74,18 @@ static void print_banner(const char *ip_str)
 		CONFIG_SNMP_TRAP_PORT);
 #endif
 	LOG_INF("Private MIB Structure (1.3.6.1.4.1.%d.1):", CONFIG_SNMP_SAMPLE_ENTERPRISE_ID);
-	LOG_INF("  .1.1.0 sensorValue       (INTEGER, temp in C)   [R/W]");
-	LOG_INF("  .1.2.0 ledState          (INTEGER, 0=OFF, 1=ON) [R/W]");
-	LOG_INF("  .1.3.0 buttonCounter     (Counter32, press cnt) [RO]");
-	LOG_INF("  .1.4.0 sensorHumidity    (Gauge32, %% relative)  [RO]");
-	LOG_INF("  .1.5.0 sensorDescription (OCTET STRING)          [RO]");
-	LOG_INF("  .1.6.0 sensorStatusOid   (OBJECT IDENTIFIER)    [RO]");
+	LOG_INF("  .1.1.1.0 sensorValue       (INTEGER, temp in C)   [R/W]");
+	LOG_INF("  .1.1.2.0 ledState          (INTEGER, 0=OFF, 1=ON) [R/W]");
+	LOG_INF("  .1.1.3.0 buttonCounter     (Counter32, press cnt) [RO]");
+	LOG_INF("  .1.1.4.0 sensorHumidity    (Gauge32, %% relative)  [RO]");
+	LOG_INF("  .1.1.5.0 sensorDescription (OCTET STRING)          [RO]");
+	LOG_INF("  .1.1.6.0 sensorStatusOid   (OBJECT IDENTIFIER)    [RO]");
 	LOG_INF("  .1.3.1 sensorTable       (Columns: idx, name, val)");
 	LOG_INF("  .1.2.1 buttonPressed     (Notification/Trap)");
 	LOG_INF("Validation Command Examples:");
-	LOG_INF("  snmpget  -v2c -c %s %s 1.3.6.1.4.1.%d.1.1.0", CONFIG_SNMP_COMMUNITY_READ, ip_str,
-		CONFIG_SNMP_SAMPLE_ENTERPRISE_ID);
-	LOG_INF("  snmpset  -v2c -c %s %s 1.3.6.1.4.1.%d.1.2.0 i 1", CONFIG_SNMP_COMMUNITY_WRITE,
+	LOG_INF("  snmpget  -v2c -c %s %s 1.3.6.1.4.1.%d.1.1.1.0", CONFIG_SNMP_COMMUNITY_READ,
+		ip_str, CONFIG_SNMP_SAMPLE_ENTERPRISE_ID);
+	LOG_INF("  snmpset  -v2c -c %s %s 1.3.6.1.4.1.%d.1.1.2.0 i 1", CONFIG_SNMP_COMMUNITY_WRITE,
 		ip_str, CONFIG_SNMP_SAMPLE_ENTERPRISE_ID);
 	LOG_INF("  snmpwalk -v2c -c %s %s 1.3.6.1.4.1.%d.1", CONFIG_SNMP_COMMUNITY_READ, ip_str,
 		CONFIG_SNMP_SAMPLE_ENTERPRISE_ID);

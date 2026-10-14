@@ -209,6 +209,18 @@ struct snmp_mib_table {
 	void *user_data;
 };
 
+struct snmp_set_tx_item {
+	struct snmp_mib_node *node;
+	struct snmp_mib_table *tbl;
+	struct snmp_table_row *tbl_row;
+	uint8_t tbl_col;
+	bool is_table;
+	bool reserved;
+	bool has_old_vb;
+	struct snmp_varbind old_vb;
+	void *tx_ctx;
+};
+
 /**
  * @brief Prepend a row to an application-owned table's row list.
  *

@@ -523,6 +523,16 @@ static void get_row_index_suffix(const struct snmp_table_row *r, struct snmp_tab
 	}
 }
 
+static bool row_matches_index(const struct snmp_table_row *r, uint8_t req_len,
+			      const uint32_t *req_subids)
+{
+	if (r->index_oid.len > 0) {
+		return r->index_oid.len == req_len &&
+		       memcmp(r->index_oid.subids, req_subids, req_len * sizeof(uint32_t)) == 0;
+	}
+	return req_len == 1 && r->index == req_subids[0];
+}
+
 static bool snmp_table_find_next_entry(const struct snmp_mib_table *tbl, const struct snmp_oid *oid,
 				       uint8_t *best_col_idx, struct snmp_table_row **best_row_ptr,
 				       struct snmp_oid *best_entry_oid)
@@ -844,18 +854,6 @@ static int snmp_map_error_to_version(int err, int version)
 	return status;
 }
 
-struct snmp_set_tx_item {
-	struct snmp_mib_node *node;
-	struct snmp_mib_table *tbl;
-	struct snmp_table_row *tbl_row;
-	uint8_t tbl_col;
-	bool is_table;
-	bool reserved;
-	bool has_old_vb;
-	struct snmp_varbind old_vb;
-	void *tx_ctx;
-};
-
 int snmp_mib_set(struct snmp_agent *inst, const struct snmp_oid *oid, const struct snmp_varbind *vb)
 {
 	if (!inst || !oid || !vb)
@@ -985,8 +983,8 @@ int snmp_mib_dispatch(struct snmp_agent *inst, struct snmp_pdu *pdu)
 		uint8_t new_cnt = 0;
 
 		snmp_mib_lock(inst);
-		struct snmp_varbind res_vb[CONFIG_SNMP_MAX_VARBINDS];
-		struct snmp_oid current_oids[CONFIG_SNMP_MAX_VARBINDS];
+		struct snmp_varbind *res_vb = inst->scratch.bulk.res_vb;
+		struct snmp_oid *current_oids = inst->scratch.bulk.current_oids;
 
 		for (int i = 0; i < non_rep && new_cnt < CONFIG_SNMP_MAX_VARBINDS; i++) {
 			res_vb[new_cnt] = pdu->varbinds[i];
@@ -1004,13 +1002,13 @@ int snmp_mib_dispatch(struct snmp_agent *inst, struct snmp_pdu *pdu)
 				bool all_end = true;
 				for (uint8_t r = 0;
 				     r < num_repeaters && new_cnt < CONFIG_SNMP_MAX_VARBINDS; r++) {
-					struct snmp_varbind vb;
-					snmp_mib_get_next(inst, &current_oids[r], &vb);
-					res_vb[new_cnt++] = vb;
-					if (vb.type != SNMP_TAG_EXCEPT_END_MIB_VIEW) {
+					struct snmp_varbind *vb = &res_vb[new_cnt];
+					snmp_mib_get_next(inst, &current_oids[r], vb);
+					if (vb->type != SNMP_TAG_EXCEPT_END_MIB_VIEW) {
 						all_end = false;
-						current_oids[r] = vb.oid;
+						current_oids[r] = vb->oid;
 					}
+					new_cnt++;
 				}
 				if (all_end)
 					break;
@@ -1029,13 +1027,13 @@ int snmp_mib_dispatch(struct snmp_agent *inst, struct snmp_pdu *pdu)
 	} else if (pdu->type == SNMP_PDU_SET_REQ) {
 		MIB_COUNTER_INC(inst, snmpInSetRequests);
 
-		struct snmp_set_tx_item tx_items[CONFIG_SNMP_MAX_VARBINDS];
-		memset(tx_items, 0, sizeof(tx_items));
+		snmp_mib_lock(inst);
+
+		struct snmp_set_tx_item *tx_items = inst->scratch.tx_items;
+		memset(tx_items, 0, sizeof(inst->scratch.tx_items));
 
 		int error_status = SNMP_ERR_NO_ERROR;
 		int error_index = 0;
-
-		snmp_mib_lock(inst);
 
 		/* Phase 1: Reserve & Validation */
 		for (uint8_t i = 0; i < pdu->varbind_cnt; i++) {
@@ -1078,11 +1076,8 @@ int snmp_mib_dispatch(struct snmp_agent *inst, struct snmp_pdu *pdu)
 						break;
 					}
 					for (struct snmp_table_row *r = tbl->rows; r; r = r->next) {
-						struct snmp_table_index r_idx;
-						get_row_index_suffix(r, &r_idx);
-						if (r_idx.len == req_idx_len &&
-						    memcmp(r_idx.subids, req_idx_subids,
-							   req_idx_len * sizeof(uint32_t)) == 0) {
+						if (row_matches_index(r, req_idx_len,
+								      req_idx_subids)) {
 							item->tbl_row = r;
 							break;
 						}

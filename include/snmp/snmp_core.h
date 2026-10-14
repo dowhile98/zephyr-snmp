@@ -158,6 +158,13 @@ struct snmp_agent {
 	struct snmp_pdu current_pdu;
 	uint8_t rx_buf[CONFIG_SNMP_MAX_PDU_SIZE];
 	uint8_t tx_buf[CONFIG_SNMP_MAX_PDU_SIZE];
+	union {
+		struct snmp_set_tx_item tx_items[CONFIG_SNMP_MAX_VARBINDS];
+		struct {
+			struct snmp_varbind res_vb[CONFIG_SNMP_MAX_VARBINDS];
+			struct snmp_oid current_oids[CONFIG_SNMP_MAX_VARBINDS];
+		} bulk;
+	} scratch;
 	struct snmp_mib2_counters counters;
 
 #ifdef CONFIG_SNMP_RATE_LIMIT
