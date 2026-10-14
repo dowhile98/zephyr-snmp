@@ -1,142 +1,133 @@
 # SNMP Validation Sample Application (NUCLEO-H743ZI)
 
-Este sample proporciona una implementación de referencia completa, modular y verificada en hardware para el agente SNMP de **Zephyr RTOS**.
+This sample provides a comprehensive, modular, and hardware-verified reference implementation of an SNMP agent for **Zephyr RTOS**.
 
-Diseñado para la placa de evaluación **ST NUCLEO-H743ZI** con interfaz Ethernet RMII a 100 Mbps, este proyecto valida de manera práctica y sistemática todas las capacidades operativas de **SNMPv1 y SNMPv2c**, el manejo de periféricos físicos reales (LED y Pulsador), la simulación de telemetría multi-tipo, el uso de tablas dinámicas multidimensionales, y el despacho asíncrono de notificaciones (**Traps / Informs**).
-
----
-
-## 📋 Características Demostradas
-
-- **Protocolos SNMP**:
-  - **SNMPv1** (RFC 1157): GET, GETNEXT, SET, y TRAP-v1.
-  - **SNMPv2c** (RFC 3416): GET, GETNEXT, GETBULK (`snmpbulkget`, `snmpbulkwalk`), SET, y SNMPv2-Trap.
-- **MIB-II Estándar** (RFC 1213 / RFC 3418):
-  - Consulta de grupos `system` (`sysDescr`, `sysObjectID`, `sysUpTime`, `sysContact`, `sysName`, `sysLocation`) y contadores de tráfico `snmp`.
-- **MIB Privada Empresarial** (`1.3.6.1.4.1.54321.1`):
-  - Integración con el archivo de definición formal [NUCLEO-H743-MIB.txt](file:///media/jeffry/jqb/GitHub/zephyr-snmp/samples/snmp_agent/NUCLEO-H743-MIB.txt).
-  - Escalares con diversos tipos de datos ASN.1: `INTEGER`, `Gauge32`, `Counter32`, `OCTET STRING`, y `OBJECT IDENTIFIER`.
-  - Tabla de sensores multidimensional (`sensorTable`) con 3 columnas e indexación dinámica.
-- **Integración con Periféricos Físicos de Zephyr**:
-  - **Actuador (User LED `led0`)**: Control bidireccional mediante SNMP SET/GET con verificación visual física.
-  - **Sensor de Eventos (User Button `sw0`)**: Interrupción GPIO con filtro de rebote por software (debounce) que delega a un hilo de `k_work` para despachar Traps de red sin bloquear la ISR.
-- **Consola Interactiva Shell**:
-  - Comandos integrados en terminal UART para inspección y simulación (`app led`, `app button`, `app sensor`).
+Targeted at the **ST NUCLEO-H743ZI** development board with 100 Mbps RMII Ethernet, this project systematically validates **SNMPv1 and SNMPv2c** protocol capabilities, physical peripheral actuation (User LED and User Push Button), multi-type telemetry simulation, dynamic multidimensional tables, and autonomous asynchronous notification dispatch (**Traps / Informs**).
 
 ---
 
-## 🗂️ Arquitectura Modular del Sample
+## 📋 Features Demonstrated
 
-```
-samples/snmp_agent/
-├── CMakeLists.txt              # Fuentes y configuración de compilación de Zephyr
-├── Kconfig                     # Opciones declarativas del sample
-├── prj.conf                    # Configuración de red, stacks, logging y SNMP
-├── NUCLEO-H743-MIB.txt          # Archivo formal de la MIB en formato SMIv2
-├── README.md                   # Este manual exhaustivo
-└── src/
-    ├── app_led.h / .c          # Driver del LED de usuario (DeviceTree led0)
-    ├── app_button.h / .c       # Driver de pulsador (sw0) + Debounce + Trap Dispatcher
-    ├── app_sensor.h / .c       # Motor de telemetría simulada (escalares y tabla)
-    ├── app_mib.h / .c          # Registro de nodos MIB y callbacks de lectura/escritura
-    └── main.c                  # Sincronización DHCP, banner y consola interactiva
-```
+- **SNMP Protocols**:
+  - **SNMPv1** (RFC 1157): GET, GETNEXT, SET, and TRAP-v1.
+  - **SNMPv2c** (RFC 3416): GET, GETNEXT, GETBULK (`snmpbulkget`, `snmpbulkwalk`), SET, and SNMPv2-Trap.
+- **Standard MIB-II** (RFC 1213 / RFC 3418):
+  - `system` group queries (`sysDescr`, `sysObjectID`, `sysUpTime`, `sysContact`, `sysName`, `sysLocation`) and `snmp` traffic statistics counters.
+- **Private Enterprise MIB** (`1.3.6.1.4.1.54321.1`):
+  - Formally mapped against the SMIv2 definition file [NUCLEO-H743-MIB.txt](NUCLEO-H743-MIB.txt).
+  - Scalar variables covering various ASN.1 syntax types: `INTEGER`, `Gauge32`, `Counter32`, `OCTET STRING`, and `OBJECT IDENTIFIER`.
+  - Multidimensional sensor table (`sensorTable`) with 3 columns and dynamic row indexing.
+- **Physical Peripheral Integration**:
+  - **Actuator (User LED `led0`)**: Bidirectional control via SNMP SET/GET with physical visual confirmation.
+  - **Event Sensor (User Button `sw0`)**: Hardware GPIO interrupt with software debounce filter delegating to a `k_work` thread for non-blocking trap dispatch.
+- **Interactive Shell Console**:
+  - Integrated UART terminal commands for runtime inspection and simulation (`app led`, `app button`, `app sensor`).
 
 ---
 
-## ⚙️ Opciones de Configuración Kconfig
-
-Todas las características pueden ajustarse en tiempo de compilación o mediante `west build -t menuconfig`:
-
-### Parámetros de Red y Protocolo (`prj.conf`)
-
-| Opción Kconfig | Valor en este Sample | Descripción |
-| :--- | :---: | :--- |
-| `CONFIG_SNMP_AGENT` | `y` | Habilita el subsistema SNMP completo. |
-| `CONFIG_SNMP_AGENT_PORT` | `161` | Puerto UDP de escucha del agente. |
-| `CONFIG_SNMP_COMMUNITY_READ` | `"public"` | Comunidad para peticiones de solo lectura (GET/WALK). |
-| `CONFIG_SNMP_COMMUNITY_WRITE` | `"private"` | Comunidad requerida para modificaciones (SET). |
-| `CONFIG_SNMP_VERSION_1` | `y` | Soporte de peticiones SNMPv1. |
-| `CONFIG_SNMP_VERSION_2C` | `y` | Soporte de peticiones SNMPv2c y bulk transfers. |
-| `CONFIG_SNMP_TRAP_ENABLED` | `y` | Habilita el motor emisor de Traps. |
-| `CONFIG_SNMP_TRAP_PORT` | `162` | Puerto destino de Traps (162 estándar RFC o 1162 para captura sin root en host). |
-| `CONFIG_SNMP_TRAP_FORMAT_V2C` | `y` | Formato de trampa según estándar RFC 3416. |
-| `CONFIG_NET_SOCKETS_SERVICE_STACK_SIZE` | `4096` | Tamaño de stack del hilo socket service (garantiza ejecución segura y libre de desbordamiento en despacho SNMP). |
-
-### Parámetros Específicos del Sample
-
-| Opción Kconfig | Valor en este Sample | Descripción |
-| :--- | :---: | :--- |
-| `CONFIG_SNMP_SAMPLE_ENTERPRISE_ID` | `54321` | ID empresarial bajo `1.3.6.1.4.1.<ID>`. |
-| `CONFIG_SNMP_SAMPLE_SENSOR_OBJECT` | `y` | Activa las variables y tabla de telemetría. |
-| `CONFIG_SNMP_SAMPLE_LED_OBJECT` | `y` | Activa el nodo de control de LED de hardware. |
-| `CONFIG_SNMP_SAMPLE_BUTTON_TRAP` | `y` | Activa la interrupción de botón y despacho de trampas. |
-| `CONFIG_SNMP_SAMPLE_TRAP_DEST` | `"192.168.16.101"` | Dirección IP del servidor NMS gestor receptor de Traps. |
-| `CONFIG_SNMP_SAMPLE_SECOND_INSTANCE` | `n` (opcional) | Arranca un segundo agente independiente (`g_agent_wan`) demostrando multi-instancia. |
-| `CONFIG_SNMP_SAMPLE_WAN_PORT` | `1610` | Puerto UDP del segundo agente del demo dual-instancia. |
-
-### 🧬 Demo Dual-Instancia (Multi-Instance)
-
-`CONFIG_SNMP_SAMPLE_SECOND_INSTANCE=y` ejecuta dos agentes SNMP totalmente aislados
-desde un solo `main.c`: cada uno con su propio storage estático de aplicación,
-sysName, comunidades, árbol MIB, contadores `.11` y socket-service dedicado.
-Comparten interfaz pero **no pueden ocupar el mismo puerto UDP** (un segundo
-`bind()` en :161 fallaría con `-EADDRINUSE`), por eso el agente WAN escucha en 1610.
-
-Requisitos adicionales (fórmula del presupuesto de poll, contrato §4.6, verificada
-por `BUILD_ASSERT` en `src/snmp_service.c`):
+## 🗂️ Modular Sample Architecture
 
 ```text
-CONFIG_ZVFS_POLL_MAX >= CONFIG_SNMP_MAX_INSTANCES * SNMP_SVC_FDS + 1
-# SNMP_SVC_FDS = 2 con CONFIG_NET_IPV6 (listener IPv4 + IPv6 por instancia), 1 en caso contrario
-# +1 = eventfd del hilo de socket-service. Deje holgura si hay más servicios de sockets.
+samples/snmp_agent/
+├── CMakeLists.txt              # Build configuration and Zephyr module registration
+├── Kconfig                     # Declarative configuration options for the sample
+├── prj.conf                    # Network, stack sizing, logging, and SNMP parameters
+├── NUCLEO-H743-MIB.txt          # Formal enterprise MIB in SMIv2 format
+├── README.md                   # This comprehensive manual
+└── src/
+    ├── app_led.h / .c          # User LED driver (Devicetree led0)
+    ├── app_button.h / .c       # User button driver (sw0) + debounce + trap dispatcher
+    ├── app_sensor.h / .c       # Telemetry simulation engine (scalars and table)
+    ├── app_mib.h / .c          # MIB node registration and read/write callbacks
+    └── main.c                  # DHCP synchronization, boot banner, and shell commands
 ```
 
-Habilitación (ejemplo qemu_x86 con IPv6 ⇒ 2*2+1 = 5):
+---
 
+## ⚙️ Kconfig Configuration Reference
+
+All features can be configured at compile time in `prj.conf` or interactively via `west build -t menuconfig`:
+
+### Network and Protocol Parameters (`prj.conf`)
+
+| Kconfig Symbol | Value in this Sample | Description |
+| :--- | :---: | :--- |
+| `CONFIG_SNMP_AGENT` | `y` | Enables the SNMP agent subsystem. |
+| `CONFIG_SNMP_AGENT_PORT` | `161` | UDP listening port for incoming requests. |
+| `CONFIG_SNMP_COMMUNITY_READ` | `"public"` | Community string for read-only requests (GET/WALK). |
+| `CONFIG_SNMP_COMMUNITY_WRITE` | `"private"` | Community string required for modifications (SET). |
+| `CONFIG_SNMP_VERSION_1` | `y` | Enables SNMPv1 protocol support. |
+| `CONFIG_SNMP_VERSION_2C` | `y` | Enables SNMPv2c protocol and bulk transfer support. |
+| `CONFIG_SNMP_TRAP_ENABLED` | `y` | Enables autonomous trap notification generator. |
+| `CONFIG_SNMP_TRAP_PORT` | `162` | Destination UDP port for traps (162 standard or 1162 for unprivileged host reception). |
+| `CONFIG_SNMP_TRAP_FORMAT_V2C` | `y` | Formats traps according to RFC 3416 standard. |
+| `CONFIG_NET_SOCKETS_SERVICE_STACK_SIZE` | `4096` | Stack size for socket service thread (ensures overflow-free PDU processing). |
+
+### Sample-Specific Options
+
+| Kconfig Symbol | Value in this Sample | Description |
+| :--- | :---: | :--- |
+| `CONFIG_SNMP_SAMPLE_ENTERPRISE_ID` | `54321` | Private Enterprise Number under `1.3.6.1.4.1.<ID>`. |
+| `CONFIG_SNMP_SAMPLE_SENSOR_OBJECT` | `y` | Registers telemetry scalar variables and `sensorTable`. |
+| `CONFIG_SNMP_SAMPLE_LED_OBJECT` | `y` | Registers physical user LED control node. |
+| `CONFIG_SNMP_SAMPLE_BUTTON_TRAP` | `y` | Enables button interrupt and asynchronous trap emission. |
+| `CONFIG_SNMP_SAMPLE_TRAP_DEST` | `"192.168.16.101"` | Target IP address of remote NMS manager receiving traps. |
+| `CONFIG_SNMP_SAMPLE_SECOND_INSTANCE` | `n` (optional) | Spawns a secondary independent agent (`g_agent_wan`) demonstrating multi-instance support. |
+| `CONFIG_SNMP_SAMPLE_WAN_PORT` | `1610` | UDP listening port for the secondary agent in dual-instance mode. |
+
+### 🧬 Dual-Instance Demo (Multi-Instance)
+
+`CONFIG_SNMP_SAMPLE_SECOND_INSTANCE=y` runs two completely isolated SNMP agents from a single `main.c`: each maintaining its own static storage, `sysName`, community strings, MIB tree, `.11` statistics counters, and dedicated socket service slots.
+
+Both agents share the same network interface but **cannot bind to the same UDP port** (a second `bind()` on :161 fails with `-EADDRINUSE`). Thus, the WAN agent listens on UDP port 1610.
+
+**Polling Budget Requirement**: Zephyr Virtual File System (ZVFS) poll budget must satisfy:
+$$\text{CONFIG\_ZVFS\_POLL\_MAX} \ge \text{CONFIG\_SNMP\_MAX\_INSTANCES} \times \text{SNMP\_SVC\_FDS} + 1$$
+*(where $\text{SNMP\_SVC\_FDS} = 2$ with IPv6 enabled, $1$ for IPv4 only).*
+
+Build command with 2 instances on QEMU x86:
 ```bash
 west build -b qemu_x86 samples/snmp_agent -- \
   -DCONFIG_SNMP_MAX_INSTANCES=2 -DCONFIG_ZVFS_POLL_MAX=5 \
   -DCONFIG_SNMP_SAMPLE_SECOND_INSTANCE=y
 ```
 
-Verificación de aislamiento desde el host:
-
+Host verification of agent isolation:
 ```bash
 snmpget -v2c -c public udp:<IP>:1610 1.3.6.1.2.1.1.5.0   # -> NUCLEO-H743ZI-WAN
-snmpget -v2c -c public udp:<IP>      1.3.6.1.2.1.1.5.0   # -> NUCLEO-H743ZI-SNMP
+snmpget -v2c -c public udp:<IP>:161  1.3.6.1.2.1.1.5.0   # -> NUCLEO-H743ZI-SNMP
 ```
 
 ---
 
-## 🛠️ Guía de Compilación y Flasheo
+## 🛠️ Build and Flash Guide
 
-### Requisitos Previos
-1. Zephyr SDK y entorno virtual de Python activos:
+### Prerequisites
+1. Zephyr SDK and Python virtual environment configured:
    ```bash
    source ~/zephyrproject/.venv/bin/activate
    export ZEPHYR_BASE=~/zephyrproject/zephyr
    ```
-2. Placa **NUCLEO-H743ZI** conectada mediante cable USB (puerto ST-LINK) y cable Ethernet conectado a la misma red de su PC.
+2. **NUCLEO-H743ZI** board connected via USB (ST-LINK debug port) and Ethernet cable connected to your local network.
 
-### Compilación y Carga en Placa
+### Build and Flash Commands
 
 ```bash
-# Navegar a la raíz del repositorio
+# Navigate to repository root
 cd /media/jeffry/jqb/GitHub/zephyr-snmp
 
-# Compilar para la placa NUCLEO-H743ZI
+# Build application for NUCLEO-H743ZI target
 west build -p always -b nucleo_h743zi samples/snmp_agent
 
-# Flashear el firmware resultante al microcontrolador
+# Flash firmware onto target microcontroller
 west flash
 ```
 
 ---
 
-## 🖥️ Consola Serial y Comandos Interactivos
+## 🖥️ Serial Console and Interactive Shell
 
-Al conectar un emulador de terminal serie (`picocom`, `minicom` o `screen`) a `/dev/ttyACM0` a **115200 baudios (8N1)**, el agente imprimirá su banner de diagnóstico al adquirir IP:
+Connect a serial terminal emulator (`picocom`, `minicom`, or `screen`) to `/dev/ttyACM0` at **115200 baud (8N1)**. Upon acquiring an IP address via DHCP, the agent outputs its diagnostic banner:
 
 ```text
 *** Booting Zephyr OS build v4.4.0-15809-g55303e23f59d ***
@@ -163,10 +154,10 @@ Al conectar un emulador de terminal serie (`picocom`, `minicom` o `screen`) a `/
 uart:~$
 ```
 
-### Comandos de Shell Disponibles
+### Available Shell Commands
 
-Escriba en la terminal serie para interactuar:
-- `app sensor`: Muestra las lecturas de telemetría internas actuales.
+Interact with the running firmware via the Zephyr Shell:
+- `app sensor`: Displays internal telemetry readings.
   ```text
   uart:~$ app sensor
   Sensor Readings:
@@ -176,42 +167,42 @@ Escriba en la terminal serie para interactuar:
     Button Count: 3
     LED State   : 1
   ```
-- `app led [0|1]`: Lee o conmuta el LED verde de usuario en la placa.
+- `app led [0|1]`: Reads or drives the physical green user LED.
   ```text
   uart:~$ app led 1
   User LED set to: ON (1)
   ```
-- `app button`: Simula la pulsación del botón físico `sw0`, incrementa el contador y despacha el Trap SNMP hacia el host.
+- `app button`: Simulates a button press event, increments the press counter, and dispatches the SNMP trap.
   ```text
   uart:~$ app button
   Simulating User Button press...
   [00:00:43.085,000] <inf> app_button: SNMP Notification dispatched successfully (buttonCounter=4, ledState=1)
   Button count now: 4
   ```
-- `net iface`: Muestra detalles de la interfaz Ethernet, MAC y dirección IP asignada por DHCP.
+- `net iface`: Inspects network interface parameters, MAC address, and active IPv4/IPv6 leases.
 
 ---
 
-## 🧪 Batería de Validación con Net-SNMP (Comandos Probados)
+## 🧪 Net-SNMP Host Verification Suite
 
-*(Sustituya `192.168.16.100` por la IP asignada a su placa si difiere)*
+*(Replace `192.168.16.100` with the actual IP address assigned to your target board)*
 
-### 1. Consulta de Escalares con Nombres Formales de MIB y OIDs Numéricos SMIv2
+### 1. Scalar Object Querying with Symbolic and Numeric OIDs
 
-Árbol de objetos escalares registrado bajo la rama privada empresarial `1.3.6.1.4.1.54321.1` (`nucleoH743`):
-- `.1.1.1.0` -> `sensorValue.0` (`INTEGER`, temperatura simulada en °C)
-- `.1.1.2.0` -> `ledState.0` (`INTEGER (0..1)`, estado del LED verde de hardware `led0`)
-- `.1.1.3.0` -> `buttonCounter.0` (`Counter32`, pulsaciones acumuladas del botón `sw0`)
-- `.1.1.4.0` -> `sensorHumidity.0` (`Gauge32 (0..100)`, humedad relativa en %)
-- `.1.1.5.0` -> `sensorDescription.0` (`OCTET STRING`, etiqueta descriptiva del nodo)
-- `.1.1.6.0` -> `sensorStatusOid.0` (`OBJECT IDENTIFIER`, puntero OID a `sensorValue.0`)
+Private enterprise branch `1.3.6.1.4.1.54321.1` (`nucleoH743`):
+- `.1.1.1.0` -> `sensorValue.0` (`INTEGER`, simulated temperature in °C)
+- `.1.1.2.0` -> `ledState.0` (`INTEGER (0..1)`, green user LED state)
+- `.1.1.3.0` -> `buttonCounter.0` (`Counter32`, cumulative button presses)
+- `.1.1.4.0` -> `sensorHumidity.0` (`Gauge32 (0..100)`, relative humidity in %)
+- `.1.1.5.0` -> `sensorDescription.0` (`OCTET STRING`, node description)
+- `.1.1.6.0` -> `sensorStatusOid.0` (`OBJECT IDENTIFIER`, OID pointer to `sensorValue.0`)
 
-**Consulta mediante nombres simbólicos (cargando la MIB):**
+**Symbolic query (loading MIB):**
 ```bash
 snmpget -v2c -c public -m ./NUCLEO-H743-MIB.txt 192.168.16.100 \
   sensorValue.0 ledState.0 buttonCounter.0 sensorHumidity.0 sensorDescription.0 sensorStatusOid.0
 ```
-**Salida esperada:**
+**Expected Output:**
 ```text
 NUCLEO-H743-MIB::sensorValue.0 = INTEGER: 28
 NUCLEO-H743-MIB::ledState.0 = INTEGER: 0
@@ -221,7 +212,7 @@ NUCLEO-H743-MIB::sensorDescription.0 = STRING: NUCLEO-H743ZI Sensor Node
 NUCLEO-H743-MIB::sensorStatusOid.0 = OID: NUCLEO-H743-MIB::sensorValue.0
 ```
 
-**Consulta equivalente usando OIDs numéricos directos:**
+**Numeric query:**
 ```bash
 snmpget -v2c -c public 192.168.16.100 \
   1.3.6.1.4.1.54321.1.1.1.0 \
@@ -232,38 +223,38 @@ snmpget -v2c -c public 192.168.16.100 \
   1.3.6.1.4.1.54321.1.1.6.0
 ```
 
-### 2. Control del LED Físico mediante SNMP SET
+### 2. Physical LED Actuation via SNMP SET
 ```bash
-# Encender LED físico (requiere comunidad 'private')
+# Turn User LED ON (requires write community 'private')
 snmpset -v2c -c private -m ./NUCLEO-H743-MIB.txt 192.168.16.100 ledState.0 i 1
 
-# Apagar LED físico
+# Turn User LED OFF
 snmpset -v2c -c private -m ./NUCLEO-H743-MIB.txt 192.168.16.100 ledState.0 i 0
 ```
 
-### 3. Prueba de Seguridad y Validación de Errores
-- **Intento de SET con comunidad no autorizada (`public`):**
+### 3. Security and Bounds Validation Tests
+- **SET attempt using unauthorized read community (`public`):**
   ```bash
   snmpset -v2c -c public -m ./NUCLEO-H743-MIB.txt 192.168.16.100 ledState.0 i 1
-  # Salida: Timeout: No Response (descarte silencioso según RFC)
+  # Output: Timeout: No Response (RFC-compliant silent drop)
   ```
-- **Intento de SET con valor fuera de rango (`99` para booleano `0..1`):**
+- **SET attempt with out-of-range value (`99` for boolean `0..1`):**
   ```bash
   snmpset -v2c -c private -m ./NUCLEO-H743-MIB.txt 192.168.16.100 ledState.0 i 99
-  # Salida: Error in packet. Reason: (badValue)
+  # Output: Error in packet. Reason: (badValue)
   ```
 
-### 4. Consulta de Tabla Multidimensional (`sensorTable` .1.3.1)
+### 4. Multidimensional Table Query (`sensorTable` .1.3.1)
 
-La tabla de sensores (`1.3.6.1.4.1.54321.1.3.1`) contiene 3 filas dinámicas indexadas por `sensorIndex`:
-- Columna 1 (`.1.3.1.1.<idx>`): `sensorIndex` (`INTEGER`)
-- Columna 2 (`.1.3.1.2.<idx>`): `sensorName` (`OCTET STRING` / `DisplayString`)
-- Columna 3 (`.1.3.1.3.<idx>`): `sensorVal` (`INTEGER`)
+The sensor table (`1.3.6.1.4.1.54321.1.3.1`) exposes 3 rows indexed by `sensorIndex`:
+- Column 1 (`.1.3.1.1.<idx>`): `sensorIndex` (`INTEGER`)
+- Column 2 (`.1.3.1.2.<idx>`): `sensorName` (`OCTET STRING` / `DisplayString`)
+- Column 3 (`.1.3.1.3.<idx>`): `sensorVal` (`INTEGER`)
 
 ```bash
 snmptable -v2c -c public -m ./NUCLEO-H743-MIB.txt 192.168.16.100 sensorTable
 ```
-**Salida esperada:**
+**Expected Output:**
 ```text
 SNMP table: NUCLEO-H743-MIB::sensorTable
 
@@ -273,77 +264,72 @@ SNMP table: NUCLEO-H743-MIB::sensorTable
            3 Core Voltage      3300
 ```
 
-**Barrido numérico con `snmpwalk`:**
+**Sequential tree walk with `snmpwalk`:**
 ```bash
 snmpwalk -v2c -c public 192.168.16.100 1.3.6.1.4.1.54321.1.3.1
 ```
 
-### 5. Transferencia Masiva Eficiente (`snmpbulkget` / `snmpbulkwalk`)
+### 5. High-Efficiency Bulk Transfer (`snmpbulkget` / `snmpbulkwalk`)
 ```bash
-# Solicitar 9 variables en un solo paquete UDP
+# Request 9 variables in a single UDP packet exchange
 snmpbulkget -v2c -c public -m ./NUCLEO-H743-MIB.txt -Cn0 -Cr9 192.168.16.100 sensorTable
 
-# O mediante OID numérico directo:
+# Direct numeric OID request:
 snmpbulkget -v2c -c public -Cn0 -Cr9 192.168.16.100 1.3.6.1.4.1.54321.1.3.1
 ```
 
 ---
 
-## 📡 Recepción y Verificación de Traps en el Host
+## 📡 Host Trap Reception and Verification
 
-El sample emite notificaciones asíncronas SNMPv2-Trap hacia `CONFIG_SNMP_SAMPLE_TRAP_DEST` en el puerto `CONFIG_SNMP_TRAP_PORT` (`162` por defecto en `prj.conf`, o configurable a `1162`).
+The sample dispatches autonomous SNMPv2-Trap notifications to `CONFIG_SNMP_SAMPLE_TRAP_DEST` on port `CONFIG_SNMP_TRAP_PORT` (`162` default in `prj.conf`, or configurable to `1162`).
 
-- **OID de Notificación (`buttonPressed`)**: `1.3.6.1.4.1.54321.1.2.1` (`notifications 1`).
-- **Objetos vinculados (Varbinds)**:
-  1. `buttonCounter.0` (`.1.1.3.0`): contador monótono de pulsaciones.
-  2. `ledState.0` (`.1.1.2.0`): estado actual del actuador LED en el momento del evento.
+- **Notification OID (`buttonPressed`)**: `1.3.6.1.4.1.54321.1.2.1` (`notifications 1`).
+- **Bound Varbinds**:
+  1. `buttonCounter.0` (`.1.1.3.0`): monotonic button press counter.
+  2. `ledState.0` (`.1.1.2.0`): current physical LED state at the time of the event.
 
-Para capturar y verificar los traps en su estación de trabajo Linux, dispone de dos opciones:
-
-### Opción A: Daemon Estándar del Sistema (`snmptrapd` en UDP :162)
-Recomendado para entornos NMS o verificación de formato formal SMIv2:
-1. **Regla de Firewall (UFW)**: Habilite la recepción de tráfico UDP en el puerto del trap:
+### Option A: Standard Daemon (`snmptrapd` on UDP :162)
+Recommended for formal SMIv2 decoding:
+1. **Firewall Rule (UFW)**: Allow inbound UDP traffic on trap port:
    ```bash
    sudo ufw allow 162/udp
    ```
-2. **Configuración de Autorización (`/etc/snmp/snmptrapd.conf`)**:
+2. **Access Configuration (`/etc/snmp/snmptrapd.conf`)**:
    ```text
-   # Autorizar comunidad pública para logging
    authCommunity log,execute,net public
-   # Alternativa sin validación de acceso para laboratorio:
-   # disableAuthorization yes
    ```
-3. **Ejecutar receptor `snmptrapd` en terminal**:
+3. **Run `snmptrapd` receiver in terminal**:
    ```bash
    sudo snmptrapd -f -Lo -C -c /etc/snmp/snmptrapd.conf -m ./NUCLEO-H743-MIB.txt
    ```
-   Al pulsar el botón físico `sw0` o ejecutar `app button`, se observará la traza decodificada con `buttonPressed`, `buttonCounter.0` y `ledState.0`.
+   Pressing the blue button `sw0` or executing `app button` produces decoded output with `buttonPressed`, `buttonCounter.0`, and `ledState.0`.
 
-### Opción B: Receptor Ligero sin Privilegios de Root (Python o `tcpdump`)
-Ideal para pruebas rápidas de laboratorio sin requerir configuración administrativa del host:
-1. Si utiliza puerto `1162` (configure `CONFIG_SNMP_TRAP_PORT=1162` en `prj.conf`), ejecute este script Python en el host:
+### Option B: Lightweight Unprivileged Receiver (Python or `tcpdump`)
+Ideal for lab testing without host root privileges:
+1. If using port `1162` (`CONFIG_SNMP_TRAP_PORT=1162`), run this Python script on the host:
    ```python
    import socket
 
    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
    s.bind(('0.0.0.0', 1162))
-   print("Receptor de Traps escuchando en UDP :1162...")
+   print("Trap receiver listening on UDP :1162...")
    while True:
        data, addr = s.recvfrom(2048)
-       print(f"Trap recibido ({len(data)} bytes) desde {addr}")
+       print(f"Trap received ({len(data)} bytes) from {addr}")
        print(f"Hex: {data.hex()}\n")
    ```
-2. Si escucha en el puerto estándar 162 mediante captura cruda de paquetes:
+2. For packet capture on standard port 162:
    ```bash
    sudo tcpdump -i any -nn -vv -X udp port 162
    ```
-3. Presione el pulsador azul de la placa (**sw0**) o ejecute `app button` en la consola serial para emitir el trap.
 
 ---
 
-## 🚀 Guía de Adaptación para Proyectos Reales
+## 🚀 Production Deployment Checklist
 
-Para convertir este sample de validación en su propia aplicación de producción:
-1. **Reemplazar `src/app_sensor.c`**: Conecte sus sensores físicos reales (ADC, I2C, SPI o CAN) sustituyendo las variables aleatorias por sus funciones lectoras de hardware.
-2. **Personalizar `NUCLEO-H743-MIB.txt`**: Cambie el número de Enterprise `54321` por el número asignado a su organización por IANA y defina sus objetos específicos.
-3. **Mantener `app_button.c` y `app_mib.c`**: El esquema de trabajo diferido (`k_work`) y registro tabular implementado en estos archivos es el estándar óptimo y no bloqueante para Zephyr RTOS.
+To adapt this validation sample for production firmware:
+1. **Adapt `src/app_sensor.c`**: Connect physical device drivers (ADC, I2C, SPI, or CAN) replacing simulated telemetry with real sensor reads.
+2. **Customize `NUCLEO-H743-MIB.txt`**: Replace enterprise ID `54321` with your organization's IANA-assigned enterprise number.
+3. **Preserve `app_button.c` and `app_mib.c` patterns**: The deferred workqueue (`k_work`) trap dispatch and non-blocking MIB callback architecture implemented here ensure deterministic RTOS performance.
+

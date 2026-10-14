@@ -9,25 +9,25 @@ IMPORTS
 
 brightcMIB MODULE-IDENTITY
     LAST-UPDATED "202607300000Z"
-    ORGANIZATION "DAECGE TECNA SMART LAB"
-    CONTACT-INFO "support@tecnasmart.com"
+    ORGANIZATION "StructCore Embedded"
+    CONTACT-INFO "support@structcore.com"
     DESCRIPTION
-        "MIB para el control de relays, lectura de sensores y eventos del firmware BrightC-B1 V3."
+        "MIB for relay control, sensor readings, and events for the BrightC-B1 V3 firmware."
     REVISION     "202607300000Z"
-    DESCRIPTION  "Primera versión de la MIB privada DAECGE BrightC."
+    DESCRIPTION  "Initial version of the private BrightC MIB."
     ::= { enterprises 3134 }
 
--- Grupos Principales
+-- Main Groups
 brightcObjects      OBJECT IDENTIFIER ::= { brightcMIB 1 }
 brightcTraps        OBJECT IDENTIFIER ::= { brightcMIB 2 }
 
--- Subgrupos de Objetos
+-- Object Subgroups
 brightcControl      OBJECT IDENTIFIER ::= { brightcObjects 1 }
 brightcSensors      OBJECT IDENTIFIER ::= { brightcObjects 2 }
 brightcStats        OBJECT IDENTIFIER ::= { brightcObjects 3 }
 
 -------------------------------------------------------------------------------
--- Grupo Control (Read-Write)
+-- Control Group (Read-Write)
 -------------------------------------------------------------------------------
 
 relayAA1State OBJECT-TYPE
@@ -35,7 +35,7 @@ relayAA1State OBJECT-TYPE
     MAX-ACCESS  read-write
     STATUS      current
     DESCRIPTION
-        "Estado del Relay Principal AA1 (0 = Apagado/Abierto, 1 = Encendido/Cerrado)."
+        "Status of the Main Relay AA1 (0 = Off/Open, 1 = On/Closed)."
     ::= { brightcControl 1 }
 
 alarmOut1State OBJECT-TYPE
@@ -43,7 +43,7 @@ alarmOut1State OBJECT-TYPE
     MAX-ACCESS  read-write
     STATUS      current
     DESCRIPTION
-        "Estado de la Salida de Alarma ALM_OUT_1 (0 = Inactiva, 1 = Activa)."
+        "Status of Alarm Output ALM_OUT_1 (0 = Inactive, 1 = Active)."
     ::= { brightcControl 2 }
 
 buzzerState OBJECT-TYPE
@@ -51,11 +51,11 @@ buzzerState OBJECT-TYPE
     MAX-ACCESS  read-write
     STATUS      current
     DESCRIPTION
-        "Estado del Buzzer PWM (0 = Silencioso, 1 = Beep Activo)."
+        "Status of the PWM Buzzer (0 = Silent, 1 = Beep Active)."
     ::= { brightcControl 3 }
 
 -------------------------------------------------------------------------------
--- Grupo Sensores (Read-Only)
+-- Sensor Group (Read-Only)
 -------------------------------------------------------------------------------
 
 tempSensorCh1 OBJECT-TYPE
@@ -63,7 +63,7 @@ tempSensorCh1 OBJECT-TYPE
     MAX-ACCESS  read-only
     STATUS      current
     DESCRIPTION
-        "Lectura actual del sensor de temperatura CH1 (grados Celsius * 10)."
+        "Current temperature sensor CH1 reading (degrees Celsius * 10)."
     ::= { brightcSensors 1 }
 
 pressureSensorCh1 OBJECT-TYPE
@@ -71,11 +71,11 @@ pressureSensorCh1 OBJECT-TYPE
     MAX-ACCESS  read-only
     STATUS      current
     DESCRIPTION
-        "Lectura actual del sensor de presión CH1 en PSI."
+        "Current pressure sensor CH1 reading in PSI."
     ::= { brightcSensors 2 }
 
 -------------------------------------------------------------------------------
--- Grupo Estadísticas (Read-Only)
+-- Statistics Group (Read-Only)
 -------------------------------------------------------------------------------
 
 uptimeSeconds OBJECT-TYPE
@@ -83,18 +83,18 @@ uptimeSeconds OBJECT-TYPE
     MAX-ACCESS  read-only
     STATUS      current
     DESCRIPTION
-        "Segundos totales transcurridos desde el encendido del dispositivo."
+        "Total elapsed seconds since device power-on."
     ::= { brightcStats 1 }
 
 -------------------------------------------------------------------------------
--- Notificaciones y Traps
+-- Notifications and Traps
 -------------------------------------------------------------------------------
 
 alarmEventTrap NOTIFICATION-TYPE
     OBJECTS     { alarmOut1State, tempSensorCh1 }
     STATUS      current
     DESCRIPTION
-        "Notificación emitida cuando una alarma se activa o supera umbrales."
+        "Notification emitted when an alarm is triggered or exceeds thresholds."
     ::= { brightcTraps 1 }
 
 END

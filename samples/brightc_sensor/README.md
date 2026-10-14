@@ -1,6 +1,6 @@
-# BrightC Sensor Enterprise MIB Definition
+# BrightC Sensor Enterprise MIB Definition (StructCore Embedded)
 
-This directory contains `DAECGE-BRIGHTC-MIB.txt`, an example Enterprise MIB definition demonstrating how private enterprise MIBs (under `iso.org.dod.internet.private.enterprises`) are defined and mapped in Zephyr SNMP agent applications.
+This directory contains `DAECGE-BRIGHTC-MIB.txt`, an example Enterprise MIB definition demonstrating how private enterprise MIBs (under `iso.org.dod.internet.private.enterprises`) are defined and mapped in Zephyr SNMP agent applications by StructCore Embedded.
 
 To load this MIB in your local Net-SNMP tools:
 
