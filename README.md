@@ -26,14 +26,14 @@ Embedded SNMP agent (v1, v2c, v3) for Zephyr RTOS. Self-contained, zero dynamic 
 
 ## Documentation & Wiki
 
-Para obtener documentación detallada, consulte el **[Wiki del Proyecto](docs/wiki/Home.md)**:
+For comprehensive technical documentation, refer to the **[Project Wiki](docs/wiki/Home.md)**:
 
-- 🏛️ **[Arquitectura e Internales](docs/wiki/Architecture-and-Internals.md)**: Modelo de cero asignación dinámica, códec ASN.1 BER, `net_socket_service` y motor de MIB.
-- 📊 **[Diseño e Implementación de MIBs](docs/wiki/MIB-Design-and-Implementation.md)**: Guía paso a paso para variables escalares (RO/RW), tablas dinámicas y especificación SMIv2.
-- ⚡ **[Integración de Hardware y Red](docs/wiki/Hardware-and-Network-Integration.md)**: DeviceTree (`led0`, `sw0`), interrupciones con debounce, delegación a workqueue y sincronización DHCPv4.
-- 📋 **[Matriz de Protocolos y Auditoría Técnica](docs/wiki/SNMP-Version-Matrix-and-Interoperability.md)**: Análisis comparativo exhaustivo v1/v2c/v3 y auditoría de USM/VACM.
-- 🔧 **[Guía de Depuración y Troubleshooting](docs/wiki/Troubleshooting-and-Debugging.md)**: Resolución de timeouts, caídas de stack, colisiones de sockets y captura de traps.
-- 🚀 **[Sample de Validación en NUCLEO-H743ZI](samples/snmp_agent/README.md)**: Manual exhaustivo con comandos de prueba Net-SNMP listos para usar y consola interactiva.
+- 🏛️ **[Architecture and Internals](docs/wiki/Architecture-and-Internals.md)**: Zero dynamic allocation model, ASN.1 BER codec, `net_socket_service` integration, and MIB engine.
+- 📊 **[MIB Design and Implementation](docs/wiki/MIB-Design-and-Implementation.md)**: Step-by-step guide for scalar variables (RO/RW), dynamic tables, and SMIv2 specification.
+- ⚡ **[Hardware and Network Integration](docs/wiki/Hardware-and-Network-Integration.md)**: Devicetree (`led0`, `sw0`), debounced interrupts, workqueue delegation, and DHCPv4 synchronization.
+- 📋 **[Protocol Matrix and Technical Audit](docs/wiki/SNMP-Version-Matrix-and-Interoperability.md)**: Exhaustive comparative analysis across v1/v2c/v3 and USM/VACM audit.
+- 🔧 **[Troubleshooting and Debugging](docs/wiki/Troubleshooting-and-Debugging.md)**: Resolving timeouts, stack overflows, socket collisions, and trap capture.
+- 🚀 **[Validation Sample on NUCLEO-H743ZI](samples/snmp_agent/README.md)**: Reference manual with ready-to-use Net-SNMP test commands and interactive console.
 
 ## Features
 
