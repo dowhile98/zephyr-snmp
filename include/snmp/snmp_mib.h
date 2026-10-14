@@ -209,16 +209,24 @@ struct snmp_mib_table {
 	void *user_data;
 };
 
+/**
+ * @brief Internal transaction item tracking individual variable state during Two-Phase Commit (2PC)
+ * SET.
+ *
+ * Encapsulates the target MIB node, table, column, backup of previous value for rollback,
+ * and reservation status during atomic multi-varbind SET operations.
+ */
 struct snmp_set_tx_item {
-	struct snmp_mib_node *node;
-	struct snmp_mib_table *tbl;
-	struct snmp_table_row *tbl_row;
-	uint8_t tbl_col;
-	bool is_table;
-	bool reserved;
-	bool has_old_vb;
-	struct snmp_varbind old_vb;
-	void *tx_ctx;
+	struct snmp_mib_node *node;	/**< Target scalar node (if !is_table). */
+	struct snmp_mib_table *tbl;	/**< Target table descriptor (if is_table). */
+	struct snmp_table_row *tbl_row; /**< Target table row (if is_table). */
+	uint8_t tbl_col;		/**< Target column index within the table. */
+	bool is_table;	 /**< True if the item targets a table column rather than a scalar. */
+	bool reserved;	 /**< True if Phase 1 (Test/Reserve) succeeded for this item. */
+	bool has_old_vb; /**< True if old_vb contains a valid backup for rollback. */
+	struct snmp_varbind
+	    old_vb;   /**< Backup of prior value used during Phase 2 rollback on failure. */
+	void *tx_ctx; /**< Opaque application transaction context. */
 };
 
 /**

@@ -59,8 +59,9 @@ Todas las características pueden ajustarse en tiempo de compilación o mediante
 | `CONFIG_SNMP_VERSION_1` | `y` | Soporte de peticiones SNMPv1. |
 | `CONFIG_SNMP_VERSION_2C` | `y` | Soporte de peticiones SNMPv2c y bulk transfers. |
 | `CONFIG_SNMP_TRAP_ENABLED` | `y` | Habilita el motor emisor de Traps. |
-| `CONFIG_SNMP_TRAP_PORT` | `1162` | Puerto destino de Traps (1162 para captura sin root en host). |
+| `CONFIG_SNMP_TRAP_PORT` | `162` | Puerto destino de Traps (162 estándar RFC o 1162 para captura sin root en host). |
 | `CONFIG_SNMP_TRAP_FORMAT_V2C` | `y` | Formato de trampa según estándar RFC 3416. |
+| `CONFIG_NET_SOCKETS_SERVICE_STACK_SIZE` | `4096` | Tamaño de stack del hilo socket service (garantiza ejecución segura y libre de desbordamiento en despacho SNMP). |
 
 ### Parámetros Específicos del Sample
 
@@ -195,7 +196,17 @@ Escriba en la terminal serie para interactuar:
 
 *(Sustituya `192.168.16.100` por la IP asignada a su placa si difiere)*
 
-### 1. Consulta de Escalares con Nombres Formales de MIB
+### 1. Consulta de Escalares con Nombres Formales de MIB y OIDs Numéricos SMIv2
+
+Árbol de objetos escalares registrado bajo la rama privada empresarial `1.3.6.1.4.1.54321.1` (`nucleoH743`):
+- `.1.1.1.0` -> `sensorValue.0` (`INTEGER`, temperatura simulada en °C)
+- `.1.1.2.0` -> `ledState.0` (`INTEGER (0..1)`, estado del LED verde de hardware `led0`)
+- `.1.1.3.0` -> `buttonCounter.0` (`Counter32`, pulsaciones acumuladas del botón `sw0`)
+- `.1.1.4.0` -> `sensorHumidity.0` (`Gauge32 (0..100)`, humedad relativa en %)
+- `.1.1.5.0` -> `sensorDescription.0` (`OCTET STRING`, etiqueta descriptiva del nodo)
+- `.1.1.6.0` -> `sensorStatusOid.0` (`OBJECT IDENTIFIER`, puntero OID a `sensorValue.0`)
+
+**Consulta mediante nombres simbólicos (cargando la MIB):**
 ```bash
 snmpget -v2c -c public -m ./NUCLEO-H743-MIB.txt 192.168.16.100 \
   sensorValue.0 ledState.0 buttonCounter.0 sensorHumidity.0 sensorDescription.0 sensorStatusOid.0
@@ -208,6 +219,17 @@ NUCLEO-H743-MIB::buttonCounter.0 = Counter32: 3
 NUCLEO-H743-MIB::sensorHumidity.0 = Gauge32: 52
 NUCLEO-H743-MIB::sensorDescription.0 = STRING: NUCLEO-H743ZI Sensor Node
 NUCLEO-H743-MIB::sensorStatusOid.0 = OID: NUCLEO-H743-MIB::sensorValue.0
+```
+
+**Consulta equivalente usando OIDs numéricos directos:**
+```bash
+snmpget -v2c -c public 192.168.16.100 \
+  1.3.6.1.4.1.54321.1.1.1.0 \
+  1.3.6.1.4.1.54321.1.1.2.0 \
+  1.3.6.1.4.1.54321.1.1.3.0 \
+  1.3.6.1.4.1.54321.1.1.4.0 \
+  1.3.6.1.4.1.54321.1.1.5.0 \
+  1.3.6.1.4.1.54321.1.1.6.0
 ```
 
 ### 2. Control del LED Físico mediante SNMP SET
@@ -231,7 +253,13 @@ snmpset -v2c -c private -m ./NUCLEO-H743-MIB.txt 192.168.16.100 ledState.0 i 0
   # Salida: Error in packet. Reason: (badValue)
   ```
 
-### 4. Consulta de Tabla con Formato Tabular
+### 4. Consulta de Tabla Multidimensional (`sensorTable` .1.3.1)
+
+La tabla de sensores (`1.3.6.1.4.1.54321.1.3.1`) contiene 3 filas dinámicas indexadas por `sensorIndex`:
+- Columna 1 (`.1.3.1.1.<idx>`): `sensorIndex` (`INTEGER`)
+- Columna 2 (`.1.3.1.2.<idx>`): `sensorName` (`OCTET STRING` / `DisplayString`)
+- Columna 3 (`.1.3.1.3.<idx>`): `sensorVal` (`INTEGER`)
+
 ```bash
 snmptable -v2c -c public -m ./NUCLEO-H743-MIB.txt 192.168.16.100 sensorTable
 ```
@@ -245,20 +273,55 @@ SNMP table: NUCLEO-H743-MIB::sensorTable
            3 Core Voltage      3300
 ```
 
+**Barrido numérico con `snmpwalk`:**
+```bash
+snmpwalk -v2c -c public 192.168.16.100 1.3.6.1.4.1.54321.1.3.1
+```
+
 ### 5. Transferencia Masiva Eficiente (`snmpbulkget` / `snmpbulkwalk`)
 ```bash
 # Solicitar 9 variables en un solo paquete UDP
 snmpbulkget -v2c -c public -m ./NUCLEO-H743-MIB.txt -Cn0 -Cr9 192.168.16.100 sensorTable
+
+# O mediante OID numérico directo:
+snmpbulkget -v2c -c public -Cn0 -Cr9 192.168.16.100 1.3.6.1.4.1.54321.1.3.1
 ```
 
 ---
 
 ## 📡 Recepción y Verificación de Traps en el Host
 
-El sample envía trampas UDP hacia `CONFIG_SNMP_SAMPLE_TRAP_DEST` en el puerto `CONFIG_SNMP_TRAP_PORT` (`1162`).
+El sample emite notificaciones asíncronas SNMPv2-Trap hacia `CONFIG_SNMP_SAMPLE_TRAP_DEST` en el puerto `CONFIG_SNMP_TRAP_PORT` (`162` por defecto en `prj.conf`, o configurable a `1162`).
 
-Para verificar la llegada de las notificaciones sin requerir privilegios de root en Linux:
-1. Cree y ejecute este script en Python en su máquina host:
+- **OID de Notificación (`buttonPressed`)**: `1.3.6.1.4.1.54321.1.2.1` (`notifications 1`).
+- **Objetos vinculados (Varbinds)**:
+  1. `buttonCounter.0` (`.1.1.3.0`): contador monótono de pulsaciones.
+  2. `ledState.0` (`.1.1.2.0`): estado actual del actuador LED en el momento del evento.
+
+Para capturar y verificar los traps en su estación de trabajo Linux, dispone de dos opciones:
+
+### Opción A: Daemon Estándar del Sistema (`snmptrapd` en UDP :162)
+Recomendado para entornos NMS o verificación de formato formal SMIv2:
+1. **Regla de Firewall (UFW)**: Habilite la recepción de tráfico UDP en el puerto del trap:
+   ```bash
+   sudo ufw allow 162/udp
+   ```
+2. **Configuración de Autorización (`/etc/snmp/snmptrapd.conf`)**:
+   ```text
+   # Autorizar comunidad pública para logging
+   authCommunity log,execute,net public
+   # Alternativa sin validación de acceso para laboratorio:
+   # disableAuthorization yes
+   ```
+3. **Ejecutar receptor `snmptrapd` en terminal**:
+   ```bash
+   sudo snmptrapd -f -Lo -C -c /etc/snmp/snmptrapd.conf -m ./NUCLEO-H743-MIB.txt
+   ```
+   Al pulsar el botón físico `sw0` o ejecutar `app button`, se observará la traza decodificada con `buttonPressed`, `buttonCounter.0` y `ledState.0`.
+
+### Opción B: Receptor Ligero sin Privilegios de Root (Python o `tcpdump`)
+Ideal para pruebas rápidas de laboratorio sin requerir configuración administrativa del host:
+1. Si utiliza puerto `1162` (configure `CONFIG_SNMP_TRAP_PORT=1162` en `prj.conf`), ejecute este script Python en el host:
    ```python
    import socket
 
@@ -270,8 +333,11 @@ Para verificar la llegada de las notificaciones sin requerir privilegios de root
        print(f"Trap recibido ({len(data)} bytes) desde {addr}")
        print(f"Hex: {data.hex()}\n")
    ```
-2. Presione el pulsador azul de la placa (**sw0**) o ejecute `app button` en la consola serial.
-3. El paquete recibido contendrá la secuencia ASN.1 con `sysUpTime.0`, `snmpTrapOID.0` (`buttonPressed`), `buttonCounter.0` y `ledState.0`.
+2. Si escucha en el puerto estándar 162 mediante captura cruda de paquetes:
+   ```bash
+   sudo tcpdump -i any -nn -vv -X udp port 162
+   ```
+3. Presione el pulsador azul de la placa (**sw0**) o ejecute `app button` en la consola serial para emitir el trap.
 
 ---
 

@@ -158,11 +158,24 @@ struct snmp_agent {
 	struct snmp_pdu current_pdu;
 	uint8_t rx_buf[CONFIG_SNMP_MAX_PDU_SIZE];
 	uint8_t tx_buf[CONFIG_SNMP_MAX_PDU_SIZE];
+	/**
+	 * @brief Mutual-exclusion scratch buffer shared between SET transactions and GETBULK
+	 * sweeps.
+	 *
+	 * Resides directly in the agent instance to maintain zero dynamic memory allocation while
+	 * avoiding large frame allocations on the RTOS thread stack (<100 B stack frame).
+	 */
 	union {
-		struct snmp_set_tx_item tx_items[CONFIG_SNMP_MAX_VARBINDS];
+		struct snmp_set_tx_item
+		    tx_items[CONFIG_SNMP_MAX_VARBINDS]; /**< 2PC transaction items for SET
+							   processing. */
 		struct {
-			struct snmp_varbind res_vb[CONFIG_SNMP_MAX_VARBINDS];
-			struct snmp_oid current_oids[CONFIG_SNMP_MAX_VARBINDS];
+			struct snmp_varbind
+			    res_vb[CONFIG_SNMP_MAX_VARBINDS]; /**< Output varbinds collected during
+								 GETBULK. */
+			struct snmp_oid
+			    current_oids[CONFIG_SNMP_MAX_VARBINDS]; /**< Working OIDs during GETBULK
+								       repetition cycles. */
 		} bulk;
 	} scratch;
 	struct snmp_mib2_counters counters;

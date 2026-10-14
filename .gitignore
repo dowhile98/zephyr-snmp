@@ -52,3 +52,4 @@ twister-out*
 _build_doxygen*
 _build_sphinx*
 validation.md
+.serial_mcp*
