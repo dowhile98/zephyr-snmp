@@ -1,117 +1,178 @@
-# Arquitectura e Internales del Agente SNMP
+# SNMP Agent Architecture and Internals
 
-Este documento describe la arquitectura interna del subsistema `zephyr-snmp`, sus principios de diseño para sistemas embebidos de recursos limitados, y el ciclo de vida completo de un paquete SNMP.
-
----
-
-## 1. Principios de Diseño
-
-1. **Cero Asignación Dinámica (`malloc` = 0)**:
-   - Toda la memoria de trabajo (estructuras de PDU, buffers de recepción y transmisión, nodos MIB y colas de varbinds) se dimensiona estáticamente en tiempo de compilación mediante Kconfig.
-   - Evita la fragmentación del montículo (heap) en microcontroladores con tiempos de ejecución prolongados (semanas o meses continuos).
-2. **Concurrencia Segura y Bloqueos Deterministas**:
-   - Acceso al árbol MIB protegido mediante mutex del kernel de Zephyr (`k_mutex`).
-   - El subsistema de red utiliza el mecanismo `net_socket_service` de Zephyr para polling asíncrono sin desperdiciar un hilo exclusivo por cada socket.
-3. **Modularidad Estricta**:
-   - Desacoplamiento entre la capa de transporte (UDP sockets), el códec ASN.1 BER, el despachador de operaciones (PDU Handler) y la fuente de datos (MIB Callbacks).
+This document details the internal architecture of the `zephyr-snmp` subsystem, its core design principles for resource-constrained microcontrollers, and the end-to-end lifecycle of an SNMP packet.
 
 ---
 
-## 2. Diagrama de Flujo de Peticiones y Respuestas
+## 1. Design Principles
+
+1. **Zero Dynamic Allocation (`malloc` = 0)**:
+   - All operational memory (PDU structures, receive and transmit buffers, MIB nodes, and varbind queues) is statically allocated or embedded directly in the agent instance structure (`struct snmp_agent`).
+   - Completely eliminates heap fragmentation in long-running embedded systems operating continuously for months or years.
+2. **Re-entrant Multi-Instance Concurrency**:
+   - Multiple independent SNMP agents can coexist concurrently within the same firmware image (e.g., dual-agent setups on different network interfaces or port numbers).
+   - Each agent encapsulates its own state, MIB tree, network buffers, scratch space, and mutex (`agent->lock`).
+   - Internal state contains zero mutable globals (verified mechanically via symbol audits).
+3. **Scratch Space Memory Optimization**:
+   - Memory-intensive operations (such as Two-Phase Commit SET state tracking and GETBULK repeaters) share an instance-embedded `scratch` union (`inst->scratch`).
+   - This architectural decision reduces stack frame requirements from **9.8 KiB down to 52 bytes**, preventing stack overflow crashes in Zephyr cooperative or preemptive thread contexts.
+4. **Native Zephyr Socket Service Integration**:
+   - The transport layer binds to Zephyr's asynchronous `net_socket_service` infrastructure, eliminating dedicated thread overhead per open socket while supporting both IPv4 and IPv6 dual-stack polling.
+
+---
+
+## 2. Request and Response Pipeline
 
 ```mermaid
 sequenceDiagram
     autonumber
-    actor NMS as Gestor SNMP (Host / NMS)
+    actor NMS as SNMP Manager (Host / NMS)
     participant Socket as Socket Service (UDP :161)
-    participant Core as Núcleo SNMP (snmp_core.c)
-    participant BER as Códec ASN.1 (snmp_ber.c)
-    participant MIB as Árbol MIB (snmp_mib.c)
-    participant Driver as Hardware / Drivers de App
+    participant Service as snmp_service.c
+    participant Core as snmp_core.c (Agent Context)
+    participant BER as snmp_ber.c (ASN.1 Codec)
+    participant MIB as snmp_mib.c (Tree Engine)
+    participant App as App / Peripheral Callbacks
 
-    NMS->>Socket: Datagrama UDP con Request PDU
-    Socket->>Core: Callback de evento de lectura (POLLIN)
-    Core->>BER: Decodificar cabecera SNMP & Comunidad / USM
-    alt Comunidad inválida o versión deshabilitada
-        Core-->>NMS: Descarta silenciosamente / Report PDU
-    else Petición válida
-        Core->>BER: Parsear Varbinds & OIDs solicitados
-        Core->>MIB: snmp_mib_get() / snmp_mib_set() / snmp_mib_get_next()
-        MIB->>Driver: Ejecutar get_cb() / set_cb() del nodo
-        Driver-->>MIB: Retornar valor o error (ej. ASN1_TAG_INTEGER, 25)
-        MIB-->>Core: Varbind completado con sintaxis y datos
-        Core->>BER: Codificar Response PDU (BER)
-        Core->>Socket: zsock_sendto() hacia IP/Puerto origen
-        Socket-->>NMS: Datagrama UDP de Respuesta
+    NMS->>Socket: UDP Datagram containing Request PDU
+    Socket->>Service: Socket read event callback (POLLIN)
+    Service->>Core: snmp_service_process(agent, rx_buf, len)
+    Note over Core: Acquire agent->lock mutex
+    Core->>BER: snmp_ber_decode_header() (Version, Community / USM)
+    alt Invalid community or unsupported version
+        Core-->>NMS: Silently drop (v1/v2c) or Report PDU (v3)
+    else Valid request
+        Core->>BER: snmp_ber_decode_pdu() (Varbinds & OIDs)
+        Core->>MIB: snmp_mib_get / snmp_mib_set / snmp_mib_get_next
+        MIB->>App: Execute get_cb(agent, node, vb) / set_cb(agent, node, vb)
+        App-->>MIB: Return status code (0 = success, SNMP_ERR_*)
+        MIB-->>Core: Varbind populated with syntax & payload
+        Core->>BER: snmp_ber_encode_pdu() (Response PDU)
+        Core->>Socket: zsock_sendto() to source IP:port
+        Socket-->>NMS: UDP Response Datagram
     end
+    Note over Core: Release agent->lock mutex
 ```
 
 ---
 
-## 3. Componentes del Núcleo
+## 3. Core Subsystems
 
-### A. Capa de Transporte y Servicio de Red (`src/snmp_service.c`)
-- Utiliza la macro `NET_SOCKET_SERVICE_SYNC_DEFINE_STATIC` de Zephyr para registrar el descriptor de socket en la infraestructura de sondeo (`zsock_pollfd`) del sistema operativo.
-- Da soporte simultáneo a sockets **IPv4** (`AF_INET`) e **IPv6** (`AF_INET6`), vinculando dinámicamente ambos al puerto configurado (`CONFIG_SNMP_AGENT_PORT`, por defecto 161).
-- Integra una compuerta de limitación de tasa (*Token Bucket Rate Limiter*) opcional (`CONFIG_SNMP_RATE_LIMIT`) para proteger el procesador contra ataques de denegación de servicio o tormentas de broadcasts.
+### A. Network Transport Layer (`src/snmp_service.c`)
+- Uses Zephyr's `NET_SOCKET_SERVICE_SYNC_DEFINE_STATIC` to register socket file descriptors in the OS poll set (`zsock_pollfd`).
+- Supports dual-stack **IPv4** (`AF_INET`) and **IPv6** (`AF_INET6`), binding each agent instance to its configured port (`cfg->port`, default 161).
+- **ZVFS Polling Budget Requirement**: When running multiple instances, Zephyr's Virtual File System poll descriptor limit must be configured to accommodate all sockets:
+  $$\text{CONFIG\_ZVFS\_POLL\_MAX} \ge \text{CONFIG\_SNMP\_MAX\_INSTANCES} \times \text{SNMP\_SVC\_FDS} + 1$$
+  *(where $\text{SNMP\_SVC\_FDS} = 2$ when IPv6 is enabled, and $1$ for IPv4-only).* A `BUILD_ASSERT` enforces this constraint at compile time.
+- Integrated **Token Bucket Rate Limiter** (`CONFIG_SNMP_RATE_LIMIT=y`) safeguards CPU resources against UDP broadcast storms and denial-of-service floods.
 
-### B. Códec ASN.1 BER (`src/snmp_ber.c`)
-El codificador y decodificador opera directamente sobre buffers de bytes continuos sin intermediarios dinámicos:
-- **Etiquetas ASN.1 soportadas**:
-  - Primitivas: `INTEGER` (0x02), `OCTET STRING` (0x04), `NULL` (0x05), `OBJECT IDENTIFIER` (0x06).
-  - Estructuradas: `SEQUENCE` (0x30).
-  - Tipos específicos SNMP: `Counter32` (0x41), `Gauge32` (0x42), `TimeTicks` (0x43), `Counter64` (0x46), `Opaque` (0x44), `IpAddress` (0x40).
-  - Tipos PDU: `GetRequest` (0xA0), `GetNextRequest` (0xA1), `GetResponse` (0xA2), `SetRequest` (0xA3), `Trap-v1` (0xA4), `GetBulkRequest` (0xA5), `InformRequest` (0xA6), `SNMPv2-Trap` (0xA7), `Report` (0xA8).
-- **Tratamiento de Longitudes BER**:
-  - Decodifica longitudes tanto en forma corta (< 128 bytes) como extendida (1 a 4 bytes de longitud).
+### B. ASN.1 BER Codec (`src/snmp_ber.c`)
+The encoder and decoder operate directly over contiguous byte buffers with zero heap allocation:
+- **ASN.1 Tags**:
+  - Primitive: `INTEGER` (0x02), `OCTET STRING` (0x04), `NULL` (0x05), `OBJECT IDENTIFIER` (0x06).
+  - Structured: `SEQUENCE` (0x30).
+  - SNMP Application Types: `IpAddress` (0x40), `Counter32` (0x41), `Gauge32` (0x42), `TimeTicks` (0x43), `Opaque` (0x44), `Counter64` (0x46).
+  - PDU Types: `GetRequest` (0xA0), `GetNextRequest` (0xA1), `GetResponse` (0xA2), `SetRequest` (0xA3), `Trap-v1` (0xA4), `GetBulkRequest` (0xA5), `InformRequest` (0xA6), `SNMPv2-Trap` (0xA7), `Report` (0xA8).
+- **BER Length Processing**: Robust support for both short-form (< 128 bytes) and long-form (1 to 4 length octets).
 
-### C. Motor de Árbol MIB (`src/snmp_mib.c`)
-- Almacena los nodos escalares en un arreglo estático `g_mib_nodes` de tamaño `CONFIG_SNMP_MAX_MIB_NODES`.
-- Durante el registro (`snmp_mib_register`), los nodos se mantienen ordenados lexicográficamente mediante un ordenamiento por inserción. Esto garantiza que las operaciones **GETNEXT** y **GETBULK** puedan localizar el siguiente objeto válido de manera óptima sin recorrer estructuras complejas de grafos.
-- Soporta tablas tabulares (`struct snmp_mib_table`) con múltiples columnas e índices dinámicos.
+### C. MIB Tree Engine (`src/snmp_mib.c`)
+- Each agent maintains its registered scalar nodes in its instance array `agent->mib_nodes[CONFIG_SNMP_MAX_MIB_NODES]`.
+- Nodes are sorted lexicographically by OID at registration time (`snmp_mib_register`, `snmp_mib_register_nodes`) using insertion sort, guaranteeing that **GETNEXT** and **GETBULK** lookups operate in $O(\log N)$ or fast linear scanning without dynamic graph traversal.
+- Supports dynamic multi-column tables (`struct snmp_mib_table`) with index chaining.
 
-### D. Motor de Traps y Notificaciones (`src/snmp_trap.c`)
-- Mantiene una lista de hasta `CONFIG_SNMP_TRAP_DEST_COUNT` destinos NMS remotos (dirección IP y puerto UDP).
-- Permite construir notificaciones con varbinds personalizados o utilizar trampas estándar predefinidas como `snmp_trap_send_coldstart()`.
-- Genera el formato de trampa según Kconfig (`CONFIG_SNMP_TRAP_FORMAT_V1` para RFC 1157, `CONFIG_SNMP_TRAP_FORMAT_V2C` para RFC 3416).
+### D. Scratch Space Memory Union
+To eliminate massive stack frames during complex multi-varbind transactions, `struct snmp_agent` embeds a shared mutual-exclusion scratch union:
+```c
+union snmp_agent_scratch {
+    struct snmp_set_tx_item tx_items[CONFIG_SNMP_MAX_VARBINDS];
+    struct snmp_bulk_scratch bulk;
+};
+```
+Because SET transactions and GETBULK requests are mutually exclusive under `agent->lock`, sharing this memory cuts the execution stack frame from **9.8 KiB down to 52 bytes**.
+
+### E. Traps and Notifications (`src/snmp_trap.c`)
+- Manages an array of up to `CONFIG_SNMP_TRAP_DEST_COUNT` remote NMS endpoints (IPv4/IPv6 address and UDP port).
+- Dispatches standard enterprise traps (e.g. `snmp_trap_send_coldstart()`) as well as custom event traps with arbitrary varbind lists.
+- Supports RFC 1157 SNMPv1 traps and RFC 3416 SNMPv2c traps.
 
 ---
 
-## 4. Estructuras de Datos Principales
+## 4. Key Data Structures
 
-### Definición de un Nodo MIB Escalar
+### Scalar MIB Node Definition
 ```c
 struct snmp_mib_node {
-    struct snmp_oid oid;              /* Identificador jerárquico único */
-    uint8_t type;                     /* Etiqueta ASN.1 (ASN1_TAG_INTEGER, etc.) */
-    snmp_get_cb_t get_cb;             /* Callback invocado en lecturas */
-    snmp_set_cb_t set_cb;             /* Callback invocado en escrituras (NULL si es RO) */
-    void *user_data;                  /* Puntero libre de contexto */
+    struct snmp_oid oid;            /* Hierarchical unique Object Identifier */
+    uint8_t type;                   /* ASN.1 tag (e.g. ASN1_TAG_INTEGER) */
+    snmp_mib_get_cb_t get_cb;       /* Handler invoked on GET / GETNEXT */
+    snmp_mib_set_cb_t set_cb;       /* Handler invoked on simple SET (or NULL) */
+    snmp_mib_set_tx_cb_t set_tx_cb; /* Handler invoked on 2PC transactional SET (or NULL) */
+    void *user_data;                /* Application-owned context pointer */
 };
 ```
 
-### Definición de una Tabla MIB
+> [!NOTE]
+> **Access Level**: The access level (Read-Only vs. Read-Write) is defined by whether `set_cb` and `set_tx_cb` are `NULL` (Read-Only) or implemented (Read-Write).
+
+> [!WARNING]
+> **User Data Invariant**: `node->user_data` and `row->user_data` must point **only** to application-managed memory or static constants. They must **never** point to `struct snmp_agent` or any field within it.
+
+### Dynamic MIB Table Definition
 ```c
 struct snmp_mib_table {
-    struct snmp_oid table_oid;        /* OID del Entry de la tabla */
-    uint8_t column_cnt;               /* Número de columnas expuestas */
-    const uint8_t *column_subids;     /* Sub-identificadores de columna */
-    const uint8_t *column_types;      /* Tipos ASN.1 de cada columna */
-    snmp_table_get_cb_t *get_cbs;     /* Array de callbacks de lectura por columna */
-    snmp_table_set_cb_t *set_cbs;     /* Array de callbacks de escritura por columna */
-    struct snmp_table_row *rows;      /* Lista enlazada estática de filas */
+    struct snmp_oid table_oid;
+    uint8_t column_cnt;
+    const uint8_t *column_subids;
+    const uint8_t *column_types;
+    snmp_table_get_cb_t *get_cbs;
+    snmp_table_set_cb_t *set_cbs;
+    struct snmp_table_row *rows;
+    void *user_data;
 };
 ```
+
+### Table Row Definition
+```c
+struct snmp_table_row {
+    uint32_t index;                    /* Legacy single index (backward compatible) */
+    struct snmp_table_index index_oid; /* Generalized / Compound index suffix */
+    struct snmp_table_row *next;
+    void *user_data;
+};
+```
+
+### Agent Instance Structure (`struct snmp_agent`)
+The agent instance structure encapsulates all state required for an independent agent:
+- Mutex lock (`struct k_mutex lock`)
+- Configuration copy (`struct snmp_agent_cfg cfg`)
+- Receive and transmit buffers (`uint8_t rx_buf[...]`, `uint8_t tx_buf[...]`)
+- Current parsed PDU (`struct snmp_pdu current_pdu`)
+- Scratch space union (`union snmp_agent_scratch scratch`)
+- MIB scalar node array (`struct snmp_mib_node mib_nodes[...]`) and count
+- Table array (`struct snmp_mib_table tables[...]`) and count
+- MIB-II interface cache (`struct snmp_mib2_if_row if_rows[...]`)
+- Protocol statistics counters (`struct snmp_agent_counters counters`)
+- SNMPv3 cryptographic and access control tables (when `CONFIG_SNMP_VERSION_3=y`)
 
 ---
 
-## 5. Parámetros de Memoria y Dimensionamiento en Kconfig
+## 5. Memory Footprint and Sizing
 
-| Parámetro Kconfig | Valor Típico | Impacto en Memoria RAM / BSS |
+### Instance RAM Footprint
+- **SNMPv1 / SNMPv2c only**: `sizeof(struct snmp_agent)` $\approx$ **23,840 bytes** (~23.3 KiB) with standard Kconfig defaults (`CONFIG_SNMP_MAX_MIB_NODES=128`, `CONFIG_SNMP_MAX_IFACES=8`).
+- **SNMPv3 enabled (`CONFIG_SNMP_VERSION_3=y`)**: `sizeof(struct snmp_agent)` $\approx$ **33,320 bytes** (~32.5 KiB), accommodating USM user tables, VACM access rule arrays, localized key storage, and replay windows.
+
+### Kconfig Memory Tuning Reference
+
+| Kconfig Symbol | Default | RAM Impact / Explanation |
 | :--- | :---: | :--- |
-| `CONFIG_SNMP_MAX_PDU_SIZE` | `1024` - `1500` bytes | Tamaño del búfer TX/RX de datagramas UDP. |
-| `CONFIG_SNMP_MAX_OID_LEN` | `16` sub-IDs | Profundidad máxima de OID (68 bytes por estructura). |
-| `CONFIG_SNMP_MAX_VARBINDS` | `32` | Capacidad máxima de variables agrupadas en un solo paquete. |
-| `CONFIG_SNMP_MAX_MIB_NODES` | `128` | Espacio reservado en BSS para nodos escalares. |
-| `CONFIG_SNMP_MAX_TABLES` | `8` | Espacio reservado para definiciones de tablas. |
-| `CONFIG_SNMP_TRAP_DEST_COUNT` | `3` | Número de servidores NMS receptores simultáneos de trampas. |
+| `CONFIG_SNMP_MAX_INSTANCES` | `1` | Total agent instances allocated in `snmp_service` slot table (range 1–8). |
+| `CONFIG_SNMP_MAX_PDU_SIZE` | `1024` B | Sizing of `rx_buf`, `tx_buf`, and PDU decode buffers. |
+| `CONFIG_SNMP_MAX_OID_LEN` | `16` | Maximum sub-ID depth per OID struct (68 bytes per OID). |
+| `CONFIG_SNMP_MAX_VARBINDS` | `32` | Maximum variable bindings per single PDU. |
+| `CONFIG_SNMP_MAX_MIB_NODES` | `128` | Pre-allocated scalar node storage per agent instance (~13.3 KiB). |
+| `CONFIG_SNMP_MAX_TABLES` | `8` | Pre-allocated tabular MIB descriptors per agent instance. |
+| `CONFIG_SNMP_MAX_IFACES` | `8` | Maximum interfaces tracked in MIB-II `ifTable`. |
+| `CONFIG_SNMP_TRAP_DEST_COUNT` | `3` | Remote NMS trap target slots. |
+| `CONFIG_ZVFS_POLL_MAX` | `4` | Zephyr VFS poll budget; must be $\ge \text{INSTANCES} \times \text{FDS} + 1$. |
+
