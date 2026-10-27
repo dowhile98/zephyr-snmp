@@ -109,7 +109,7 @@ struct snmp_pdu {
 /* --- SNMPv3 Message Structures (RFC 3412) --- */
 
 #define SNMP_V3_ENGINE_ID_MAX_LEN 32
-#define SNMP_V3_AUTH_PARAMS_LEN 32 /* HMAC-SHA1 (12), HMAC-MD5 (12), SHA-256 (16) */
+#define SNMP_V3_AUTH_PARAMS_LEN 32 /* HMAC-SHA1 (12), HMAC-MD5 (12), SHA-256 (24) */
 #define SNMP_V3_PRIV_PARAMS_LEN 16 /* AES-128-CFB IV */
 
 struct snmp_v3_global_data {
@@ -128,6 +128,17 @@ struct snmp_v3_usm_params {
 	uint16_t user_name_len;
 	uint8_t auth_params[SNMP_V3_AUTH_PARAMS_LEN];
 	uint16_t auth_params_len;
+	/**
+	 * @brief Absolute offset of the authentication parameter value inside the
+	 *        received datagram.
+	 *
+	 * USM must compute the HMAC over the message *as received* with this field
+	 * zeroed (RFC 3414 section 6.3.1), not over a re-encoded copy: a peer that
+	 * uses a different but valid BER length encoding would otherwise fail
+	 * authentication. Set by snmp_ber_decode_v3_msg(); 0 means "not decoded
+	 * from a datagram" (outgoing message).
+	 */
+	size_t auth_params_raw_off;
 	uint8_t priv_params[SNMP_V3_PRIV_PARAMS_LEN];
 	uint16_t priv_params_len;
 };
@@ -148,6 +159,16 @@ struct snmp_v3_msg {
 	struct snmp_v3_global_data global;
 	struct snmp_v3_usm_params usm;
 	struct snmp_v3_scoped_pdu scoped;
+	/**
+	 * @brief Security level actually verified for this message.
+	 *
+	 * SNMP_SEC_LEVEL_NOAUTH_NOPRIV / AUTH_NOPRIV / AUTH_PRIV, set by
+	 * snmp_usm_verify_incoming() from the *configured user* and the checks that
+	 * actually succeeded. It is deliberately not derived from msgFlags: a
+	 * noAuthNoPriv user can otherwise set the auth/priv bits and reach VACM
+	 * rules that require authentication.
+	 */
+	uint8_t sec_level;
 };
 
 /* --- Function Declarations --- */

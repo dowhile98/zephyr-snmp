@@ -61,10 +61,13 @@ graph TD
    - Trap reception on unprivileged host ports.
 
 6. [**Hardware-in-the-Loop (HIL) Validation**](snmp-hil-validation.md)
-   - Complete 23-test validation record on STM32H743ZI hardware covering protocol operations, MIB-II, and negative tests.
+   - Complete 33-test physical validation record on STM32H7 hardware across SNMPv1, SNMPv2c, and SNMPv3 (authNoPriv / authPriv).
 
 7. [**NUCLEO-H743ZI Reference Sample**](../../samples/snmp_agent/README.md)
    - Step-by-step build, flash, interactive UART console commands, and host verification recipes.
+
+8. [**SNMPv3 Validation Sample**](../../samples/snmp_agent_v3/README.md)
+   - authPriv/authNoPriv users, VACM boundaries, engine discovery Reports and v3 notifications with public test-only credentials.
 
 ---
 

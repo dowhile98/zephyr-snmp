@@ -17,8 +17,8 @@ This document establishes the technical comparison between the three protocol ve
 | **PDU: InformRequest** | Not supported by RFC | Supported | Supported | Acknowledged notifications |
 | **PDU: Report** | N/A | N/A | Supported | Engine ID discovery, timeliness sync, error reporting |
 | **Table Management** | GETNEXT walk | GETBULK / GETNEXT | GETBULK / GETNEXT | Dynamic multi-column tables with index chaining |
-| **Authentication** | Community filter | Community filter | HMAC-MD5, HMAC-SHA1, HMAC-SHA256 | Compliant with RFC 3414 and RFC 7860 via PSA Crypto |
-| **Privacy (Encryption)**| None | None | AES-128-CFB, DES-CBC | Compliant with RFC 3826 via PSA Crypto primitives |
+| **Authentication** | Community filter | Community filter | HMAC-SHA1, HMAC-SHA256 (MD5 optional, off by default) | Compliant with RFC 3414 and RFC 7860 via PSA Crypto |
+| **Privacy (Encryption)**| None | None | AES-128-CFB only | RFC 3826 via PSA Crypto; DES-CBC is not implemented |
 | **Access Control** | Binary community match | Binary community match | VACM (RFC 3415) | Views, groups, and access rights in `src/snmp_vacm.c` |
 | **Engine Discovery** | N/A | N/A | Supported (RFC 3414 §4) | Responds with `snmpUnknownEngineIDs` and Engine ID |
 
@@ -72,7 +72,7 @@ The SNMPv3 User-Based Security Model (USM) in `src/snmp_usm.c` is fully complian
 * Granular access control modeled in `src/snmp_vacm.c` supporting security levels:
   - `noAuthNoPriv`: Plaintext unauthenticated access.
   - `authNoPriv`: HMAC authentication without payload encryption.
-  - `authPriv`: Authenticated and encrypted payload (AES-128 / DES).
+  - `authPriv`: Authenticated and encrypted payload (AES-128-CFB).
 
 ---
 
@@ -92,7 +92,7 @@ snmpbulkget -v2c -c public -m ./NUCLEO-H743-MIB.txt -Cn0 -Cr9 <TARGET_IP> sensor
 snmptable -v2c -c public -m ./NUCLEO-H743-MIB.txt <TARGET_IP> sensorTable
 
 # --- SNMPv3 (Engine Discovery + authPriv) ---
-snmpget -v3 -u admin -l authPriv -a SHA -A "auth_passphrase" -x AES -X "priv_passphrase" \
+snmpget -v3 -u v3test -l authPriv -a SHA-256 -A "v3-auth-passphrase-test-only" -x AES -X "v3-priv-passphrase-test-only" \
     <TARGET_IP> 1.3.6.1.4.1.54321.1.1.1.0
 ```
 

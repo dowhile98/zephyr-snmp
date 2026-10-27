@@ -55,6 +55,43 @@ static void copy_str(char *dst, size_t dst_sz, const char *src)
 	dst[dst_sz - 1] = '\0';
 }
 
+/*
+ * Compare a wire community against a configured one, octet for octet.
+ *
+ * The decoded community is a counted byte string, not a C string: it may contain
+ * embedded NULs and is not guaranteed to be terminated. strcmp() therefore both
+ * mis-compares valid communities and can read past the last received octet.
+ */
+static bool community_matches(const struct snmp_pdu *pdu, const char *configured)
+{
+	size_t len;
+
+	if (!pdu || !configured)
+		return false;
+
+	len = strlen(configured);
+	return pdu->community_len == len && memcmp(pdu->community, configured, len) == 0;
+}
+
+/*
+ * PDU types an agent may act on. Responses, traps and reports are never requests:
+ * echoing one would turn the agent into a reflector (the old dispatch fell through
+ * and re-encoded whatever type it received).
+ */
+static bool pdu_is_request(uint8_t type)
+{
+	switch (type) {
+	case SNMP_PDU_GET_REQ:
+	case SNMP_PDU_GET_NEXT_REQ:
+	case SNMP_PDU_GET_BULK_REQ:
+	case SNMP_PDU_SET_REQ:
+	case SNMP_PDU_INFORM_REQ:
+		return true;
+	default:
+		return false;
+	}
+}
+
 static void set_defaults(struct snmp_agent *agent)
 {
 	copy_str(agent->read_community, sizeof(agent->read_community), CONFIG_SNMP_COMMUNITY_READ);
@@ -151,6 +188,7 @@ int snmp_agent_init(struct snmp_agent *agent, const struct snmp_agent_cfg *cfg)
 	}
 	snmp_usm_init(agent);
 	snmp_vacm_init(agent);
+	snmp_usm_register_mibs(agent);
 
 	/* Contract 3.7 call order: defaults -> cfg.engine_boots -> persisted override. */
 	if (agent->settings_prefix != NULL) {
@@ -284,6 +322,7 @@ int snmp_agent_deinit(struct snmp_agent *agent)
 	agent->view_cnt = 0;
 	snmp_usm_init(agent);
 	snmp_vacm_init(agent);
+	snmp_usm_register_mibs(agent);
 #endif
 
 	agent->state = SNMP_AGENT_INITIALIZED;
@@ -360,7 +399,8 @@ static int process_v1v2c(struct snmp_agent *agent, const uint8_t *req_buf, size_
 		INST_COUNTER_INC(agent, snmpInBadVersions);
 		return -ENOTSUP;
 #endif
-		if (agent->current_pdu.type == SNMP_PDU_GET_BULK_REQ) {
+		if (agent->current_pdu.type == SNMP_PDU_GET_BULK_REQ ||
+		    agent->current_pdu.type == SNMP_PDU_INFORM_REQ) {
 			INST_COUNTER_INC(agent, snmpInBadVersions);
 			return -ENOTSUP;
 		}
@@ -374,14 +414,18 @@ static int process_v1v2c(struct snmp_agent *agent, const uint8_t *req_buf, size_
 		return -ENOTSUP;
 	}
 
+	/* Only request PDUs are processed; everything else is dropped silently. */
+	if (!pdu_is_request(agent->current_pdu.type)) {
+		INST_COUNTER_INC(agent, snmpSilentDrops);
+		return -EACCES;
+	}
+
 	/* Community / Security validation */
 	bool is_write = (agent->current_pdu.type == SNMP_PDU_SET_REQ);
 
 	if (is_write) {
-		if (strcmp((const char *)agent->current_pdu.community, agent->write_community) !=
-		    0) {
-			if (strcmp((const char *)agent->current_pdu.community,
-				   agent->read_community) == 0) {
+		if (!community_matches(&agent->current_pdu, agent->write_community)) {
+			if (community_matches(&agent->current_pdu, agent->read_community)) {
 				INST_COUNTER_INC(agent, snmpInBadCommunityUses);
 			} else {
 				INST_COUNTER_INC(agent, snmpInBadCommunityNames);
@@ -392,11 +436,9 @@ static int process_v1v2c(struct snmp_agent *agent, const uint8_t *req_buf, size_
 			return -EACCES;
 		}
 	} else {
-		/* GET / GETNEXT / GETBULK accepts read community or write community */
-		if (strcmp((const char *)agent->current_pdu.community, agent->read_community) !=
-			0 &&
-		    strcmp((const char *)agent->current_pdu.community, agent->write_community) !=
-			0) {
+		/* GET / GETNEXT / GETBULK / INFORM accepts read or write community */
+		if (!community_matches(&agent->current_pdu, agent->read_community) &&
+		    !community_matches(&agent->current_pdu, agent->write_community)) {
 			INST_COUNTER_INC(agent, snmpInBadCommunityNames);
 #if defined(CONFIG_SNMP_TRAP_ENABLED)
 			snmp_trap_send_auth_failure(agent);
@@ -412,10 +454,22 @@ static int process_v1v2c(struct snmp_agent *agent, const uint8_t *req_buf, size_
 		non_rep = agent->current_pdu.varbind_cnt;
 	}
 
-	/* Dispatch to MIB engine with instance context */
-	ret = snmp_mib_dispatch(agent, &agent->current_pdu);
-	if (ret < 0) {
-		return ret;
+	if (req_type == SNMP_PDU_INFORM_REQ) {
+		/*
+		 * An Inform is a notification this agent receives as a notification
+		 * receiver: acknowledge it with a Response carrying the same varbinds
+		 * (RFC 3416 §4.2.7), no MIB lookup.
+		 */
+		agent->current_pdu.type = SNMP_PDU_GET_RESP;
+		agent->current_pdu.error_status = SNMP_ERR_NO_ERROR;
+		agent->current_pdu.error_index = 0;
+		INST_COUNTER_INC(agent, snmpInTraps);
+	} else {
+		/* Dispatch to MIB engine with instance context */
+		ret = snmp_mib_dispatch(agent, &agent->current_pdu);
+		if (ret < 0) {
+			return ret;
+		}
 	}
 
 	/* Encode response PDU */
@@ -466,6 +520,11 @@ static int process_v3(struct snmp_agent *agent, const uint8_t *req_buf, size_t r
 	int ret = snmp_ber_decode_v3_msg(req_buf, req_len, &msg);
 	if (ret < 0) {
 		INST_COUNTER_INC(agent, snmpInASNParseErrs);
+		if (ret == -ENOTSUP) {
+			agent->mpd_stats.unknown_security_models++;
+		} else {
+			agent->mpd_stats.invalid_msgs++;
+		}
 		return ret;
 	}
 
@@ -478,30 +537,13 @@ static int process_v3(struct snmp_agent *agent, const uint8_t *req_buf, size_t r
 		return ret;
 	}
 
-	/* Engine discovery: if USM returned a Report-PDU, encode and send */
+	/* Engine discovery / USM reports: USM already filled a complete Report PDU. */
 	if (msg.scoped.pdu.type == SNMP_PDU_REPORT) {
 		/* Echo incoming msg_id as the Report-PDU request_id */
 		msg.scoped.pdu.request_id = msg.global.msg_id;
 
-		/* RFC 3414 §7: Report-PDUs must include a counter varbind */
-		if (msg.scoped.pdu.varbind_cnt == 0) {
-			static const uint32_t unknown_engine_oid[] = {
-			    1, 3, 6, 1, 6, 3, 15, 1, 1, 3, 0}; /* snmpUnknownEngineIDs.0 */
-			msg.scoped.pdu.varbinds[0].oid.len = 11;
-			memcpy(msg.scoped.pdu.varbinds[0].oid.ids, unknown_engine_oid,
-			       sizeof(unknown_engine_oid));
-			msg.scoped.pdu.varbinds[0].type = SNMP_TAG_COUNTER32;
-			msg.scoped.pdu.varbinds[0].val.uint_val = 0;
-			msg.scoped.pdu.varbind_cnt = 1;
-		}
-
 		msg.global.msg_max_size = CONFIG_SNMP_MAX_PDU_SIZE;
-		msg.global.msg_security_model = 3;
-		uint8_t eng_len = sizeof(msg.scoped.context_engine_id);
-		if (snmp_usm_get_engine_id(agent, msg.scoped.context_engine_id, &eng_len) == 0) {
-			msg.scoped.context_engine_id_len = eng_len;
-		}
-		msg.scoped.context_name_len = 0;
+		msg.global.msg_security_model = SNMP_SEC_MODEL_USM;
 
 		ret = snmp_usm_build_outgoing(agent, &msg);
 		if (ret < 0) {
@@ -519,13 +561,15 @@ static int process_v3(struct snmp_agent *agent, const uint8_t *req_buf, size_t r
 		return 0;
 	}
 
-	/* VACM access check per RFC 3415 */
-	int sec_level = SNMP_SEC_LEVEL_NOAUTH_NOPRIV;
-	if (msg.global.msg_flags & 0x02) {
-		sec_level = SNMP_SEC_LEVEL_AUTH_PRIV;
-	} else if (msg.global.msg_flags & 0x01) {
-		sec_level = SNMP_SEC_LEVEL_AUTH_NOPRIV;
+	/* Only request PDUs are processed; a Response/Trap/Report is dropped. */
+	if (!pdu_is_request(msg.scoped.pdu.type)) {
+		INST_COUNTER_INC(agent, snmpSilentDrops);
+		agent->mpd_stats.unknown_pdu_handlers++;
+		return -EACCES;
 	}
+
+	/* VACM access check per RFC 3415, using the *verified* level. */
+	int sec_level = msg.sec_level;
 	int access_type = (msg.scoped.pdu.type == SNMP_PDU_SET_REQ) ? SNMP_VACM_ACCESS_WRITE
 								    : SNMP_VACM_ACCESS_READ;
 
@@ -536,23 +580,20 @@ static int process_v3(struct snmp_agent *agent, const uint8_t *req_buf, size_t r
 	memcpy(user_name, msg.usm.user_name, name_len);
 	user_name[name_len] = '\0';
 
+	bool authorized = true;
+
 	if (msg.scoped.pdu.varbind_cnt == 0) {
-		ret = snmp_vacm_check_access_ex(agent, (const char *)msg.scoped.context_name,
-						msg.global.msg_security_model, user_name, sec_level,
-						access_type, NULL);
-		if (ret < 0) {
-			INST_COUNTER_INC(agent, snmpSilentDrops);
-			return ret;
-		}
+		authorized = snmp_vacm_check_access_ex(agent, (const char *)msg.scoped.context_name,
+						       msg.global.msg_security_model, user_name,
+						       sec_level, access_type, NULL) == 0;
 	} else {
 		for (size_t i = 0; i < msg.scoped.pdu.varbind_cnt; i++) {
-			ret = snmp_vacm_check_access_ex(
-			    agent, (const char *)msg.scoped.context_name,
-			    msg.global.msg_security_model, user_name, sec_level, access_type,
-			    &msg.scoped.pdu.varbinds[i].oid);
-			if (ret < 0) {
-				INST_COUNTER_INC(agent, snmpSilentDrops);
-				return ret;
+			if (snmp_vacm_check_access_ex(agent, (const char *)msg.scoped.context_name,
+						      msg.global.msg_security_model, user_name,
+						      sec_level, access_type,
+						      &msg.scoped.pdu.varbinds[i].oid) < 0) {
+				authorized = false;
+				break;
 			}
 		}
 	}
@@ -563,15 +604,34 @@ static int process_v3(struct snmp_agent *agent, const uint8_t *req_buf, size_t r
 		non_rep = msg.scoped.pdu.varbind_cnt;
 	}
 
-	/* Dispatch to MIB */
-	ret = snmp_mib_dispatch(agent, &msg.scoped.pdu);
-	if (ret < 0) {
-		return ret;
+	if (!authorized) {
+		/*
+		 * RFC 3415 §5.5: a read/write class denial is answered with a Response
+		 * carrying authorizationError and errorIndex 0. Dropping the message
+		 * instead (the previous behaviour) makes a misconfigured view
+		 * indistinguishable from packet loss on the manager side.
+		 */
+		msg.scoped.pdu.type = SNMP_PDU_GET_RESP;
+		msg.scoped.pdu.error_status = SNMP_ERR_AUTHORIZATION_ERR;
+		msg.scoped.pdu.error_index = 0;
+	} else if (req_type == SNMP_PDU_INFORM_REQ) {
+		/* Acknowledge the notification; no MIB lookup (RFC 3416 §4.2.7). */
+		msg.scoped.pdu.type = SNMP_PDU_GET_RESP;
+		msg.scoped.pdu.error_status = SNMP_ERR_NO_ERROR;
+		msg.scoped.pdu.error_index = 0;
+		INST_COUNTER_INC(agent, snmpInTraps);
+	} else {
+		ret = snmp_mib_dispatch(agent, &msg.scoped.pdu);
+		if (ret < 0) {
+			return ret;
+		}
 	}
 
 	/* Set response metadata (RFC 3412 §7.1: echo request's contextEngineID and contextName) */
 	msg.global.msg_max_size = CONFIG_SNMP_MAX_PDU_SIZE;
-	msg.global.msg_security_model = 3;
+	msg.global.msg_security_model = SNMP_SEC_MODEL_USM;
+	/* Response must use the same verified security level as the request. */
+	msg.sec_level = (uint8_t)sec_level;
 
 	/* Build outgoing USM */
 	ret = snmp_usm_build_outgoing(agent, &msg);
@@ -626,10 +686,23 @@ static int process_v3(struct snmp_agent *agent, const uint8_t *req_buf, size_t r
 int snmp_agent_process_pdu(struct snmp_agent *agent, const uint8_t *req_buf, size_t req_len,
 			   uint8_t *resp_buf, size_t max_resp_len, size_t *out_resp_len)
 {
+	int ret;
+
 	if (!agent || !req_buf || !resp_buf || !out_resp_len) {
 		return -EINVAL;
 	}
+
+	/*
+	 * Serialise the whole request against the agent's own scratch state: rx/tx
+	 * buffers, current_pdu and the MIB tree. The socket-service callback already
+	 * holds this lock (Zephyr k_mutex is recursive for its owner, so re-locking
+	 * here is safe) but direct/test callers do not, and process_v3() previously
+	 * ran completely unlocked.
+	 */
+	k_mutex_lock(&agent->lock, K_FOREVER);
+
 	if (agent->state == SNMP_AGENT_UNINIT) {
+		k_mutex_unlock(&agent->lock);
 		return -EPERM;
 	}
 
@@ -638,21 +711,34 @@ int snmp_agent_process_pdu(struct snmp_agent *agent, const uint8_t *req_buf, siz
 
 	int version = snmp_detect_version(req_buf, req_len);
 
+	if (version < 0) {
+		/* Not an SNMP message at all: this is a BER failure, not a bad version. */
+		INST_COUNTER_INC(agent, snmpInASNParseErrs);
+		k_mutex_unlock(&agent->lock);
+		return -EBADMSG;
+	}
+
 	switch (version) {
 	case 0:
 	case 1:
-		return process_v1v2c(agent, req_buf, req_len, resp_buf, max_resp_len, out_resp_len);
+		ret = process_v1v2c(agent, req_buf, req_len, resp_buf, max_resp_len, out_resp_len);
+		break;
 	case 3:
 #if defined(CONFIG_SNMP_VERSION_3)
-		return process_v3(agent, req_buf, req_len, resp_buf, max_resp_len, out_resp_len);
+		ret = process_v3(agent, req_buf, req_len, resp_buf, max_resp_len, out_resp_len);
 #else
 		INST_COUNTER_INC(agent, snmpInBadVersions);
-		return -ENOTSUP;
+		ret = -ENOTSUP;
 #endif
+		break;
 	default:
 		INST_COUNTER_INC(agent, snmpInBadVersions);
-		return -ENOTSUP;
+		ret = -ENOTSUP;
+		break;
 	}
+
+	k_mutex_unlock(&agent->lock);
+	return ret;
 }
 
 #endif /* CONFIG_SNMP_AGENT */

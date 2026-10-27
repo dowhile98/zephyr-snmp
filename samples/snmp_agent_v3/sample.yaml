@@ -1,0 +1,15 @@
+sample:
+  name: SNMPv3 Agent Sample
+  description: >-
+    SNMPv3 agent validation sample: USM authPriv and authNoPriv users, VACM
+    restricted views, engine discovery/Report PDUs, AES-128-CFB privacy and v3
+    notifications. Uses public test-only credentials.
+tests:
+  sample.net.snmp.v3:
+    platform_allow:
+      - native_sim
+      - qemu_x86
+    tags:
+      - net
+      - snmp
+      - security

@@ -11,6 +11,7 @@ add_executable(snmp_unit_tests
     main.c
     test_ber.c
     test_oid.c
+    test_core.c
     test_mib.c
     test_multi_instance.c
     test_set_2pc.c

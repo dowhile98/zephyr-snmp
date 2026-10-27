@@ -72,7 +72,13 @@ int snmp_ber_decode_header(const uint8_t *buf, size_t buf_len, size_t *off, uint
 		}
 	}
 
-	if (*off + *len > buf_len) {
+	/*
+	 * Compare against the remaining length instead of computing *off + *len:
+	 * a hostile 0xFFFFFFFF length would wrap size_t on 32-bit targets and the
+	 * addition would look in-bounds while every later memcpy walks off the
+	 * buffer. *off <= buf_len is guaranteed above, so the subtraction is safe.
+	 */
+	if (*len > buf_len - *off) {
 		return -EBADMSG;
 	}
 	return 0;
@@ -250,6 +256,10 @@ int snmp_ber_decode_uint64(const uint8_t *buf, size_t buf_len, size_t *off, uint
 	if (len > 9 || len == 0)
 		return -EBADMSG;
 
+	/* A 9-octet unsigned integer is only legal when padded with 0x00. */
+	if (len == 9 && (*off >= buf_len || buf[*off] != 0x00))
+		return -EBADMSG;
+
 	uint64_t res = 0;
 	for (size_t i = 0; i < len; i++) {
 		res = (res << 8) | buf[(*off)++];
@@ -298,14 +308,21 @@ int snmp_ber_decode_octet_string(const uint8_t *buf, size_t buf_len, size_t *off
 {
 	uint8_t tag;
 	size_t len;
-	int ret = snmp_ber_decode_header(buf, buf_len, off, &tag, &len);
+	int ret;
+
+	if (!buf || !off || !out) {
+		return -EINVAL;
+	}
+
+	ret = snmp_ber_decode_header(buf, buf_len, off, &tag, &len);
 	if (ret < 0)
 		return ret;
 	if (tag != ASN1_TAG_OCTET_STRING && tag != SNMP_TAG_IPADDRESS && tag != SNMP_TAG_OPAQUE)
 		return -EBADMSG;
 
-	if (len > max_out)
+	if (len > max_out || len > buf_len - *off) {
 		return -ENOBUFS;
+	}
 	memcpy(out, &buf[*off], len);
 	*off += len;
 	if (out_len)
@@ -342,24 +359,65 @@ int snmp_ber_decode_oid(const uint8_t *buf, size_t buf_len, size_t *off, struct 
 	size_t start_off = *off;
 	size_t end_off = start_off + len;
 
+	/*
+	 * The first sub-identifier is encoded like any other base-128 value and
+	 * carries arcs 0/1/2 plus the second arc. Decoding it as a raw byte
+	 * (first / 40) mis-parses every arc-2 OID whose second arc is >= 40,
+	 * i.e. every 2.x OID outside the legacy 0/1 space.
+	 */
+	uint32_t first_val = 0;
+	bool first_done = false;
+
+	while (start_off < end_off) {
+		uint8_t b = buf[start_off++];
+
+		if (first_val > (UINT32_MAX >> 7)) {
+			return -E2BIG;
+		}
+		first_val = (first_val << 7) | (b & 0x7F);
+		if ((b & 0x80) == 0) {
+			first_done = true;
+			break;
+		}
+	}
+
+	if (!first_done) {
+		return -EBADMSG;
+	}
+
 	oid->len = 0;
-	if (start_off < end_off) {
-		uint8_t first = buf[start_off++];
-		oid->ids[0] = first / 40;
-		oid->ids[1] = first % 40;
-		oid->len = 2;
+	if (first_val < 40) {
+		oid->ids[oid->len++] = 0;
+		oid->ids[oid->len++] = first_val;
+	} else if (first_val < 80) {
+		oid->ids[oid->len++] = 1;
+		oid->ids[oid->len++] = first_val - 40;
+	} else {
+		oid->ids[oid->len++] = 2;
+		oid->ids[oid->len++] = first_val - 80;
 	}
 
 	while (start_off < end_off) {
 		uint32_t val = 0;
+		bool done = false;
 		while (start_off < end_off) {
 			uint8_t b = buf[start_off++];
+
+			if (val > (UINT32_MAX >> 7)) {
+				return -E2BIG;
+			}
 			val = (val << 7) | (b & 0x7F);
-			if ((b & 0x80) == 0)
+			if ((b & 0x80) == 0) {
+				done = true;
 				break;
+			}
 		}
-		if (oid->len >= CONFIG_SNMP_MAX_OID_LEN)
+		if (!done) {
+			return -EBADMSG;
+		}
+		if (oid->len >= CONFIG_SNMP_MAX_OID_LEN) {
 			return -E2BIG;
+		}
 		oid->ids[oid->len++] = val;
 	}
 
@@ -369,30 +427,55 @@ int snmp_ber_decode_oid(const uint8_t *buf, size_t buf_len, size_t *off, struct 
 
 int snmp_ber_encode_oid(uint8_t *buf, size_t buf_len, size_t *off, const struct snmp_oid *oid)
 {
-	if (!oid || oid->len < 2)
+	if (!buf || !off || !oid || oid->len < 2) {
 		return -EINVAL;
+	}
 
-	if (oid->ids[0] > 2 || (oid->ids[0] < 2 && oid->ids[1] > 39))
+	if (oid->ids[0] > 2 || (oid->ids[0] < 2 && oid->ids[1] > 39)) {
 		return -EINVAL;
+	}
+	if (oid->ids[0] == 2 && oid->ids[1] > (UINT32_MAX - 80U)) {
+		return -EINVAL;
+	}
 
 	uint8_t tmp[CONFIG_SNMP_MAX_OID_LEN * 5];
 	size_t tmp_len = 0;
 
-	tmp[tmp_len++] = (uint8_t)(oid->ids[0] * 40 + oid->ids[1]);
+	/* First sub-identifier (X*40 + Y) may exceed 127 for arc 2 OIDs. */
+	uint32_t first_val = oid->ids[0] * 40U + oid->ids[1];
+	uint8_t sub_tmp[5];
+	int sub_len = 0;
+
+	do {
+		sub_tmp[sub_len++] = (uint8_t)(first_val & 0x7F);
+		first_val >>= 7;
+	} while (first_val > 0);
+
+	for (int j = sub_len - 1; j >= 0; j--) {
+		uint8_t b = sub_tmp[j];
+
+		if (j > 0) {
+			b |= 0x80;
+		}
+		tmp[tmp_len++] = b;
+	}
+
 	for (uint8_t i = 2; i < oid->len; i++) {
 		uint32_t val = oid->ids[i];
-		uint8_t sub_tmp[5];
-		int sub_len = 0;
+		uint8_t arc_tmp[5];
+		int arc_len = 0;
 
 		do {
-			sub_tmp[sub_len++] = (uint8_t)(val & 0x7F);
+			arc_tmp[arc_len++] = (uint8_t)(val & 0x7F);
 			val >>= 7;
 		} while (val > 0);
 
-		for (int j = sub_len - 1; j >= 0; j--) {
-			uint8_t b = sub_tmp[j];
-			if (j > 0)
+		for (int j = arc_len - 1; j >= 0; j--) {
+			uint8_t b = arc_tmp[j];
+
+			if (j > 0) {
 				b |= 0x80;
+			}
 			tmp[tmp_len++] = b;
 		}
 	}
@@ -400,7 +483,7 @@ int snmp_ber_encode_oid(uint8_t *buf, size_t buf_len, size_t *off, const struct 
 	int ret = snmp_ber_encode_header(buf, buf_len, off, ASN1_TAG_OID, tmp_len);
 	if (ret < 0)
 		return ret;
-	if (*off + tmp_len > buf_len)
+	if (*off > buf_len || tmp_len > buf_len - *off)
 		return -ENOBUFS;
 
 	memcpy(&buf[*off], tmp, tmp_len);
@@ -479,55 +562,75 @@ int snmp_ber_decode_pdu_body(const uint8_t *buf, size_t buf_len, size_t *in_out_
 	if (vb_end > buf_len)
 		return -EBADMSG;
 
-	while (off < vb_end && pdu->varbind_cnt < CONFIG_SNMP_MAX_VARBINDS) {
+	while (off < vb_end) {
 		size_t vb_len;
-		ret = snmp_ber_decode_header(buf, buf_len, &off, &tag, &vb_len);
-		if (ret < 0 || tag != ASN1_TAG_SEQUENCE)
+		uint8_t vb_tag;
+
+		ret = snmp_ber_decode_header(buf, buf_len, &off, &vb_tag, &vb_len);
+		if (ret < 0 || vb_tag != ASN1_TAG_SEQUENCE)
 			return -EBADMSG;
 
+		/*
+		 * Bound every field of this varbind by its own SEQUENCE length:
+		 * without this an inner length can point into the next varbind and
+		 * make the decoded value disagree with the encoded structure.
+		 */
+		if (vb_len > vb_end - off)
+			return -EBADMSG;
+		size_t vb_end_inner = off + vb_len;
+
+		if (pdu->varbind_cnt >= CONFIG_SNMP_MAX_VARBINDS) {
+			/* RFC 3416: a request we cannot represent is rejected, not silently
+			 * truncated (a truncated SET would acknowledge writes we did not do).
+			 */
+			return -E2BIG;
+		}
+
 		struct snmp_varbind *vb = &pdu->varbinds[pdu->varbind_cnt];
-		ret = snmp_ber_decode_oid(buf, buf_len, &off, &vb->oid);
+		ret = snmp_ber_decode_oid(buf, vb_end_inner, &off, &vb->oid);
 		if (ret < 0)
 			return ret;
 
 		size_t val_start = off;
-		ret = snmp_ber_decode_header(buf, buf_len, &off, &vb->type, &len);
+		ret = snmp_ber_decode_header(buf, vb_end_inner, &off, &vb->type, &len);
 		if (ret < 0)
 			return ret;
 		off = val_start;
 
 		switch (vb->type) {
 		case ASN1_TAG_INTEGER:
-			ret = snmp_ber_decode_int(buf, buf_len, &off, &vb->val.int_val);
+			ret = snmp_ber_decode_int(buf, vb_end_inner, &off, &vb->val.int_val);
 			break;
 		case ASN1_TAG_OCTET_STRING:
 		case SNMP_TAG_OPAQUE:
 			ret = snmp_ber_decode_octet_string(
-			    buf, buf_len, &off, vb->val.octet_str.data,
+			    buf, vb_end_inner, &off, vb->val.octet_str.data,
 			    sizeof(vb->val.octet_str.data), &vb->val.octet_str.len);
 			break;
 
 		case SNMP_TAG_IPADDRESS:
-			ret = snmp_ber_decode_octet_string(buf, buf_len, &off, vb->val.ip_addr, 4,
-							   NULL);
+			ret = snmp_ber_decode_octet_string(buf, vb_end_inner, &off, vb->val.ip_addr,
+							   4, NULL);
 			break;
 		case ASN1_TAG_NULL:
 		case SNMP_TAG_EXCEPT_NO_SUCH_OBJ:
 		case SNMP_TAG_EXCEPT_NO_SUCH_INST:
 		case SNMP_TAG_EXCEPT_END_MIB_VIEW:
-			snmp_ber_decode_header(buf, buf_len, &off, &tag, &len);
+			ret = snmp_ber_decode_header(buf, vb_end_inner, &off, &tag, &len);
+			if (ret == 0 && len != 0)
+				ret = -EBADMSG;
 			break;
 		case ASN1_TAG_OID:
-			ret = snmp_ber_decode_oid(buf, buf_len, &off, &vb->val.oid);
+			ret = snmp_ber_decode_oid(buf, vb_end_inner, &off, &vb->val.oid);
 			break;
 		case SNMP_TAG_COUNTER32:
 		case SNMP_TAG_GAUGE32:
 		case SNMP_TAG_TIMETICKS:
 		case SNMP_TAG_UNSIGNED32:
-			ret = snmp_ber_decode_uint(buf, buf_len, &off, &vb->val.uint_val);
+			ret = snmp_ber_decode_uint(buf, vb_end_inner, &off, &vb->val.uint_val);
 			break;
 		case SNMP_TAG_COUNTER64:
-			ret = snmp_ber_decode_uint64(buf, buf_len, &off, &vb->val.uint64_val);
+			ret = snmp_ber_decode_uint64(buf, vb_end_inner, &off, &vb->val.uint64_val);
 			break;
 		default:
 			return -EBADMSG;
@@ -535,7 +638,14 @@ int snmp_ber_decode_pdu_body(const uint8_t *buf, size_t buf_len, size_t *in_out_
 
 		if (ret < 0)
 			return ret;
+		if (off != vb_end_inner)
+			return -EBADMSG;
+
 		pdu->varbind_cnt++;
+	}
+
+	if (off != vb_end) {
+		return -EBADMSG;
 	}
 
 	*in_out_off = off;
@@ -923,6 +1033,15 @@ int snmp_ber_encode_pdu(uint8_t *buf, size_t buf_len, size_t *out_len, const str
 
 /* ---- SNMPv3 message decode / encode (RFC 3412) ---- */
 
+/*
+ * RFC 3412 section 6: msgSecurityModel 3 is USM. RFC 3412 section 8.1 sets
+ * msgMaxSize's lower bound to 484 octets (a GetResponse carrying 4 varbinds).
+ * A message that advertises less than that cannot be answered within its own
+ * limit, so accepting it would only guarantee a truncated response.
+ */
+#define SNMP_BER_SEC_MODEL_USM 3
+#define SNMP_BER_MIN_MAX_SIZE 484
+
 int snmp_ber_decode_v3_msg(const uint8_t *buf, size_t buf_len, struct snmp_v3_msg *msg)
 {
 	if (!buf || !msg)
@@ -933,6 +1052,12 @@ int snmp_ber_decode_v3_msg(const uint8_t *buf, size_t buf_len, struct snmp_v3_ms
 	size_t len;
 
 	memset(msg, 0, sizeof(*msg));
+	/*
+	 * msgData carries an SNMPv1/v2c-style PDU: there is no version field on the
+	 * wire. Mark it v3 so the MIB engine uses v2 error semantics (not the v1
+	 * noSuchName path). Without this the whole v3 path silently behaved as v1.
+	 */
+	msg->scoped.pdu.version = 3;
 
 	/* Outer SEQUENCE */
 	int ret = snmp_ber_decode_header(buf, buf_len, &off, &tag, &len);
@@ -957,6 +1082,8 @@ int snmp_ber_decode_v3_msg(const uint8_t *buf, size_t buf_len, struct snmp_v3_ms
 	ret = snmp_ber_decode_int(buf, buf_len, &off, &msg->global.msg_max_size);
 	if (ret < 0)
 		return ret;
+	if (msg->global.msg_max_size < SNMP_BER_MIN_MAX_SIZE)
+		return -EBADMSG;
 
 	/* msgFlags: OCTET STRING of size 1 */
 	uint16_t flags_len = 0;
@@ -969,13 +1096,32 @@ int snmp_ber_decode_v3_msg(const uint8_t *buf, size_t buf_len, struct snmp_v3_ms
 	ret = snmp_ber_decode_int(buf, buf_len, &off, &msg->global.msg_security_model);
 	if (ret < 0)
 		return ret;
+	/* Only USM exists in this agent; any other model is unimplemented (RFC 3412 §7.1). */
+	if (msg->global.msg_security_model != SNMP_BER_SEC_MODEL_USM)
+		return -ENOTSUP;
 
-	/* msgSecurityParameters: OCTET STRING wrapper, then decode inner USM SEQUENCE */
+	/*
+	 * msgSecurityParameters: OCTET STRING wrapper, then decode the inner USM
+	 * SEQUENCE. The wrapper value is captured separately so the absolute
+	 * offset of msgAuthenticationParameters inside the *original* datagram can
+	 * be recorded for RFC 3414 section 6.3.1 HMAC verification.
+	 */
+	uint8_t sec_tag;
+	size_t sec_wrapper_len;
+
 	uint8_t sec_raw[256];
 	uint16_t sec_len = 0;
-	ret = snmp_ber_decode_octet_string(buf, buf_len, &off, sec_raw, sizeof(sec_raw), &sec_len);
-	if (ret < 0)
-		return ret;
+	size_t sec_val_off;
+
+	ret = snmp_ber_decode_header(buf, buf_len, &off, &sec_tag, &sec_wrapper_len);
+	if (ret < 0 || sec_tag != ASN1_TAG_OCTET_STRING)
+		return -EBADMSG;
+	if (sec_wrapper_len > sizeof(sec_raw) || sec_wrapper_len > buf_len - off)
+		return -ENOBUFS;
+	sec_val_off = off;
+	memcpy(sec_raw, &buf[off], sec_wrapper_len);
+	off += sec_wrapper_len;
+	sec_len = (uint16_t)sec_wrapper_len;
 
 	/* Decode USM SEQUENCE inside */
 	size_t usm_off = 0;
@@ -1005,11 +1151,23 @@ int snmp_ber_decode_v3_msg(const uint8_t *buf, size_t buf_len, struct snmp_v3_ms
 	msg->usm.user_name_len = tmp_len;
 	msg->usm.user_name[tmp_len] = '\0';
 
-	ret = snmp_ber_decode_octet_string(sec_raw, sec_len, &usm_off, msg->usm.auth_params,
-					   SNMP_V3_AUTH_PARAMS_LEN, &tmp_len);
-	if (ret < 0)
-		return ret;
-	msg->usm.auth_params_len = tmp_len;
+	/*
+	 * Decode msgAuthenticationParameters by hand: snmp_ber_decode_octet_string()
+	 * consumes the header internally, and the HMAC has to be computed over the
+	 * datagram as received with exactly this value zeroed.
+	 */
+	uint8_t auth_tag;
+	size_t auth_val_len;
+
+	ret = snmp_ber_decode_header(sec_raw, sec_len, &usm_off, &auth_tag, &auth_val_len);
+	if (ret < 0 || auth_tag != ASN1_TAG_OCTET_STRING)
+		return -EBADMSG;
+	if (auth_val_len > SNMP_V3_AUTH_PARAMS_LEN || auth_val_len > sec_len - usm_off)
+		return -ENOBUFS;
+	memcpy(msg->usm.auth_params, &sec_raw[usm_off], auth_val_len);
+	msg->usm.auth_params_len = (uint16_t)auth_val_len;
+	msg->usm.auth_params_raw_off = sec_val_off + usm_off;
+	usm_off += auth_val_len;
 
 	ret = snmp_ber_decode_octet_string(sec_raw, sec_len, &usm_off, msg->usm.priv_params,
 					   SNMP_V3_PRIV_PARAMS_LEN, &tmp_len);
@@ -1017,21 +1175,23 @@ int snmp_ber_decode_v3_msg(const uint8_t *buf, size_t buf_len, struct snmp_v3_ms
 		return ret;
 	msg->usm.priv_params_len = tmp_len;
 
-	/* msgData: ScopedPDU */
+	/* msgData: ScopedPduData CHOICE { plaintext ScopedPDU, encryptedPDU OCTET STRING } */
 	ret = snmp_ber_decode_header(buf, buf_len, &off, &tag, &len);
-	if (ret < 0 || tag != ASN1_TAG_SEQUENCE)
+	if (ret < 0)
 		return -EBADMSG;
 
-	/* When priv flag is set, scopedPDU contains a single OCTET STRING
+	/* When priv flag is set, scopedPDU is a single OCTET STRING
 	 * (encrypted data). Store offset/length for later decryption. */
 	if (msg->global.msg_flags & 0x02) {
-		ret = snmp_ber_decode_header(buf, buf_len, &off, &tag, &len);
-		if (ret < 0 || tag != ASN1_TAG_OCTET_STRING)
+		if (tag != ASN1_TAG_OCTET_STRING)
 			return -EBADMSG;
 		msg->scoped.encrypted_raw_off = off;
 		msg->scoped.encrypted_raw_len = len;
 		return 0;
 	}
+
+	if (tag != ASN1_TAG_SEQUENCE)
+		return -EBADMSG;
 
 	ret = snmp_ber_decode_octet_string(buf, buf_len, &off, msg->scoped.context_engine_id,
 					   SNMP_V3_ENGINE_ID_MAX_LEN, &tmp_len);
@@ -1065,8 +1225,7 @@ int snmp_ber_encode_v3_msg(uint8_t *buf, size_t buf_len, size_t *out_len,
 	size_t outer_end = pos;
 	int ret;
 
-	/* 1. ScopedPDU */
-	size_t scoped_end = pos;
+	/* 1. ScopedPduData CHOICE { plaintext ScopedPDU, encryptedPDU OCTET STRING } */
 	if (msg->global.msg_flags & 0x02) {
 		ret = ber_push_octet_string(buf, &pos, ASN1_TAG_OCTET_STRING,
 					    msg->scoped.priv_ciphertext,
@@ -1075,6 +1234,8 @@ int snmp_ber_encode_v3_msg(uint8_t *buf, size_t buf_len, size_t *out_len,
 			return ret;
 		}
 	} else {
+		size_t scoped_end = pos;
+
 		ret = ber_push_pdu_body(buf, &pos, &msg->scoped.pdu);
 		if (ret < 0) {
 			return ret;
@@ -1090,11 +1251,11 @@ int snmp_ber_encode_v3_msg(uint8_t *buf, size_t buf_len, size_t *out_len,
 		if (ret < 0) {
 			return ret;
 		}
-	}
-	size_t scoped_len = scoped_end - pos;
-	ret = ber_push_header(buf, &pos, ASN1_TAG_SEQUENCE, scoped_len);
-	if (ret < 0) {
-		return ret;
+		size_t scoped_len = scoped_end - pos;
+		ret = ber_push_header(buf, &pos, ASN1_TAG_SEQUENCE, scoped_len);
+		if (ret < 0) {
+			return ret;
+		}
 	}
 
 	/* 2. msgSecurityParameters (USM SEQUENCE inside OCTET STRING) */

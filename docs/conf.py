@@ -7,7 +7,7 @@
 project = 'zephyr-snmp'
 copyright = '2026, StructCore Embedded'
 author = 'StructCore Embedded'
-release = '1.0.0'
+release = '2.0.0'
 
 # -- General configuration ---------------------------------------------------
 extensions = ['sphinx.ext.intersphinx', 'breathe']
@@ -32,3 +32,5 @@ except ImportError:
 intersphinx_mapping = {
     'zephyr': ('https://docs.zephyrproject.org/latest/', None)
 }
+intersphinx_timeout = 2
+

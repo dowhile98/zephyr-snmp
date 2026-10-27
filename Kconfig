@@ -93,9 +93,9 @@ config SNMP_VERSION_3
 	select PSA_WANT_ALG_CFB
 	select PSA_WANT_ALG_HMAC
 	select PSA_WANT_KEY_TYPE_HMAC
-	select PSA_WANT_ALG_SHA_1
-	select PSA_WANT_ALG_MD5
-	select PSA_WANT_ALG_SHA_256
+	# The hash algorithms are selected by SNMP_USM_AUTH_SHA / _SHA256 / _MD5 below,
+	# so a build that disables a protocol does not drag in its hash (and enabling
+	# MD5 as a side effect of v3 would trip the "not secure symbol" warning).
 	help
 	  SNMPv3 (RFC 3412/3414/3415) — User-based Security Model (USM)
 	  with HMAC-SHA1/SHA256 authentication and AES-128-CFB privacy.
@@ -175,15 +175,35 @@ config SNMP_USM_PRIV_AES
 	  (RFC 3414). Uses a 16-byte initialization vector.
 
 config SNMP_USM_PRIV_DES
-	bool "Enable DES privacy encryption"
+	bool "DES privacy encryption (NOT IMPLEMENTED)"
 	default n
 	help
-	  Enable DES in CBC mode for SNMPv3 scopedPDU encryption
-	  (RFC 3414). DES is deprecated and should only be used for
-	  legacy NMS compatibility.
+	  Reserved symbol: DES-CBC privacy is not implemented. Enabling this
+	  only documents intent; snmp_usm_add_user() rejects users whose
+	  priv_protocol is SNMP_USM_PRIV_DES with -ENOTSUP. Use AES-128-CFB.
+
+config SNMP_V3_AUTH_PROTOCOL
+	int "Default SNMPv3 authentication protocol"
+	range 0 3
+	default 1
+	help
+	  Authentication protocol for the compile-time default user:
+	    0 = none, 1 = HMAC-SHA-1, 2 = HMAC-MD5, 3 = HMAC-SHA-256.
+	  A value of 0 makes the default user noAuthNoPriv. MD5 is usable
+	  only when SNMP_USM_AUTH_MD5 is enabled.
+
+config SNMP_V3_PRIV_PROTOCOL
+	int "Default SNMPv3 privacy protocol"
+	range 0 1
+	default 1
+	help
+	  0 = none, 1 = AES-128-CFB. Privacy requires an authentication
+	  protocol (SNMP_V3_AUTH_PROTOCOL != 0); privacy with no
+	  authentication is rejected at init.
 
 config SNMP_V3_MAX_USERS
 	int "Maximum USM users per agent instance"
+	range 1 32
 	default 4
 	help
 	  Size of the snmpEngineID-localised user table inside every struct
@@ -193,24 +213,28 @@ config SNMP_V3_MAX_USERS
 
 config SNMP_VACM_MAX_CONTEXTS
 	int "Maximum VACM contexts"
+	range 1 64
 	default 8
 	help
 	  Maximum number of contexts in vacmContextTable (RFC 3415).
 
 config SNMP_VACM_MAX_GROUPS
 	int "Maximum VACM group mappings"
+	range 1 64
 	default 16
 	help
 	  Maximum number of security-to-group mappings in vacmSecurityToGroupTable (RFC 3415).
 
 config SNMP_VACM_MAX_ACCESS_RULES
 	int "Maximum VACM access rules"
+	range 1 64
 	default 16
 	help
 	  Maximum number of access rules in vacmAccessTable (RFC 3415).
 
 config SNMP_VACM_MAX_VIEW_TREES
 	int "Maximum VACM view tree family entries"
+	range 1 128
 	default 32
 	help
 	  Maximum number of view tree family entries in vacmViewTreeFamilyTable (RFC 3415).
@@ -220,14 +244,17 @@ endif # SNMP_VERSION_3
 
 config SNMP_MAX_PDU_SIZE
 	int "Maximum SNMP PDU size in bytes"
+	range 484 65535
 	default 1024
 	help
 	  Maximum size of a single SNMP packet (request or response).
 	  Larger GetBulk responses are truncated. Most SNMP implementations
 	  use 1500-2048; 1024 is conservative for embedded use.
+	  The lower bound is RFC 3412 §8.1's 484-octet minimum msgMaxSize.
 
 config SNMP_MAX_OID_LEN
 	int "Maximum OID depth"
+	range 2 128
 	default 16
 	help
 	  Maximum number of sub-identifiers in an OID. A typical enterprise
@@ -236,6 +263,7 @@ config SNMP_MAX_OID_LEN
 
 config SNMP_MAX_VARBINDS
 	int "Maximum Varbinds per PDU"
+	range 1 255
 	default 32
 	help
 	  Maximum number of variable bindings in a single request/response.
@@ -314,12 +342,23 @@ endchoice
 
 config SNMP_TRAP_DEST_COUNT
 	int "Maximum concurrent trap destinations"
+	range 1 16
 	default 3
 	help
 	  Maximum number of trap destination hosts.
 	  Destinations are configured at runtime via
 	  snmp_trap_add_destination(). Increase this if you need
 	  to send traps to more than 3 NMS servers.
+
+config SNMP_TRAP_V3_USER
+	string "SNMPv3 notification user name"
+	default ""
+	depends on SNMP_TRAP_FORMAT_V3
+	help
+	  USM user used to authenticate and encrypt outgoing SNMPv3
+	  notifications. Empty selects the first configured USM user,
+	  falling back to SNMP_V3_USER_NAME when the table is empty.
+	  The named user must already exist in the agent's user table.
 
 endif # SNMP_TRAP_ENABLED
 

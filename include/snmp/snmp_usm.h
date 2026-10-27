@@ -111,6 +111,14 @@ uint32_t snmp_usm_get_engine_time(struct snmp_agent *inst);
  */
 int snmp_usm_set_engine_time(struct snmp_agent *inst, uint32_t time);
 
+/**
+ * @brief Register RFC 3411 (snmpFrameworkMIB), RFC 3412 (snmpMPD) and RFC 3414
+ *        (usmMIB stats) managed objects in the agent's MIB tree.
+ * @param inst Target agent instance.
+ * @return 0 on success, negative errno on failure.
+ */
+int snmp_usm_register_mibs(struct snmp_agent *inst);
+
 /*
  * snmp_usm_verify_incoming() and snmp_usm_build_outgoing() are module-internal:
  * they are called across translation units (snmp_core.c, snmp_trap.c) and are

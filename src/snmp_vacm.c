@@ -261,9 +261,17 @@ int snmp_vacm_init(struct snmp_agent *inst)
 		return ret;
 	}
 
-	/* View "restrictedView": includes system group (1.3.6.1.2.1.1) */
+	/* View "restrictedView": includes system group (1.3.6.1.2.1.1) and snmpEngine
+	 * (1.3.6.1.6.3.10.2.1) */
 	struct snmp_oid system_oid = {.len = 7, .ids = {1, 3, 6, 1, 2, 1, 1}};
 	ret = snmp_vacm_add_view_tree(inst, "restrictedView", &system_oid, NULL, 0,
+				      SNMP_VACM_VIEW_INCLUDED);
+	if (ret < 0) {
+		return ret;
+	}
+
+	struct snmp_oid engine_oid = {.len = 9, .ids = {1, 3, 6, 1, 6, 3, 10, 2, 1}};
+	ret = snmp_vacm_add_view_tree(inst, "restrictedView", &engine_oid, NULL, 0,
 				      SNMP_VACM_VIEW_INCLUDED);
 	if (ret < 0) {
 		return ret;

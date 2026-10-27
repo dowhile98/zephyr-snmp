@@ -19,4 +19,5 @@ target_sources(app PRIVATE
     src/test_multi_instance.c
     src/test_set_2pc.c
     src/test_vacm.c
+    src/test_usm.c
 )

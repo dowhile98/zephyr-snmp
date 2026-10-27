@@ -216,6 +216,16 @@ static void setup_test_nodes(void)
 	    .set_tx_cb = NULL,
 	};
 	snmp_mib_register(&s_2pc_agent, &node_ro);
+
+	/* Write-only Node (no get_cb): 1.3.6.1.4.1.9999.6.0 */
+	struct snmp_mib_node node_wo = {
+	    .oid = {.len = 8, .ids = {1, 3, 6, 1, 4, 1, 9999, 6}},
+	    .type = ASN1_TAG_INTEGER,
+	    .get_cb = NULL,
+	    .set_cb = set_legacy_val1,
+	    .set_tx_cb = NULL,
+	};
+	snmp_mib_register(&s_2pc_agent, &node_wo);
 }
 
 ZTEST(snmp_set_2pc, test_set_2pc_atomic_failure_legacy)
@@ -494,4 +504,30 @@ ZTEST(snmp_set_2pc, test_multi_instance_independence)
 	/* inst1 counters must be completely unaffected by inst2 processing */
 	ASSERT_EQ(inst1.counters.snmpInPkts, 1);
 	ASSERT_EQ(inst1.counters.snmpInBadCommunityNames, 0);
+}
+
+ZTEST(snmp_set_2pc, test_set_write_only_node_preserves_varbind)
+{
+	setup_test_nodes();
+
+	struct snmp_pdu pdu;
+	memset(&pdu, 0, sizeof(pdu));
+	pdu.version = 1; /* v2c */
+	pdu.type = SNMP_PDU_SET_REQ;
+	pdu.varbind_cnt = 1;
+	pdu.varbinds[0].oid.len = 8;
+	memcpy(pdu.varbinds[0].oid.ids, (uint32_t[]){1, 3, 6, 1, 4, 1, 9999, 6},
+	       8 * sizeof(uint32_t));
+	pdu.varbinds[0].type = ASN1_TAG_INTEGER;
+	pdu.varbinds[0].val.int_val = 777;
+
+	int ret = snmp_mib_dispatch(&s_2pc_agent, &pdu);
+	ASSERT_EQ(ret, 0);
+	ASSERT_EQ(pdu.error_status, SNMP_ERR_NO_ERROR);
+	ASSERT_EQ(pdu.error_index, 0);
+	ASSERT_EQ(s_legacy_val1, 777);
+
+	/* RFC 1157 §4.1.5 and RFC 3416 §4.2.5: Response varbind contains received value */
+	ASSERT_EQ(pdu.varbinds[0].type, ASN1_TAG_INTEGER);
+	ASSERT_EQ(pdu.varbinds[0].val.int_val, 777);
 }

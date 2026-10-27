@@ -77,6 +77,30 @@ struct snmp_agent_cfg {
 };
 
 /**
+ * @brief USM statistics counters (SNMP-USER-BASED-SM-MIB, RFC 3414 section 5).
+ *
+ * Per instance and only incremented by the receiving agent's USM path. Their
+ * values are what a Report PDU carries in its single counter varbind.
+ */
+struct snmp_usm_stats {
+	uint32_t unsupported_sec_levels; /* usmStatsUnsupportedSecLevels.0 */
+	uint32_t not_in_time_windows;	 /* usmStatsNotInTimeWindows.0 */
+	uint32_t unknown_user_names;	 /* usmStatsUnknownUserNames.0 */
+	uint32_t unknown_engine_ids;	 /* usmStatsUnknownEngineIDs.0 */
+	uint32_t wrong_digests;		 /* usmStatsWrongDigests.0 */
+	uint32_t decryption_errors;	 /* usmStatsDecryptionErrors.0 */
+};
+
+/**
+ * @brief MPD statistics counters (SNMP-MPD-MIB, RFC 3412 section 4).
+ */
+struct snmp_mpd_stats {
+	uint32_t unknown_security_models; /* snmpUnknownSecurityModels.0 */
+	uint32_t invalid_msgs;		  /* snmpInvalidMsgs.0 */
+	uint32_t unknown_pdu_handlers;	  /* snmpUnknownPDUHandlers.0 */
+};
+
+/**
  * @brief Complete SNMP agent instance state handle, encapsulating all configuration,
  *        MIB tree, USM credentials, VACM access rules, traps, transport and buffers.
  *
@@ -108,6 +132,16 @@ struct snmp_agent {
 	int64_t engine_time_base;
 	struct snmp_usm_user users[CONFIG_SNMP_V3_MAX_USERS];
 	uint8_t user_cnt;
+
+	/*
+	 * RFC 3826 section 3.1.1.3: the 64-bit salt carried in msgPrivacyParameters
+	 * must never repeat under one key. A per-engine counter is used instead of
+	 * fresh randomness per message, so a weak or repeated RNG cannot collide the
+	 * keystream. Seeded once from sys_csrand_get() in snmp_usm_init().
+	 */
+	uint64_t priv_salt;
+	struct snmp_usm_stats usm_stats;
+	struct snmp_mpd_stats mpd_stats;
 
 	/* VACM engine */
 	struct vacm_context_entry contexts[CONFIG_SNMP_VACM_MAX_CONTEXTS];

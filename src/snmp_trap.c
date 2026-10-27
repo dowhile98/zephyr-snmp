@@ -63,6 +63,16 @@ int snmp_trap_add_destination(struct snmp_agent *inst, const char *addr)
 }
 
 #if defined(SNMP_TRAP_HAVE_V3)
+static const struct snmp_usm_user *trap_find_user(const struct snmp_agent *inst, const char *name)
+{
+	for (size_t i = 0; i < CONFIG_SNMP_V3_MAX_USERS; i++) {
+		if (inst->users[i].in_use && strcmp(inst->users[i].user_name, name) == 0) {
+			return &inst->users[i];
+		}
+	}
+	return NULL;
+}
+
 static int snmp_trap_send_v3(struct snmp_agent *inst, const struct snmp_oid *trap_oid,
 			     const struct snmp_varbind *varbinds, uint8_t varbind_cnt,
 			     bool is_inform)
@@ -75,6 +85,18 @@ static int snmp_trap_send_v3(struct snmp_agent *inst, const struct snmp_oid *tra
 
 	if (!inst || !trap_oid) {
 		return -EINVAL;
+	}
+
+	/* A notification without a destination is a configuration error, not a broadcast:
+	 * blasting traps to 255.255.255.255 leaks device identity to the whole segment.
+	 */
+	if (inst->trap_dest_cnt == 0) {
+		return -EDESTADDRREQ;
+	}
+
+	/* Two mandatory varbinds (sysUpTime.0, snmpTrapOID.0) plus the caller's. */
+	if (varbind_cnt > CONFIG_SNMP_MAX_VARBINDS - 2) {
+		return -E2BIG;
 	}
 
 #if defined(CONFIG_NET_IPV4)
@@ -100,17 +122,46 @@ static int snmp_trap_send_v3(struct snmp_agent *inst, const struct snmp_oid *tra
 
 	msg.global.msg_id = (int32_t)k_uptime_get_32();
 	msg.global.msg_max_size = CONFIG_SNMP_MAX_PDU_SIZE;
-	msg.global.msg_flags = is_inform ? 0x04 : 0x00;
 	msg.global.msg_security_model = 3;
 
-	const char *user_name =
-	    inst->user_cnt > 0 ? inst->users[0].user_name : CONFIG_SNMP_V3_USER_NAME;
-	size_t u_len = strlen(user_name);
-	if (u_len > sizeof(msg.usm.user_name)) {
-		u_len = sizeof(msg.usm.user_name);
+	/*
+	 * Select the notification user explicitly. Using users[0] silently changed the
+	 * sender's identity whenever the table order changed; Kconfig lets the app name
+	 * the account that is allowed to notify.
+	 */
+#ifdef CONFIG_SNMP_TRAP_V3_USER
+	const char *user_name = CONFIG_SNMP_TRAP_V3_USER;
+#else
+	const char *user_name = "";
+#endif
+
+	if (user_name[0] == '\0') {
+		user_name =
+		    inst->user_cnt > 0 ? inst->users[0].user_name : CONFIG_SNMP_V3_USER_NAME;
+	}
+
+	size_t u_len = snmp_strnlen(user_name, sizeof(msg.usm.user_name));
+	if (u_len == 0 || u_len >= sizeof(msg.usm.user_name)) {
+		k_mutex_unlock(&inst->lock);
+		return -EACCES;
 	}
 	memcpy(msg.usm.user_name, user_name, u_len);
 	msg.usm.user_name_len = u_len;
+
+	const struct snmp_usm_user *user = trap_find_user(inst, user_name);
+	if (user == NULL) {
+		k_mutex_unlock(&inst->lock);
+		return -EACCES;
+	}
+
+	/* Traps and Informs use the strongest level this user supports (RFC 3414 §3.4). */
+	if (user->priv_protocol != SNMP_USM_PRIV_NONE) {
+		msg.sec_level = SNMP_SEC_LEVEL_AUTH_PRIV;
+	} else if (user->auth_protocol != SNMP_USM_AUTH_NONE) {
+		msg.sec_level = SNMP_SEC_LEVEL_AUTH_NOPRIV;
+	} else {
+		msg.sec_level = SNMP_SEC_LEVEL_NOAUTH_NOPRIV;
+	}
 
 	msg.scoped.pdu.version = 3;
 	msg.scoped.pdu.type = is_inform ? SNMP_PDU_INFORM_REQ : SNMP_PDU_TRAP_V2;
@@ -165,12 +216,6 @@ static int snmp_trap_send_v3(struct snmp_agent *inst, const struct snmp_oid *tra
 		return ret;
 	}
 
-	struct sockaddr_in dest;
-	memset(&dest, 0, sizeof(dest));
-	dest.sin_family = AF_INET;
-	dest.sin_port = htons(CONFIG_SNMP_TRAP_PORT);
-	dest.sin_addr.s_addr = INADDR_BROADCAST;
-
 	sock = zsock_socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
 	if (sock < 0) {
 		err = -errno;
@@ -178,21 +223,13 @@ static int snmp_trap_send_v3(struct snmp_agent *inst, const struct snmp_oid *tra
 		return err;
 	}
 
-	int broadcast_enable = 1;
-	(void)zsock_setsockopt(sock, SOL_SOCKET, SO_BROADCAST, &broadcast_enable,
-			       sizeof(broadcast_enable));
 	/* Multi-homed egress: leave through the interface this agent is bound to. */
 	(void)snmp_sock_bind_to_iface(sock, inst->bound_iface);
 
-	if (inst->trap_dest_cnt > 0) {
-		for (uint8_t d = 0; d < inst->trap_dest_cnt; d++) {
-			(void)zsock_sendto(sock, inst->tx_buf, tx_len, 0,
-					   (struct sockaddr *)&inst->trap_dests[d],
-					   sizeof(inst->trap_dests[d]));
-		}
-	} else {
-		(void)zsock_sendto(sock, inst->tx_buf, tx_len, 0, (const struct sockaddr *)&dest,
-				   sizeof(dest));
+	for (uint8_t d = 0; d < inst->trap_dest_cnt; d++) {
+		(void)zsock_sendto(sock, inst->tx_buf, tx_len, 0,
+				   (struct sockaddr *)&inst->trap_dests[d],
+				   sizeof(inst->trap_dests[d]));
 	}
 
 	/* One PDU sent = one increment, on the sending agent (contract 6.2). */
@@ -203,11 +240,35 @@ static int snmp_trap_send_v3(struct snmp_agent *inst, const struct snmp_oid *tra
 }
 #endif /* SNMP_TRAP_HAVE_V3 */
 
+/*
+ * Which wire format does the ladder below actually build? Kept as one macro so the
+ * v1 helper is compiled exactly when it is used (an unused static function is a
+ * -Wunused-function warning, and Zephyr sample builds treat that as noise we do not
+ * want). The ladder order itself is unchanged.
+ */
+#if defined(CONFIG_SNMP_TRAP_FORMAT_V1)
+#define SNMP_TRAP_IS_V1 1
+#elif defined(CONFIG_SNMP_TRAP_FORMAT_V2C) || defined(CONFIG_SNMP_TRAP_FORMAT_V3) ||               \
+    defined(CONFIG_SNMP_VERSION_2C)
+#define SNMP_TRAP_IS_V1 0
+#elif defined(CONFIG_SNMP_VERSION_1)
+#define SNMP_TRAP_IS_V1 1
+#else
+#define SNMP_TRAP_IS_V1 0
+#endif
+
 int snmp_trap_send(struct snmp_agent *inst, const struct snmp_oid *trap_oid,
 		   const struct snmp_varbind *varbinds, uint8_t varbind_cnt, bool is_inform)
 {
 	if (!inst || !trap_oid)
 		return -EINVAL;
+
+	/* Never fall back to a broadcast: an unconfigured destination is an error. */
+	if (inst->trap_dest_cnt == 0)
+		return -EDESTADDRREQ;
+
+	if (varbind_cnt > CONFIG_SNMP_MAX_VARBINDS - 2)
+		return -E2BIG;
 
 #if defined(CONFIG_SNMP_TRAP_FORMAT_V3)
 	return snmp_trap_send_v3(inst, trap_oid, varbinds, varbind_cnt, is_inform);
@@ -241,9 +302,6 @@ int snmp_trap_send(struct snmp_agent *inst, const struct snmp_oid *trap_oid,
 		return -errno;
 	}
 
-	int broadcast_enable = 1;
-	zsock_setsockopt(sock, SOL_SOCKET, SO_BROADCAST, &broadcast_enable,
-			 sizeof(broadcast_enable));
 	/* Multi-homed egress: leave through the interface this agent is bound to. */
 	(void)snmp_sock_bind_to_iface(sock, inst->bound_iface);
 
@@ -256,14 +314,11 @@ int snmp_trap_send(struct snmp_agent *inst, const struct snmp_oid *trap_oid,
 							     "public";
 #endif
 
-#if defined(CONFIG_SNMP_TRAP_FORMAT_V1) ||                                                         \
-    (!defined(CONFIG_SNMP_TRAP_FORMAT_V2C) && !defined(CONFIG_SNMP_VERSION_2C) &&                  \
-     defined(CONFIG_SNMP_VERSION_1))
+#if SNMP_TRAP_IS_V1
 	inst->current_pdu.version = 0;
 	inst->current_pdu.type = SNMP_PDU_TRAP_V1;
-	inst->current_pdu.enterprise = *trap_oid;
-	inst->current_pdu.generic_trap = SNMP_TRAP_ENTERPRISESPEC;
-	inst->current_pdu.specific_trap = 1;
+	/* generic-trap / enterprise / specific-trap from snmpTrapOID (RFC 2576 §3.2). */
+	snmp_v1_trap_parameters(&inst->current_pdu, trap_oid);
 	inst->current_pdu.timestamp = (uint32_t)(k_uptime_get() / 10);
 
 #if defined(CONFIG_NET_IPV4)
@@ -318,21 +373,10 @@ int snmp_trap_send(struct snmp_agent *inst, const struct snmp_oid *trap_oid,
 		return ret;
 	}
 
-	/* Broadcast or send to configured destinations */
-	struct sockaddr_in dest;
-	memset(&dest, 0, sizeof(dest));
-	dest.sin_family = AF_INET;
-	dest.sin_port = htons(CONFIG_SNMP_TRAP_PORT);
-	dest.sin_addr.s_addr = INADDR_BROADCAST;
-
-	if (inst->trap_dest_cnt > 0) {
-		for (uint8_t d = 0; d < inst->trap_dest_cnt; d++) {
-			zsock_sendto(sock, inst->tx_buf, tx_len, 0,
-				     (struct sockaddr *)&inst->trap_dests[d],
-				     sizeof(inst->trap_dests[d]));
-		}
-	} else {
-		zsock_sendto(sock, inst->tx_buf, tx_len, 0, (struct sockaddr *)&dest, sizeof(dest));
+	/* Send only to explicitly configured destinations (checked at entry). */
+	for (uint8_t d = 0; d < inst->trap_dest_cnt; d++) {
+		zsock_sendto(sock, inst->tx_buf, tx_len, 0, (struct sockaddr *)&inst->trap_dests[d],
+			     sizeof(inst->trap_dests[d]));
 	}
 
 	/* One PDU sent = one increment, on the sending agent (contract 6.2). */

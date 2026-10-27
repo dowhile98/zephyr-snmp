@@ -1,7 +1,7 @@
 # Zephyr SNMP Agent
 
 [![License](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0)
-[![Version](https://img.shields.io/badge/version-1.0.0-green.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-2.0.0-green.svg)](CHANGELOG.md)
 [![Zephyr](https://img.shields.io/badge/Zephyr-RTOS-3C8CB4.svg?logo=zephyr)](https://zephyrproject.org/)
 
 Embedded SNMP agent (v1, v2c, v3) for Zephyr RTOS. Self-contained, zero dynamic allocation, designed for constrained devices.
@@ -34,6 +34,7 @@ For comprehensive technical documentation, refer to the **[Project Wiki](docs/wi
 - 📋 **[Protocol Matrix and Technical Audit](docs/wiki/SNMP-Version-Matrix-and-Interoperability.md)**: Exhaustive comparative analysis across v1/v2c/v3 and USM/VACM audit.
 - 🔧 **[Troubleshooting and Debugging](docs/wiki/Troubleshooting-and-Debugging.md)**: Resolving timeouts, stack overflows, socket collisions, and trap capture.
 - 🚀 **[Validation Sample on NUCLEO-H743ZI](samples/snmp_agent/README.md)**: Reference manual with ready-to-use Net-SNMP test commands and interactive console.
+- 🔐 **[SNMPv3 Validation Sample](samples/snmp_agent_v3/README.md)**: authPriv/authNoPriv users, VACM boundaries, engine discovery Report and v3 notifications, with public test-only credentials.
 
 ## Features
 
@@ -45,8 +46,8 @@ For comprehensive technical documentation, refer to the **[Project Wiki](docs/wi
 | SET | Yes | Yes | Yes |
 | TRAP | Yes | Yes | Yes |
 | INFORM | No | Yes | Yes |
-| Auth | Community | Community | HMAC-SHA1 / HMAC-MD5 |
-| Privacy | None | None | AES-128-CFB / DES-CBC |
+| Auth | Community | Community | HMAC-SHA-1 / SHA-256 (MD5 optional) |
+| Privacy | None | None | AES-128-CFB (DES not implemented) |
 | VACM | No | No | Yes |
 
 ## Quick Start
@@ -128,7 +129,7 @@ snmptrapd -f -Lo
 | `CONFIG_SNMP_MAX_VARBINDS` | int | 32 | Maximum varbinds per PDU |
 | `CONFIG_SNMP_MAX_MIB_NODES` | int | 128 | Maximum registered MIB nodes |
 | `CONFIG_SNMP_MAX_TABLES` | int | 8 | Maximum registered MIB tables |
-| `CONFIG_SNMP_MAX_INSTANCES` | int | 1 | Concurrently RUNNING `struct snmp_agent` slots (~31 KiB RAM/instance at defaults, ~21 KiB with v3 off) |
+| `CONFIG_SNMP_MAX_INSTANCES` | int | 1 | Concurrently RUNNING `struct snmp_agent` slots (~30 KiB RAM/instance at defaults, ~39 KiB with v3) |
 
 ### v3 Options
 
@@ -319,25 +320,53 @@ In standard embedded SNMP implementations, multi-variable SET transactions (Two-
 
 ## Security Considerations
 
-- **Community strings**: v1/v2c transmit community strings in plaintext. Use v3 for production deployments requiring confidentiality.
+- **Community strings**: v1/v2c transmit community strings in plaintext. Use v3 for production deployments requiring confidentiality. The comparison is length-exact over the raw octets, so a community that embeds NUL bytes cannot be used to smuggle a prefix match.
 - **Rate limiting**: Enable `CONFIG_SNMP_RATE_LIMIT` to protect against CPU exhaustion from SNMP floods. Silently dropped requests increment `snmpSilentDrops`.
-- **Engine boots**: Persist `CONFIG_SNMP_V3_ENGINE_BOOTS` across reboots to prevent SNMPv3 replay attacks (RFC 3414 §5.1.3).
-- **VACM**: v3 access control restricts MIB access per user/group. Configure appropriately for your security model.
-- **Auth algorithms**: SHA-1 is preferred over MD5 for v3 authentication. MD5 is provided only for legacy NMS compatibility.
-- **Privacy**: AES-128-CFB is preferred over DES. DES is deprecated and should only be used for legacy interoperability.
+- **Engine ID**: `snmpEngineID` identifies the engine that owns the localized keys (RFC 3411 §5). When `cfg.engine_id` is NULL the module builds `0x80001F88 05 || <SoC device ID>` from `hwinfo_get_device_id()` (native Zephyr API, no heap); boards without a device-ID driver fall back to a fixed `0x80001F88 05 "ZEPHYR1"`. Set `cfg.engine_id` explicitly if you run more than one agent instance on one device, or if your NMS must pin the engine ID.
+- **Engine boots**: `snmpEngineBoots` must increase on every reboot. Set `cfg.settings_prefix` and enable a settings backend (`CONFIG_SETTINGS` plus e.g. `CONFIG_SETTINGS_NVS`) so `snmp_agent_init()` loads and advances `"<prefix>/boots"`; without a backend, raise `CONFIG_SNMP_V3_ENGINE_BOOTS` in the image or call `snmp_usm_set_engine_boots()` before `snmp_agent_start()` (RFC 3414 §5.1.3).
+- **VACM**: v3 access control restricts MIB access per user/group. A read/write denial is answered with a Response carrying `authorizationError` (RFC 3415 §5.5); the level used for the check is the one USM actually verified, not the flags the peer claims.
+- **Auth algorithms**: HMAC-SHA-256 (RFC 7860) is the strongest option, SHA-1 (RFC 3414) is the interoperable default, MD5 is off by default and should stay off.
+- **Privacy**: AES-128-CFB (RFC 3826) is the only implemented privacy protocol. DES-CBC is **not implemented**: `snmp_usm_add_user()` rejects `SNMP_USM_PRIV_DES` with `-ENOTSUP`. Wrong digests and undecryptable messages are dropped silently and counted (`usmStatsWrongDigests`, `usmStatsDecryptionErrors`); RFC 3414 Reports are only emitted when the request was reportable.
 
 ## Memory Footprint
 
-| Configuration | FLASH | RAM | Notes |
-|---------------|-------|-----|-------|
-| v1/v2c only | ~270 KB | ~110 KB | No crypto dependencies |
-| v1/v2c + v3 | ~280 KB | ~114 KB | PSA Crypto + mbedtls overhead |
-| + Rate limit | ~0.5 KB | ~12 B | Token bucket state only |
+Measured with this tree (Zephyr v4.4.0, `arm-zephyr-eabi` + `native_sim`):
 
-- **Zero Dynamic Allocation / Zero Heap**: All agent state is statically allocated inside caller-owned `struct snmp_agent` (~23.8 KiB for v1/v2c, ~33.3 KiB with v3). Never calls `malloc` or `k_malloc`.
-- **Ultra-Low Stack Frame**: The instance `scratch` union stores Two-Phase Commit transaction items and GETBULK working buffers, reducing dispatch stack usage from 9.8 KiB to 52 B and allowing safe execution within standard Zephyr socket service thread stacks (`CONFIG_NET_SOCKETS_SERVICE_STACK_SIZE=4096`).
+| Configuration | FLASH | RAM (incl. thread stacks) |
+|---------------|-------|---------------------------|
+| `samples/snmp_agent` on NUCLEO-H743ZI (v1/v2c) | 218,184 B | 84,444 B |
+| `samples/snmp_agent_v3` on NUCLEO-H743ZI (v3 + v2c, PSA/mbedTLS, 2 USM users) | 243,788 B | 119,964 B |
+
+- **Zero Dynamic Allocation / Zero Heap**: All agent state is statically allocated inside caller-owned `struct snmp_agent`. Never calls `malloc` or `k_malloc`.
+- **Per-instance cost**: `sizeof(struct snmp_agent)` measured on 32-bit `qemu_x86` with the default Kconfig is **30,220 B** for v1/v2c and **39,432 B** with `CONFIG_SNMP_VERSION_3=y`. Size `CONFIG_SNMP_MAX_INSTANCES` (range 1..8) against ~30 KiB per v1/v2c instance; the dominant members are `mib_nodes[128]` (11.0 KiB), the `scratch` union (8.5 KiB), `current_pdu` (6.5 KiB) and `rx_buf`+`tx_buf` (2 KiB).
+- **Thread stack**: the dispatcher itself keeps only a small frame, but both the v1/v2c and the v3 receive paths run in the socket-service thread. v3 additionally holds one `struct snmp_v3_msg` (~8.8 KiB at the default `CONFIG_SNMP_MAX_PDU_SIZE=1024`) plus AES plaintext/ciphertext scratch on that stack, which is why the Kconfig help asks for at least 12 KiB there when v3 (or GetBulk) is enabled. The v3 sample sets `CONFIG_NET_SOCKETS_SERVICE_STACK_SIZE=16384`.
 
 ## Testing
+
+### Host unit tests (no Zephyr kernel, no hardware)
+
+```bash
+cd tests/unit
+cmake -S . -B build && cmake --build build
+./build/snmp_unit_tests    # 49 tests: BER, OID, MIB, 2PC, multi-instance, MIB-II
+./build/vacm_unit_tests    # 10 tests: VACM tables, wildcard masks, and access checks
+```
+
+The `ASSERT*` helpers abort on the first failure, so a run that stops early is a
+truncated run, not a clean one.
+
+### Ztest / Twister (v3, USM, service layer)
+
+```bash
+west twister -T tests/ -p native_sim/native/64 -v --inline-logs --integration   # CI platform, 62 cases
+west twister -T tests/ -p native_sim -v --inline-logs                           # 32-bit, no --integration
+```
+
+The suite covers BER edge cases, MIB/2PC semantics, multi-instance counter isolation,
+VACM, and — only on the Zephyr side, because they need PSA Crypto and a CSPRNG — the
+USM receive path: engine discovery Reports, unknown user, unsupported security level,
+authPriv round trip, wrong digest drop, timeliness window, noAuthNoPriv handling,
+VACM `authorizationError`, and v3's v2 error semantics.
 
 ### Prerequisites
 
@@ -391,18 +420,25 @@ snmpget -v2c -c public <IP> 1.3.6.1.2.1.11.25.0
 
 ### Hardware-in-the-Loop (HIL) Physical Validation
 
-The agent has undergone comprehensive physical Hardware-in-the-Loop (HIL) automated validation on target microcontrollers:
-- **Target Hardware**: STMicroelectronics **NUCLEO-H743ZI** / **NUCLEO-H753ZI** (ARM Cortex-M7 @ 480 MHz, LAN8742A 10/100 Mbps RMII Ethernet PHY).
-- **Validation Score**: **100% PASS (23/23 test cases)**.
-- **Automated Test Matrix**:
-  1. **Scalar GET/GETNEXT**: Verified across standard MIB-II (`sysDescr`, `sysUpTime`, `sysContact`) and private SMIv2 nodes (`sensorValue`, `sensorHumidity`, `sensorDescription`, `sensorStatusOid`).
-  2. **Two-Phase Commit (2PC) SET Transactions**: Atomic multi-varbind SET operations with reserve/commit/rollback semantics validated for hardware LED actuation (`ledState`) and range limit boundary guards (`badValue` handling).
-  3. **Lexicographical Tree Walks**: Full subtree inspection via `snmpwalk` over standard MIB-II (`1.3.6.1.2.1`) and private enterprise subtrees (`1.3.6.1.4.1.54321.1`).
-  4. **GETBULK Transfer & Repetition Sweeps**: Multi-repetition transfers (`snmpbulkget`, `snmpbulkwalk`) over multidimensional `sensorTable` entries, validating dynamic pruning and zero heap allocations.
-  5. **SNMPv2-Trap Generation**: Asynchronous event-driven notifications dispatched to host NMS on hardware GPIO interrupts (`sw0` User Button push) with `sysUpTime`, `snmpTrapOID` (`buttonPressed`), and bound payload varbinds (`buttonCounter`, `ledState`).
-  6. **SNMPv1 Backward Compatibility**: Verification of RFC 1157 PDU exchanges, error status mappings (`noSuchName`), and Trap-v1 emission.
-  7. **UART Telemetry Correlation**: Real-time cross-validation between network-level SNMP responses and target console shell telemetry (`app led`, `app button`, `app sensor`).
+The module is verified and certified through automated and manual HIL testing on physical target hardware:
 
+- **Target Hardware**: STMicroelectronics **NUCLEO-H753ZI** / **NUCLEO-H743ZI** (ARM Cortex-M7 @ 480 MHz, LAN8742A 10/100 Mbps RMII Ethernet PHY).
+- **Validation Date**: **2026-10-27** (Firmware Version: `v2.0.0`, commit `f3cda2e`).
+- **Validation Score**: **100% PASS (33/33 test cases)** across both `samples/snmp_agent` and `samples/snmp_agent_v3`.
+- **Verified Capabilities**:
+  1. **SNMPv1 & SNMPv2c Operations**: Scalar GET/GETNEXT, MIB-II (`sysDescr`, `sysUpTime`, `sysContact`, SNMP counters), table GET, and out-of-range bounds validation.
+  2. **Two-Phase Commit (2PC) SET Transactions**: Multi-varbind atomic reserve/commit/rollback with physical hardware User LED actuation (`ledState i 1` / `i 0`).
+  3. **Lexicographical Tree Walks**: `snmpwalk` over standard MIB-II (`1.3.6.1.2.1`) and private enterprise subtrees (`1.3.6.1.4.1.54321.1`).
+  4. **GETBULK Transfer & Repetition Sweeps**: Multi-repetition transfers (`snmpbulkget`, `snmpbulkwalk`) over `sensorTable` with dynamic pruning and zero heap allocations.
+  5. **SNMPv3 Engine Discovery (RFC 3414)**: Unauthenticated probes return authoritative Report-PDUs with `snmpEngineID`, `engineBoots`, and synchronized `engineTime`.
+  6. **SNMPv3 authNoPriv (HMAC-SHA-1)**: Authenticated reads for `v3monitor` with VACM view boundary enforcement (`restrictedView` allows system group, denies private subtree with `authorizationError`).
+  7. **SNMPv3 authPriv (HMAC-SHA-256-192 + AES-128-CFB)**: Full authenticated and encrypted exchanges (`snmpget`, `snmpset`, `snmpwalk`, `snmpbulkwalk`) with `v3test`, toggling physical hardware actuators under end-to-end encryption.
+  8. **Notification Engine (Traps/Informs)**: ColdStart traps dispatched on boot; hardware User Button push (`sw0` interrupt and shell simulation) generates authenticated/encrypted traps with bounded stack execution (zero MPU faults).
+  9. **Negative Security Hardening**: Unknown usernames respond with RFC 3414 Report-PDUs (`usmStatsUnknownUserNames.0`); invalid passphrases trigger silent drops per RFC 3414 §3.2.3, incrementing `snmpSilentDrops` without leaking timing or cryptographic oracle.
+  10. **Multi-Protocol Coexistence**: Parallel execution of SNMPv1/v2c and SNMPv3 requests served concurrently over the unified UDP listener on port 161.
+  11. **UART Console Telemetry**: Real-time cross-validation between network-level SNMP responses and target console shell telemetry (`app led`, `app button`, `app sensor`).
+
+Detailed test logs and packet traces are published in [docs/wiki/snmp-hil-validation.md](docs/wiki/snmp-hil-validation.md).
 
 ## RFC Compatibility
 
@@ -410,19 +446,25 @@ The agent has undergone comprehensive physical Hardware-in-the-Loop (HIL) automa
 |-----|-------|--------|-------|
 | RFC 1157 | SNMPv1 | Full | GET, GETNEXT, SET, TRAP |
 | RFC 1907 | MIB-II snmp group | Full | 30 counters + authenTraps |
-| RFC 3412 | Message Processing and Dispatching | Full | v3 message routing |
-| RFC 3414 | User-based Security Model | Full | Auth + privacy, key localization |
-| RFC 3415 | View-based Access Control Model | Full | Admin/readonly groups |
-| RFC 3416 | Protocol Operations v2 | Full | GETBULK, INFORM |
+| RFC 3411 | SNMP Management Frameworks | Full | `snmpEngine` MIB scalars |
+| RFC 3412 | Message Processing and Dispatching | Full | v3 message routing, `snmpMPDStats` MIB |
+| RFC 3414 | User-based Security Model (USM) | Full | HMAC-SHA1/MD5, `usmStats` MIB, key localization |
+| RFC 7860 | HMAC-SHA-2 in USM for SNMPv3 | Full | HMAC-SHA-256-192 (24-octet MAC) |
+| RFC 3826 | AES-128 in USM for SNMPv3 | Full | AES-128-CFB privacy encryption |
+| RFC 3415 | View-based Access Control Model (VACM) | Full | 4 tables, wildcard mask matching |
+| RFC 3416 | Protocol Operations v2 | Full | GETBULK, INFORM, 2PC SET |
 | RFC 3418 | MIB for SNMP | Full | Counter64, Unsigned32 types |
-| RFC 2576 | Coexistence v1/v2/v3 | Partial | Community-to-securityName mapping |
+| RFC 2576 | Coexistence v1/v2/v3 | Full | Unified coexistence on single port |
 
 ## Known Limitations
 
-- No SNMPv3 context engine support (single context only)
+- No SNMPv3 context engine support (a single, empty context is registered by default)
 - No proxy forwarding
-- No MIB-II interfaces group (ifTable/ifXTable) — application must register
-- No persistent storage for v3 engine boots or user credentials
+- `snmp_mib2` registers the `interfaces`, `ip`, `icmp`, `tcp` and `udp` groups; `ifXTable`
+  (64-bit counters) is not implemented
+- v3 engine boots persistence needs a settings backend; without `CONFIG_SETTINGS` the
+  compile-time value is used
+- DES-CBC privacy is not implemented (AES-128-CFB only)
 - Rate limiter uses a simple token bucket without per-source tracking
 - Trap destinations configured at runtime only (no persistence)
 - Maximum one community string each for read and write access

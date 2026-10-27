@@ -159,8 +159,13 @@ The agent instance structure encapsulates all state required for an independent 
 ## 5. Memory Footprint and Sizing
 
 ### Instance RAM Footprint
-- **SNMPv1 / SNMPv2c only**: `sizeof(struct snmp_agent)` $\approx$ **23,840 bytes** (~23.3 KiB) with standard Kconfig defaults (`CONFIG_SNMP_MAX_MIB_NODES=128`, `CONFIG_SNMP_MAX_IFACES=8`).
-- **SNMPv3 enabled (`CONFIG_SNMP_VERSION_3=y`)**: `sizeof(struct snmp_agent)` $\approx$ **33,320 bytes** (~32.5 KiB), accommodating USM user tables, VACM access rule arrays, localized key storage, and replay windows.
+Measured on 32-bit `qemu_x86` with the default Kconfig (`CONFIG_SNMP_MAX_MIB_NODES=128`,
+`CONFIG_SNMP_MAX_IFACES=8`):
+- **SNMPv1 / SNMPv2c only**: `sizeof(struct snmp_agent)` = **30,220 bytes** (~29.5 KiB).
+- **SNMPv3 enabled (`CONFIG_SNMP_VERSION_3=y`)**: `sizeof(struct snmp_agent)` = **39,432 bytes** (~38.5 KiB), adding the USM user table, VACM tables, localized keys and replay state.
+
+The largest members are `mib_nodes[128]` (11.0 KiB), the `scratch` union (8.5 KiB),
+`current_pdu` (6.5 KiB) and `rx_buf`+`tx_buf` (2 KiB).
 
 ### Kconfig Memory Tuning Reference
 

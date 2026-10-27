@@ -13,8 +13,86 @@
 #define ZEPHYR_MODULES_SNMP_SRC_SNMP_INTERNAL_H_
 
 #include <snmp/snmp_core.h>
+#include <string.h>
 
 #ifdef CONFIG_SNMP_AGENT
+
+/*
+ * Bounded string length. C11 strnlen() is not declared by every libc configuration
+ * Zephyr builds with (native_sim's host libc only exposes it behind POSIX feature
+ * macros, and -Werror turns the implicit declaration into a build failure), so the
+ * module carries its own trivial implementation instead of depending on feature
+ * test macros.
+ *
+ * @param s   NUL-terminated (or at least @p max bytes long) buffer.
+ * @param max Maximum number of bytes to examine.
+ * @return Number of bytes before the first NUL, or @p max when there is none.
+ */
+static inline size_t snmp_strnlen(const char *s, size_t max)
+{
+	const char *nul = memchr(s, '\0', max);
+
+	return nul != NULL ? (size_t)(nul - s) : max;
+}
+
+/*
+ * SNMPv1 notification parameters (RFC 3584 section 3.2, originally RFC 2576).
+ *
+ * Notifications are produced in the v2 form, i.e. as a single snmpTrapOID value, so the
+ * Trap-PDU fields have to be derived from it:
+ *
+ *  - one of the six standard traps: generic-trap 0..5, enterprise = snmpTraps
+ *    (1.3.6.1.6.3.1.1.5), specific-trap 0;
+ *  - anything else: generic-trap 6 (enterpriseSpecific), specific-trap = last
+ *    sub-identifier of snmpTrapOID, and enterprise = snmpTrapOID with the last
+ *    sub-identifier removed - or with the last two removed when the next-to-last
+ *    sub-identifier is 0, which is the "<enterprise>.0.<specific>" form an SMIv1
+ *    TRAP-TYPE takes once converted to SMIv2.
+ *
+ * The result is invertible on purpose: a receiver reconstructs the v2 notification OID
+ * by appending specific-trap to enterprise. Keeping it in one pure function also lets
+ * the host unit tests cover the mapping without a socket.
+ *
+ * @param pdu      Trap-PDU under construction; generic_trap, enterprise and
+ *                 specific_trap are written.
+ * @param trap_oid Notification OID from the v2/v3 side.
+ */
+static inline void snmp_v1_trap_parameters(struct snmp_pdu *pdu, const struct snmp_oid *trap_oid)
+{
+	static const struct snmp_oid snmp_traps = {.len = 9, .ids = {1, 3, 6, 1, 6, 3, 1, 1, 5}};
+	size_t ent_len;
+
+	if (pdu == NULL || trap_oid == NULL) {
+		return;
+	}
+
+	if (trap_oid->len == 10 && trap_oid->ids[0] == 1 && trap_oid->ids[1] == 3 &&
+	    trap_oid->ids[2] == 6 && trap_oid->ids[3] == 1 && trap_oid->ids[4] == 6 &&
+	    trap_oid->ids[5] == 3 && trap_oid->ids[6] == 1 && trap_oid->ids[7] == 1 &&
+	    trap_oid->ids[8] == 5 && trap_oid->ids[9] >= 1 && trap_oid->ids[9] <= 6) {
+		pdu->generic_trap = (int32_t)trap_oid->ids[9] - 1;
+		pdu->enterprise = snmp_traps;
+		pdu->specific_trap = 0;
+		return;
+	}
+
+	pdu->generic_trap = SNMP_TRAP_ENTERPRISESPEC;
+
+	if (trap_oid->len < 2) {
+		pdu->enterprise = *trap_oid;
+		pdu->specific_trap = 0;
+		return;
+	}
+
+	pdu->specific_trap = (int32_t)trap_oid->ids[trap_oid->len - 1];
+	pdu->enterprise = *trap_oid;
+
+	ent_len = trap_oid->ids[trap_oid->len - 2] == 0 ? (size_t)trap_oid->len - 2
+							: (size_t)trap_oid->len - 1;
+
+	/* A Trap-PDU enterprise is an OBJECT IDENTIFIER, so it needs at least two arcs. */
+	pdu->enterprise.len = ent_len >= 2 ? ent_len : trap_oid->len;
+}
 
 #if defined(CONFIG_SNMP_VERSION_3)
 /**

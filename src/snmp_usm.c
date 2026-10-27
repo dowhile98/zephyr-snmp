@@ -13,6 +13,9 @@
 #include <string.h>
 #include <errno.h>
 #include <zephyr/random/random.h>
+#if defined(CONFIG_HWINFO)
+#include <zephyr/drivers/hwinfo.h>
+#endif
 
 #if defined(CONFIG_SNMP_VERSION_3)
 #include <psa/crypto.h>
@@ -20,13 +23,20 @@
 
 #if defined(CONFIG_SNMP_AGENT) && defined(CONFIG_SNMP_VERSION_3)
 
+#ifndef CONFIG_SNMP_V3_AUTH_PROTOCOL
+#define CONFIG_SNMP_V3_AUTH_PROTOCOL SNMP_USM_AUTH_SHA1
+#endif
+#ifndef CONFIG_SNMP_V3_PRIV_PROTOCOL
+#define CONFIG_SNMP_V3_PRIV_PROTOCOL SNMP_USM_PRIV_AES
+#endif
+
 #if defined(CONFIG_SETTINGS)
 #include <zephyr/settings/settings.h>
 #endif
 
 #define HMAC_SHA1_LEN 12
 #define HMAC_MD5_LEN 12
-#define HMAC_SHA256_LEN 16
+#define HMAC_SHA256_LEN 24
 #define AES_IV_LEN 16
 #define SNMP_ENGINE_BOOTS_MAX 2147483647U
 
@@ -56,18 +66,6 @@ static inline psa_algorithm_t usm_auth_alg(uint8_t auth_protocol)
 		return PSA_ALG_HMAC(PSA_ALG_MD5);
 	}
 }
-
-/*
- * Security-model events increment the counters of the agent that received the message,
- * exactly once. The previous unconditional mirror into the process-wide
- * g_snmp_counters corrupted that global for every non-default instance.
- */
-#define INC_STAT(inst, field)                                                                      \
-	do {                                                                                       \
-		if (inst) {                                                                        \
-			snmp_counter_inc(&(inst)->counters.field);                                 \
-		}                                                                                  \
-	} while (0)
 
 #if defined(CONFIG_SETTINGS)
 /* Buffer for the composed "<prefix>/boots" key. */
@@ -175,19 +173,35 @@ static int usm_password_to_key(psa_algorithm_t hash_alg, const char *password, s
 
 /* ---- Key localization (RFC 3414 A.2.2 & RFC 3826 §2.4) ---- */
 
-static int usm_key_localize(uint8_t *out_key, uint16_t *out_len, const char *password, uint8_t algo,
-			    const uint8_t *engine_id, uint16_t engine_id_len, bool is_priv)
+/*
+ * The localization hash is always the user's *authentication* protocol, even for the
+ * privacy key (RFC 3414 A.2.2 and RFC 3826 §2.4 derive Ku from the auth hash). Passing
+ * the privacy protocol here was a bug: SNMP_USM_PRIV_AES == SNMP_USM_AUTH_SHA1 == 1 and
+ * SNMP_USM_PRIV_DES == SNMP_USM_AUTH_MD5 == 2, so an AES user looked correct by accident
+ * and every non-SHA-1 auth protocol produced a key the peer could not reproduce.
+ */
+static int usm_key_localize(uint8_t *out_key, uint16_t *out_len, const char *password,
+			    uint8_t auth_protocol, const uint8_t *engine_id, uint16_t engine_id_len,
+			    bool is_priv)
 {
+	psa_algorithm_t hash_alg;
+
 	if (!out_key || !out_len || !password || !engine_id)
 		return -EINVAL;
 
-	psa_algorithm_t hash_alg;
-	if (algo == SNMP_USM_AUTH_SHA256) {
+	switch (auth_protocol) {
+	case SNMP_USM_AUTH_SHA256:
 		hash_alg = PSA_ALG_SHA_256;
-	} else if (algo == SNMP_USM_AUTH_SHA1) {
+		break;
+	case SNMP_USM_AUTH_SHA1:
 		hash_alg = PSA_ALG_SHA_1;
-	} else {
+		break;
+	case SNMP_USM_AUTH_MD5:
 		hash_alg = PSA_ALG_MD5;
+		break;
+	default:
+		/* No auth protocol means no key to localize at all. */
+		return -EINVAL;
 	}
 
 	uint8_t ku[64];
@@ -224,6 +238,8 @@ static int usm_key_localize(uint8_t *out_key, uint16_t *out_len, const char *pas
 	} else {
 		/* RFC 3414 §6.2.4 / §7.2.4 / RFC 7860: localized auth key (SHA1=20, MD5=16,
 		 * SHA256=32) */
+		if (kul_len > 32)
+			return -ENOBUFS;
 		memcpy(out_key, kul, kul_len);
 		*out_len = (uint16_t)kul_len;
 	}
@@ -363,20 +379,12 @@ static int find_encrypted_scopedpdu(const uint8_t *buf, size_t buf_len, const ui
 	off += len;
 
 	ret = snmp_ber_decode_header(buf, buf_len, &off, &tag, &len);
-	if (ret < 0 || tag != ASN1_TAG_SEQUENCE)
+	if (ret < 0 || tag != ASN1_TAG_OCTET_STRING)
 		return -EBADMSG;
 
-	ret = snmp_ber_decode_header(buf, buf_len, &off, &tag, &len);
-	if (ret < 0)
-		return -EBADMSG;
-
-	if (tag == ASN1_TAG_OCTET_STRING) {
-		*ct_data = &buf[off];
-		*ct_len = len;
-		return 0;
-	}
-
-	return -EBADMSG;
+	*ct_data = &buf[off];
+	*ct_len = len;
+	return 0;
 }
 
 /* ---- Parse decrypted scopedPDU plaintext into msg->scoped ---- */
@@ -406,6 +414,9 @@ static int parse_scopedpdu_plaintext(const uint8_t *data, size_t data_len,
 		return ret;
 	scoped->context_name_len = tmp_len;
 	scoped->context_name[tmp_len] = '\0';
+
+	/* No version field exists in msgData; keep v2 semantics for the MIB engine. */
+	scoped->pdu.version = 3;
 
 	return snmp_ber_decode_pdu_body(data, data_len, &off, &scoped->pdu);
 }
@@ -463,38 +474,106 @@ static struct snmp_usm_user *usm_find_user(struct snmp_agent *inst, const char *
 	return NULL;
 }
 
+/* ---- HMAC computation over the datagram as received (RFC 3414 §6.3.1) ---- */
+
+/*
+ * Compute HMAC over (prefix || zeros || suffix) without materialising a copy of the
+ * message. The authentication parameter is zeroed in the *received* octets, exactly as
+ * the sender did, so a peer that chose a different valid BER length encoding still
+ * verifies. The previous implementation re-encoded the message, which changed those
+ * lengths and made authentication depend on both sides encoding identically.
+ */
+static int hmac_compute_raw(psa_algorithm_t alg, const uint8_t *key, size_t key_len,
+			    const uint8_t *raw, size_t raw_len, size_t zero_off, size_t zero_len,
+			    uint8_t *mac, size_t mac_sz, size_t *mac_len)
+{
+	static const uint8_t zeros[SNMP_V3_AUTH_PARAMS_LEN];
+	psa_key_attributes_t attrs = PSA_KEY_ATTRIBUTES_INIT;
+	psa_key_id_t key_id;
+	psa_mac_operation_t op = psa_mac_operation_init();
+	psa_status_t status;
+
+	if (zero_len > sizeof(zeros) || zero_off > raw_len || zero_len > raw_len - zero_off)
+		return -EINVAL;
+
+	psa_set_key_usage_flags(&attrs, PSA_KEY_USAGE_SIGN_MESSAGE);
+	psa_set_key_algorithm(&attrs, alg);
+	psa_set_key_type(&attrs, PSA_KEY_TYPE_HMAC);
+
+	status = psa_import_key(&attrs, key, key_len, &key_id);
+	if (status != PSA_SUCCESS)
+		return -EIO;
+
+	status = psa_mac_sign_setup(&op, key_id, alg);
+	if (status != PSA_SUCCESS)
+		goto fail;
+
+	status = psa_mac_update(&op, raw, zero_off);
+	if (status != PSA_SUCCESS)
+		goto fail;
+
+	status = psa_mac_update(&op, zeros, zero_len);
+	if (status != PSA_SUCCESS)
+		goto fail;
+
+	status = psa_mac_update(&op, &raw[zero_off + zero_len], raw_len - zero_off - zero_len);
+	if (status != PSA_SUCCESS)
+		goto fail;
+
+	status = psa_mac_sign_finish(&op, mac, mac_sz, mac_len);
+	if (status == PSA_SUCCESS) {
+		psa_destroy_key(key_id);
+		return 0;
+	}
+
+fail:
+	psa_mac_abort(&op);
+	psa_destroy_key(key_id);
+	return -EIO;
+}
+
 /* ---- HMAC verification ---- */
 
-static int usm_verify_auth(const struct snmp_v3_msg *msg, struct snmp_usm_user *user)
+static int usm_verify_auth(const struct snmp_v3_msg *msg, const struct snmp_usm_user *user,
+			   const uint8_t *raw_buf, size_t raw_len)
 {
-	if (!msg || !user || user->auth_protocol == SNMP_USM_AUTH_NONE)
-		return 0;
+	uint8_t trunc;
 
-	psa_algorithm_t alg = usm_auth_alg(user->auth_protocol);
-	uint8_t trunc = usm_auth_mac_len(user->auth_protocol);
+	if (!msg || !user || !raw_buf)
+		return -EINVAL;
+
+	trunc = usm_auth_mac_len(user->auth_protocol);
 	if (trunc == 0)
 		return -EINVAL;
 
-	struct snmp_v3_msg hash_msg = *msg;
-	memset(hash_msg.usm.auth_params, 0, sizeof(hash_msg.usm.auth_params));
-	hash_msg.usm.auth_params_len = trunc;
-
-	uint8_t encoded[CONFIG_SNMP_MAX_PDU_SIZE];
-	size_t encoded_len = 0;
-	int ret = snmp_ber_encode_v3_msg(encoded, sizeof(encoded), &encoded_len, &hash_msg);
-	if (ret < 0)
-		return ret;
-
-	uint8_t computed_hash[64];
-	size_t hash_len;
-	ret = hmac_compute(alg, user->auth_key, user->auth_key_len, encoded, encoded_len,
-			   computed_hash, sizeof(computed_hash), &hash_len);
-	if (ret < 0)
-		return ret;
-
-	if (hash_len < trunc)
+	/*
+	 * RFC 3414 §6.3.2: a message whose authentication parameter is not the length
+	 * implied by the negotiated protocol is not authentic.
+	 */
+	if (msg->usm.auth_params_len != trunc)
 		return -EACCES;
-	if (memcmp(computed_hash, msg->usm.auth_params, trunc) != 0)
+
+	if (msg->usm.auth_params_raw_off == 0 || msg->usm.auth_params_raw_off > raw_len ||
+	    trunc > raw_len - msg->usm.auth_params_raw_off)
+		return -EBADMSG;
+
+	uint8_t computed[64];
+	size_t computed_len = 0;
+	int ret = hmac_compute_raw(
+	    usm_auth_alg(user->auth_protocol), user->auth_key, user->auth_key_len, raw_buf, raw_len,
+	    msg->usm.auth_params_raw_off, trunc, computed, sizeof(computed), &computed_len);
+	if (ret < 0)
+		return ret;
+	if (computed_len < trunc)
+		return -EACCES;
+
+	/* Constant-time compare: the digest is attacker-supplied and recomputed locally. */
+	uint8_t diff = 0;
+
+	for (size_t i = 0; i < trunc; i++) {
+		diff |= computed[i] ^ msg->usm.auth_params[i];
+	}
+	if (diff != 0)
 		return -EACCES;
 
 	return 0;
@@ -502,33 +581,105 @@ static int usm_verify_auth(const struct snmp_v3_msg *msg, struct snmp_usm_user *
 
 /* ---- Instance-based APIs ---- */
 
-int snmp_usm_add_user(struct snmp_agent *inst, const struct snmp_usm_user *user)
+/*
+ * Validate a user record before it can enter the local keys table. RFC 3414 §11.2
+ * requires pass phrases of at least 8 octets; authPriv without an authentication
+ * protocol is meaningless (privacy keys are localized through the auth hash), and DES
+ * is not implemented, so accepting it would only fail later at runtime.
+ */
+static int usm_user_validate(const struct snmp_usm_user *user)
 {
-	if (!inst || !user) {
+	size_t name_len;
+	size_t auth_len;
+	size_t priv_len;
+
+	if (!user)
+		return -EINVAL;
+
+	name_len = snmp_strnlen(user->user_name, sizeof(user->user_name));
+	if (name_len == 0 || name_len >= sizeof(user->user_name))
+		return -EINVAL;
+
+	switch (user->auth_protocol) {
+	case SNMP_USM_AUTH_NONE:
+	case SNMP_USM_AUTH_SHA1:
+	case SNMP_USM_AUTH_MD5:
+	case SNMP_USM_AUTH_SHA256:
+		break;
+	default:
 		return -EINVAL;
 	}
-	if (strlen(user->user_name) >= sizeof(inst->users[0].user_name)) {
-		return -EINVAL;
+
+	switch (user->priv_protocol) {
+	case SNMP_USM_PRIV_NONE:
+	case SNMP_USM_PRIV_AES:
+		break;
+	case SNMP_USM_PRIV_DES:
+	default:
+		/* DES-CBC is advertised nowhere in this implementation. */
+		return -ENOTSUP;
 	}
+
+	if (user->priv_protocol != SNMP_USM_PRIV_NONE && user->auth_protocol == SNMP_USM_AUTH_NONE)
+		return -EINVAL;
+
+	auth_len = snmp_strnlen(user->auth_pass, sizeof(user->auth_pass));
+	priv_len = snmp_strnlen(user->priv_pass, sizeof(user->priv_pass));
+
+	if (auth_len >= sizeof(user->auth_pass) || priv_len >= sizeof(user->priv_pass))
+		return -EINVAL;
+	if (user->auth_protocol != SNMP_USM_AUTH_NONE && auth_len < 8)
+		return -EINVAL;
+	if (user->priv_protocol != SNMP_USM_PRIV_NONE && priv_len < 8)
+		return -EINVAL;
+
+	return 0;
+}
+
+/* Localize the configured pass phrases into this engine's keys. */
+static int usm_localize_user(struct snmp_agent *inst, struct snmp_usm_user *user)
+{
+	int ret;
+
+	user->auth_key_len = 0;
+	user->priv_key_len = 0;
+
+	if (user->auth_protocol != SNMP_USM_AUTH_NONE) {
+		ret = usm_key_localize(user->auth_key, &user->auth_key_len, user->auth_pass,
+				       user->auth_protocol, inst->engine_id, inst->engine_id_len,
+				       false);
+		if (ret < 0)
+			return ret;
+	}
+	if (user->priv_protocol != SNMP_USM_PRIV_NONE) {
+		ret = usm_key_localize(user->priv_key, &user->priv_key_len, user->priv_pass,
+				       user->auth_protocol, inst->engine_id, inst->engine_id_len,
+				       true);
+		if (ret < 0)
+			return ret;
+	}
+	return 0;
+}
+
+/* Caller holds inst->lock. */
+static int usm_add_user_locked(struct snmp_agent *inst, const struct snmp_usm_user *user)
+{
+	int ret = usm_user_validate(user);
+
+	if (ret < 0)
+		return ret;
 
 	/* Update existing if found */
 	for (size_t i = 0; i < CONFIG_SNMP_V3_MAX_USERS; i++) {
 		if (inst->users[i].in_use &&
 		    strcmp(inst->users[i].user_name, user->user_name) == 0) {
-			inst->users[i] = *user;
-			inst->users[i].in_use = true;
-			if (inst->users[i].auth_protocol > 0) {
-				usm_key_localize(
-				    inst->users[i].auth_key, &inst->users[i].auth_key_len,
-				    inst->users[i].auth_pass, inst->users[i].auth_protocol,
-				    inst->engine_id, inst->engine_id_len, false);
-			}
-			if (inst->users[i].priv_protocol > 0) {
-				usm_key_localize(
-				    inst->users[i].priv_key, &inst->users[i].priv_key_len,
-				    inst->users[i].priv_pass, inst->users[i].priv_protocol,
-				    inst->engine_id, inst->engine_id_len, true);
-			}
+			struct snmp_usm_user tmp = *user;
+
+			tmp.in_use = true;
+			ret = usm_localize_user(inst, &tmp);
+			if (ret < 0)
+				return ret;
+			inst->users[i] = tmp;
 			return 0;
 		}
 	}
@@ -536,20 +687,13 @@ int snmp_usm_add_user(struct snmp_agent *inst, const struct snmp_usm_user *user)
 	/* Find free slot */
 	for (size_t i = 0; i < CONFIG_SNMP_V3_MAX_USERS; i++) {
 		if (!inst->users[i].in_use) {
-			inst->users[i] = *user;
-			inst->users[i].in_use = true;
-			if (inst->users[i].auth_protocol > 0) {
-				usm_key_localize(
-				    inst->users[i].auth_key, &inst->users[i].auth_key_len,
-				    inst->users[i].auth_pass, inst->users[i].auth_protocol,
-				    inst->engine_id, inst->engine_id_len, false);
-			}
-			if (inst->users[i].priv_protocol > 0) {
-				usm_key_localize(
-				    inst->users[i].priv_key, &inst->users[i].priv_key_len,
-				    inst->users[i].priv_pass, inst->users[i].priv_protocol,
-				    inst->engine_id, inst->engine_id_len, true);
-			}
+			struct snmp_usm_user tmp = *user;
+
+			tmp.in_use = true;
+			ret = usm_localize_user(inst, &tmp);
+			if (ret < 0)
+				return ret;
+			inst->users[i] = tmp;
 			inst->user_cnt++;
 			return 0;
 		}
@@ -558,18 +702,68 @@ int snmp_usm_add_user(struct snmp_agent *inst, const struct snmp_usm_user *user)
 	return -ENOMEM;
 }
 
+int snmp_usm_add_user(struct snmp_agent *inst, const struct snmp_usm_user *user)
+{
+	int ret;
+
+	if (!inst || !user)
+		return -EINVAL;
+	if (inst->engine_id_len == 0)
+		return -EINVAL;
+
+	k_mutex_lock(&inst->lock, K_FOREVER);
+	ret = usm_add_user_locked(inst, user);
+	k_mutex_unlock(&inst->lock);
+	return ret;
+}
+
+/*
+ * Default snmpEngineID when the application does not supply one (RFC 3411 §5).
+ *
+ * Layout: enterprise number with the high bit set (0x80001F88), then the format
+ * octet 0x05 ("octets") and the engine identifier itself. Using the SoC unique
+ * device ID keeps two boards running the same firmware from deriving identical
+ * localized keys out of the same pass phrase, which is exactly what a single
+ * hard-coded constant does. Boards without a device ID fall back to the historical
+ * constant; applications can always override the value through cfg.engine_id.
+ */
+static void usm_default_engine_id(struct snmp_agent *inst)
+{
+	static const uint8_t prefix[5] = {0x80, 0x00, 0x1F, 0x88, 0x05};
+	uint8_t dev_id[12]; /* STM32H7 exposes a 96-bit UID; drivers clamp to the buffer */
+	ssize_t id_len = -1;
+
+	inst->engine_id_len = 0;
+
+#if defined(CONFIG_HWINFO)
+	id_len = hwinfo_get_device_id(dev_id, sizeof(dev_id));
+#endif
+
+	if (id_len > 0 && (size_t)id_len <= sizeof(dev_id)) {
+		memcpy(inst->engine_id, prefix, sizeof(prefix));
+		memcpy(&inst->engine_id[sizeof(prefix)], dev_id, (size_t)id_len);
+		inst->engine_id_len = (uint8_t)(sizeof(prefix) + (size_t)id_len);
+		return;
+	}
+
+	memcpy(inst->engine_id, prefix, sizeof(prefix));
+	memcpy(&inst->engine_id[sizeof(prefix)], "ZEPHYR1", 7);
+	inst->engine_id_len = (uint8_t)(sizeof(prefix) + 7);
+}
+
 int snmp_usm_init(struct snmp_agent *inst)
 {
-	if (!inst) {
+	int ret = 0;
+
+	if (!inst)
 		return -EINVAL;
-	}
+
 	psa_crypto_init();
 
+	k_mutex_lock(&inst->lock, K_FOREVER);
+
 	if (inst->engine_id_len == 0) {
-		static const uint8_t default_engine_id[12] = {0x80, 0x00, 0x1F, 0x88, 0x80, 'Z',
-							      'E',  'P',  'H',	'Y',  'R',  '1'};
-		memcpy(inst->engine_id, default_engine_id, sizeof(default_engine_id));
-		inst->engine_id_len = sizeof(default_engine_id);
+		usm_default_engine_id(inst);
 	}
 
 	/*
@@ -586,40 +780,108 @@ int snmp_usm_init(struct snmp_agent *inst)
 #endif
 	}
 
+	/*
+	 * RFC 3826 §3.1.1.3: the salt space is per key, seeded once per engine. A
+	 * cryptographic RNG failure must not silently degrade into a predictable salt,
+	 * so the init call reports it and the caller can refuse to start.
+	 */
+	if (sys_csrand_get(&inst->priv_salt, sizeof(inst->priv_salt)) != 0) {
+		inst->priv_salt = 0;
+		ret = -EIO;
+		goto unlock;
+	}
+
 	if (inst->user_cnt == 0) {
 		struct snmp_usm_user default_user = {
-		    .auth_protocol = 1,
-		    .priv_protocol = 1,
-		    .in_use = true,
+		    .auth_protocol = CONFIG_SNMP_V3_AUTH_PROTOCOL,
+		    .priv_protocol = CONFIG_SNMP_V3_PRIV_PROTOCOL,
 		};
-		strncpy(default_user.user_name, CONFIG_SNMP_V3_USER_NAME,
-			sizeof(default_user.user_name) - 1);
-		default_user.user_name[sizeof(default_user.user_name) - 1] = '\0';
-		strncpy(default_user.auth_pass, CONFIG_SNMP_V3_AUTH_PASS,
-			sizeof(default_user.auth_pass) - 1);
-		default_user.auth_pass[sizeof(default_user.auth_pass) - 1] = '\0';
-		strncpy(default_user.priv_pass, CONFIG_SNMP_V3_PRIV_PASS,
-			sizeof(default_user.priv_pass) - 1);
-		default_user.priv_pass[sizeof(default_user.priv_pass) - 1] = '\0';
-		snmp_usm_add_user(inst, &default_user);
+		size_t len;
+
+		len = snmp_strnlen(CONFIG_SNMP_V3_USER_NAME, sizeof(default_user.user_name));
+		if (len == 0 || len >= sizeof(default_user.user_name)) {
+			ret = -EINVAL;
+			goto unlock;
+		}
+		memcpy(default_user.user_name, CONFIG_SNMP_V3_USER_NAME, len);
+		default_user.user_name[len] = '\0';
+
+		len = snmp_strnlen(CONFIG_SNMP_V3_AUTH_PASS, sizeof(default_user.auth_pass));
+		memcpy(default_user.auth_pass, CONFIG_SNMP_V3_AUTH_PASS, len);
+		default_user.auth_pass[len] = '\0';
+
+		len = snmp_strnlen(CONFIG_SNMP_V3_PRIV_PASS, sizeof(default_user.priv_pass));
+		memcpy(default_user.priv_pass, CONFIG_SNMP_V3_PRIV_PASS, len);
+		default_user.priv_pass[len] = '\0';
+
+		ret = usm_add_user_locked(inst, &default_user);
 	} else {
-		/* Re-localize existing users with current engine_id */
+		/* Re-localize existing users with the current engine_id. */
 		for (size_t i = 0; i < CONFIG_SNMP_V3_MAX_USERS; i++) {
 			if (inst->users[i].in_use) {
-				if (inst->users[i].auth_protocol > 0) {
-					usm_key_localize(
-					    inst->users[i].auth_key, &inst->users[i].auth_key_len,
-					    inst->users[i].auth_pass, inst->users[i].auth_protocol,
-					    inst->engine_id, inst->engine_id_len, false);
-				}
-				if (inst->users[i].priv_protocol > 0) {
-					usm_key_localize(
-					    inst->users[i].priv_key, &inst->users[i].priv_key_len,
-					    inst->users[i].priv_pass, inst->users[i].priv_protocol,
-					    inst->engine_id, inst->engine_id_len, true);
-				}
+				int lret = usm_localize_user(inst, &inst->users[i]);
+
+				if (lret < 0 && ret == 0)
+					ret = lret;
 			}
 		}
+	}
+
+unlock:
+	k_mutex_unlock(&inst->lock);
+	return ret;
+}
+
+/* ---- USM Report generation (RFC 3414 §3.2) ---- */
+
+/* usmStats OIDs under 1.3.6.1.6.3.15.1.1 */
+static const uint32_t s_oid_unsupported_sec_levels[] = {1, 3, 6, 1, 6, 3, 15, 1, 1, 1, 0};
+static const uint32_t s_oid_not_in_time_windows[] = {1, 3, 6, 1, 6, 3, 15, 1, 1, 2, 0};
+static const uint32_t s_oid_unknown_user_names[] = {1, 3, 6, 1, 6, 3, 15, 1, 1, 3, 0};
+static const uint32_t s_oid_unknown_engine_ids[] = {1, 3, 6, 1, 6, 3, 15, 1, 1, 4, 0};
+
+#define USM_REPORT_OID_LEN 11
+
+/*
+ * Turn the incoming message into a Report PDU carrying one usmStats counter.
+ *
+ * RFC 3414 §3.2 only permits a Report when the reportable flag was set; otherwise the
+ * message is discarded. @p authenticated selects authNoPriv (used for reports where the
+ * sender's identity and digest were verified) versus noAuthNoPriv.
+ */
+static int usm_build_report(struct snmp_agent *inst, struct snmp_v3_msg *msg, const uint32_t *oid,
+			    uint32_t value, bool authenticated)
+{
+	struct snmp_pdu *pdu = &msg->scoped.pdu;
+
+	if ((msg->global.msg_flags & 0x04) == 0) {
+		return -EACCES;
+	}
+
+	memset(pdu, 0, sizeof(*pdu));
+	pdu->type = SNMP_PDU_REPORT;
+	pdu->version = 3;
+	pdu->request_id = msg->global.msg_id;
+	pdu->varbind_cnt = 1;
+
+	pdu->varbinds[0].oid.len = USM_REPORT_OID_LEN;
+	memcpy(pdu->varbinds[0].oid.ids, oid, USM_REPORT_OID_LEN * sizeof(uint32_t));
+	pdu->varbinds[0].type = SNMP_TAG_COUNTER32;
+	pdu->varbinds[0].val.uint_val = value;
+
+	memcpy(msg->scoped.context_engine_id, inst->engine_id, inst->engine_id_len);
+	msg->scoped.context_engine_id_len = inst->engine_id_len;
+	msg->scoped.context_name_len = 0;
+
+	if (authenticated) {
+		msg->global.msg_flags = 0x01;
+		msg->sec_level = SNMP_SEC_LEVEL_AUTH_NOPRIV;
+	} else {
+		msg->global.msg_flags = 0x00;
+		msg->usm.user_name_len = 0;
+		msg->usm.auth_params_len = 0;
+		msg->usm.priv_params_len = 0;
+		msg->sec_level = SNMP_SEC_LEVEL_NOAUTH_NOPRIV;
 	}
 
 	return 0;
@@ -628,54 +890,86 @@ int snmp_usm_init(struct snmp_agent *inst)
 int snmp_usm_verify_incoming(struct snmp_agent *inst, struct snmp_v3_msg *msg,
 			     const uint8_t *raw_buf, size_t raw_len)
 {
+	bool req_auth;
+	bool req_priv;
+	bool engine_known;
+	struct snmp_usm_user *user;
+	int ret;
+
 	if (!inst || !msg || !raw_buf)
 		return -EINVAL;
 
 	/* RFC 3414 §2.2: if engine boots reaches 2147483647, stop processing */
 	if (inst->engine_boots >= SNMP_ENGINE_BOOTS_MAX ||
 	    msg->usm.engine_boots >= SNMP_ENGINE_BOOTS_MAX) {
-		INC_STAT(inst, snmpSilentDrops);
 		return -EACCES;
 	}
 
-	if ((msg->usm.engine_boots == 0 && msg->usm.engine_time == 0) ||
-	    msg->usm.engine_id_len == 0) {
-		memset(&msg->scoped.pdu, 0, sizeof(msg->scoped.pdu));
-		msg->scoped.pdu.type = SNMP_PDU_REPORT;
-		msg->scoped.pdu.version = 3;
-		return 0;
+	req_auth = (msg->global.msg_flags & 0x01) != 0;
+	req_priv = (msg->global.msg_flags & 0x02) != 0;
+
+	/* RFC 3414 §3.2: authPriv implies auth; priv without auth is not a level. */
+	if (req_priv && !req_auth) {
+		snmp_counter_inc(&inst->usm_stats.unsupported_sec_levels);
+		return usm_build_report(inst, msg, s_oid_unsupported_sec_levels,
+					inst->usm_stats.unsupported_sec_levels, false);
 	}
 
-	struct snmp_usm_user *user = usm_find_user(inst, (const char *)msg->usm.user_name);
+	/*
+	 * Engine discovery / unknown engine: boots and time both zero, an empty engine
+	 * ID, or an ID that is not ours. RFC 3414 §3.2 step 4 requires a Report carrying
+	 * usmStatsUnknownEngineIDs, at noAuthNoPriv because no key can be assumed yet.
+	 */
+	engine_known = msg->usm.engine_id_len == inst->engine_id_len &&
+		       msg->usm.engine_id_len > 0 &&
+		       memcmp(msg->usm.engine_id, inst->engine_id, inst->engine_id_len) == 0;
+
+	if (!engine_known || (msg->usm.engine_boots == 0 && msg->usm.engine_time == 0)) {
+		snmp_counter_inc(&inst->usm_stats.unknown_engine_ids);
+		return usm_build_report(inst, msg, s_oid_unknown_engine_ids,
+					inst->usm_stats.unknown_engine_ids, false);
+	}
+
+	user = usm_find_user(inst, (const char *)msg->usm.user_name);
 	if (!user) {
-		INC_STAT(inst, snmpSilentDrops);
-		return -EACCES;
+		snmp_counter_inc(&inst->usm_stats.unknown_user_names);
+		return usm_build_report(inst, msg, s_oid_unknown_user_names,
+					inst->usm_stats.unknown_user_names, false);
 	}
 
-	int ret = usm_verify_auth(msg, user);
-	if (ret < 0) {
-		INC_STAT(inst, snmpSilentDrops);
-		return ret;
+	/*
+	 * The requested level must be one this user can actually provide. Reporting is
+	 * done unauthenticated: the message has not been verified at this point.
+	 */
+	if ((req_auth && user->auth_protocol == SNMP_USM_AUTH_NONE) ||
+	    (req_priv && user->priv_protocol == SNMP_USM_PRIV_NONE)) {
+		snmp_counter_inc(&inst->usm_stats.unsupported_sec_levels);
+		return usm_build_report(inst, msg, s_oid_unsupported_sec_levels,
+					inst->usm_stats.unsupported_sec_levels, false);
 	}
 
-	if (msg->global.msg_flags & 0x02) {
-		if (user->priv_protocol == 0) {
-			INC_STAT(inst, snmpSilentDrops);
+	if (req_auth) {
+		ret = usm_verify_auth(msg, user, raw_buf, raw_len);
+		if (ret < 0) {
+			/* RFC 3414 §3.2 step 6: wrong digest is discarded, never reported. */
+			snmp_counter_inc(&inst->usm_stats.wrong_digests);
+			return -EACCES;
+		}
+	}
+
+	if (req_priv) {
+		if (msg->usm.priv_params_len != 8) {
+			snmp_counter_inc(&inst->usm_stats.decryption_errors);
 			return -EACCES;
 		}
 
-		/* RFC 3826 §3.1.2: msgPrivacyParameters is strictly 8 octets (salt) */
-		if (msg->usm.priv_params_len != 8) {
-			INC_STAT(inst, snmpSilentDrops);
-			return -EBADMSG;
-		}
+		const uint8_t *ct_data = NULL;
+		size_t ct_len = 0;
 
-		const uint8_t *ct_data;
-		size_t ct_len;
 		ret = find_encrypted_scopedpdu(raw_buf, raw_len, &ct_data, &ct_len);
 		if (ret < 0) {
-			INC_STAT(inst, snmpSilentDrops);
-			return ret;
+			snmp_counter_inc(&inst->usm_stats.decryption_errors);
+			return -EACCES;
 		}
 
 		/* RFC 3826 §3.1.1.1 & §3.1.4: 16-byte IV = boots (4 BE) || time (4 BE) || salt (8)
@@ -692,44 +986,71 @@ int snmp_usm_verify_incoming(struct snmp_agent *inst, struct snmp_v3_msg *msg,
 		memcpy(&iv[8], msg->usm.priv_params, 8);
 
 		uint8_t pt[CONFIG_SNMP_MAX_PDU_SIZE];
-		size_t pt_len;
+		size_t pt_len = 0;
+
 		ret = aes128_cfb_decrypt(user->priv_key, iv, ct_data, ct_len, pt, sizeof(pt),
 					 &pt_len);
 		if (ret < 0) {
-			INC_STAT(inst, snmpSilentDrops);
-			return ret;
+			snmp_counter_inc(&inst->usm_stats.decryption_errors);
+			return -EACCES;
 		}
 
 		ret = parse_scopedpdu_plaintext(pt, pt_len, &msg->scoped);
 		if (ret < 0) {
-			INC_STAT(inst, snmpSilentDrops);
-			return ret;
+			snmp_counter_inc(&inst->usm_stats.decryption_errors);
+			return -EACCES;
 		}
 	}
 
-	int32_t local_time = (int32_t)snmp_usm_get_engine_time(inst);
-	int32_t diff = (int32_t)msg->usm.engine_time - local_time;
-	if (diff < -150 || diff > 150 || msg->usm.engine_boots != inst->engine_boots) {
-		memset(&msg->scoped.pdu, 0, sizeof(msg->scoped.pdu));
-		msg->scoped.pdu.type = SNMP_PDU_REPORT;
-		msg->scoped.pdu.version = 3;
-		msg->scoped.pdu.request_id = msg->global.msg_id;
-		static const uint32_t not_in_time_windows_oid[] = {1,  3, 6, 1, 6, 3,
-								   15, 1, 1, 2, 0};
-		msg->scoped.pdu.varbinds[0].oid.len = 11;
-		memcpy(msg->scoped.pdu.varbinds[0].oid.ids, not_in_time_windows_oid,
-		       sizeof(not_in_time_windows_oid));
-		msg->scoped.pdu.varbinds[0].type = SNMP_TAG_COUNTER32;
-		msg->scoped.pdu.varbinds[0].val.uint_val = ++inst->counters.snmpSilentDrops;
-		msg->scoped.pdu.varbind_cnt = 1;
-		return 0;
+	/*
+	 * RFC 3414 §3.2 step 7: the timeliness window is only meaningful for
+	 * authenticated messages. An unauthenticated engineTime is attacker-controlled,
+	 * so checking it would prove nothing and only block legitimate noAuthNoPriv use.
+	 */
+	if (req_auth) {
+		int32_t local_time = (int32_t)snmp_usm_get_engine_time(inst);
+		int32_t diff = (int32_t)msg->usm.engine_time - local_time;
+
+		if (diff < -150 || diff > 150 || msg->usm.engine_boots != inst->engine_boots) {
+			snmp_counter_inc(&inst->usm_stats.not_in_time_windows);
+			return usm_build_report(inst, msg, s_oid_not_in_time_windows,
+						inst->usm_stats.not_in_time_windows, true);
+		}
+	}
+
+	/* Verified security level, not msgFlags: VACM must never trust the peer's claim. */
+	if (req_priv) {
+		msg->sec_level = SNMP_SEC_LEVEL_AUTH_PRIV;
+	} else if (req_auth) {
+		msg->sec_level = SNMP_SEC_LEVEL_AUTH_NOPRIV;
+	} else {
+		msg->sec_level = SNMP_SEC_LEVEL_NOAUTH_NOPRIV;
 	}
 
 	return 0;
 }
 
+/*
+ * Reconstruct msgFlags from a verified/desired security level. Responses and traps are
+ * never reportable, so only the auth/priv bits are significant here.
+ */
+static uint8_t usm_flags_from_level(uint8_t level)
+{
+	switch (level) {
+	case SNMP_SEC_LEVEL_AUTH_PRIV:
+		return 0x03;
+	case SNMP_SEC_LEVEL_AUTH_NOPRIV:
+		return 0x01;
+	default:
+		return 0x00;
+	}
+}
+
 int snmp_usm_build_outgoing(struct snmp_agent *inst, struct snmp_v3_msg *msg)
 {
+	struct snmp_usm_user *user = NULL;
+	uint8_t pdu_type;
+
 	if (!inst || !msg)
 		return -EINVAL;
 
@@ -738,51 +1059,64 @@ int snmp_usm_build_outgoing(struct snmp_agent *inst, struct snmp_v3_msg *msg)
 		return -EACCES;
 	}
 
-	if (msg->scoped.pdu.type == SNMP_PDU_REPORT) {
-		memcpy(msg->usm.engine_id, inst->engine_id, inst->engine_id_len);
-		msg->usm.engine_id_len = inst->engine_id_len;
-		msg->usm.engine_boots = inst->engine_boots;
-		msg->usm.engine_time = snmp_usm_get_engine_time(inst);
-		msg->global.msg_flags = 0x00;
-		msg->usm.auth_params_len = 0;
-		msg->usm.priv_params_len = 0;
-		return 0;
-	}
-
-	struct snmp_usm_user *user = usm_find_user(inst, (const char *)msg->usm.user_name);
-	if (!user)
-		return -EACCES;
-
 	memcpy(msg->usm.engine_id, inst->engine_id, inst->engine_id_len);
 	msg->usm.engine_id_len = inst->engine_id_len;
 	msg->usm.engine_boots = inst->engine_boots;
 	msg->usm.engine_time = snmp_usm_get_engine_time(inst);
 
-	uint8_t pdu_type = msg->scoped.pdu.type;
-	if (pdu_type == SNMP_PDU_TRAP_V2 || pdu_type == SNMP_PDU_RESPONSE ||
-	    pdu_type == SNMP_PDU_REPORT) {
-		msg->global.msg_flags = 0x00;
-	} else {
-		msg->global.msg_flags = 0x04;
-	}
-	if (user->auth_protocol > 0) {
-		msg->global.msg_flags |= 0x01;
-		msg->usm.auth_params_len = usm_auth_mac_len(user->auth_protocol);
-	}
-	if (user->priv_protocol > 0) {
-		msg->global.msg_flags |= 0x02;
+	pdu_type = msg->scoped.pdu.type;
 
-		/* RFC 3826 §3.1.1.3 & §3.1.2: msgPrivacyParameters is strictly 8 octets (salt) */
-		uint32_t salt_hi = sys_rand32_get();
-		uint32_t salt_lo = sys_rand32_get();
-		msg->usm.priv_params[0] = (uint8_t)(salt_hi >> 24);
-		msg->usm.priv_params[1] = (uint8_t)(salt_hi >> 16);
-		msg->usm.priv_params[2] = (uint8_t)(salt_hi >> 8);
-		msg->usm.priv_params[3] = (uint8_t)(salt_hi);
-		msg->usm.priv_params[4] = (uint8_t)(salt_lo >> 24);
-		msg->usm.priv_params[5] = (uint8_t)(salt_lo >> 16);
-		msg->usm.priv_params[6] = (uint8_t)(salt_lo >> 8);
-		msg->usm.priv_params[7] = (uint8_t)(salt_lo);
+	if (pdu_type == SNMP_PDU_RESPONSE || pdu_type == SNMP_PDU_TRAP_V2) {
+		/*
+		 * A response must mirror the request's security level (RFC 3412 §7.1.6)
+		 * and a trap uses the level configured for the notification user. Both
+		 * are expressed by msg->sec_level; the reportable bit is never set.
+		 */
+		msg->global.msg_flags = usm_flags_from_level(msg->sec_level);
+	} else if (pdu_type == SNMP_PDU_REPORT) {
+		/*
+		 * Keep the level chosen by usm_build_report(): reports for an unknown engine
+		 * or user go out unauthenticated, notInTimeWindows is authenticated.
+		 */
+		msg->global.msg_flags &= (0x01 | 0x02);
+	} else {
+		/* Requests (Get/GetNext/GetBulk/Set/Inform) are reportable. An outgoing
+		 * Inform also carries the notification user's security level. */
+		msg->global.msg_flags = 0x04 | usm_flags_from_level(msg->sec_level);
+	}
+
+	if (msg->global.msg_flags & (0x01 | 0x02)) {
+		user = usm_find_user(inst, (const char *)msg->usm.user_name);
+		if (!user)
+			return -EACCES;
+
+		if ((msg->global.msg_flags & 0x01) && user->auth_protocol == SNMP_USM_AUTH_NONE)
+			return -EACCES;
+		if ((msg->global.msg_flags & 0x02) && user->priv_protocol == SNMP_USM_PRIV_NONE)
+			return -EACCES;
+
+		if (msg->global.msg_flags & 0x01) {
+			msg->usm.auth_params_len = usm_auth_mac_len(user->auth_protocol);
+		} else {
+			msg->usm.auth_params_len = 0;
+		}
+	} else {
+		msg->usm.auth_params_len = 0;
+		msg->usm.priv_params_len = 0;
+	}
+
+	if (msg->global.msg_flags & 0x02) {
+		/* RFC 3826 §3.1.1.3: per-engine monotonic salt. */
+		uint64_t salt = ++inst->priv_salt;
+
+		msg->usm.priv_params[0] = (uint8_t)(salt >> 56);
+		msg->usm.priv_params[1] = (uint8_t)(salt >> 48);
+		msg->usm.priv_params[2] = (uint8_t)(salt >> 40);
+		msg->usm.priv_params[3] = (uint8_t)(salt >> 32);
+		msg->usm.priv_params[4] = (uint8_t)(salt >> 24);
+		msg->usm.priv_params[5] = (uint8_t)(salt >> 16);
+		msg->usm.priv_params[6] = (uint8_t)(salt >> 8);
+		msg->usm.priv_params[7] = (uint8_t)(salt);
 		msg->usm.priv_params_len = 8;
 
 		/* RFC 3826 §3.1.1.1: 16-byte IV = boots (4 BE) || time (4 BE) || salt (8) */
@@ -798,13 +1132,15 @@ int snmp_usm_build_outgoing(struct snmp_agent *inst, struct snmp_v3_msg *msg)
 		memcpy(&iv[8], msg->usm.priv_params, 8);
 
 		uint8_t plaintext[CONFIG_SNMP_MAX_PDU_SIZE];
-		size_t pt_len;
+		size_t pt_len = 0;
 		int ret = build_scopedpdu_plaintext(msg, plaintext, sizeof(plaintext), &pt_len);
+
 		if (ret < 0)
 			return ret;
 
 		uint8_t ciphertext[CONFIG_SNMP_MAX_PDU_SIZE];
-		size_t ct_len;
+		size_t ct_len = 0;
+
 		ret = aes128_cfb_encrypt(user->priv_key, iv, plaintext, pt_len, ciphertext,
 					 sizeof(ciphertext), &ct_len);
 		if (ret < 0)
@@ -820,22 +1156,27 @@ int snmp_usm_build_outgoing(struct snmp_agent *inst, struct snmp_v3_msg *msg)
 
 	memset(msg->usm.auth_params, 0, sizeof(msg->usm.auth_params));
 
-	uint8_t hash_target[CONFIG_SNMP_MAX_PDU_SIZE];
-	size_t hash_len = 0;
-	int ret = snmp_ber_encode_v3_msg(hash_target, sizeof(hash_target), &hash_len, msg);
-	if (ret < 0)
-		return ret;
+	if (user != NULL && (msg->global.msg_flags & 0x01)) {
+		uint8_t hash_target[CONFIG_SNMP_MAX_PDU_SIZE];
+		size_t hash_len = 0;
+		int ret = snmp_ber_encode_v3_msg(hash_target, sizeof(hash_target), &hash_len, msg);
 
-	if (user->auth_protocol > 0) {
-		psa_algorithm_t alg = usm_auth_alg(user->auth_protocol);
+		if (ret < 0)
+			return ret;
+
 		uint8_t full_hash[64];
-		size_t fh_len;
-		ret = hmac_compute(alg, user->auth_key, user->auth_key_len, hash_target, hash_len,
-				   full_hash, sizeof(full_hash), &fh_len);
+		size_t fh_len = 0;
+
+		ret = hmac_compute(usm_auth_alg(user->auth_protocol), user->auth_key,
+				   user->auth_key_len, hash_target, hash_len, full_hash,
+				   sizeof(full_hash), &fh_len);
 		if (ret < 0)
 			return ret;
 
 		uint8_t trunc = usm_auth_mac_len(user->auth_protocol);
+
+		if (fh_len < trunc)
+			return -EIO;
 		memcpy(msg->usm.auth_params, full_hash, trunc);
 	}
 
@@ -964,6 +1305,204 @@ int snmp_usm_set_engine_time(struct snmp_agent *inst, uint32_t time)
 
 	int64_t uptime_sec = k_uptime_get() / 1000;
 	inst->engine_time_base = uptime_sec - (int64_t)time;
+	return 0;
+}
+
+/* ---- RFC 3411 (Framework MIB), RFC 3412 (MPD MIB) and RFC 3414 (USM MIB) Managed Objects ---- */
+
+static int usm_engine_id_get(struct snmp_agent *agent, const struct snmp_mib_node *node,
+			     struct snmp_varbind *vb)
+{
+	(void)node;
+	if (!agent || !vb) {
+		return -EINVAL;
+	}
+	vb->type = ASN1_TAG_OCTET_STRING;
+	vb->val.octet_str.len = agent->engine_id_len;
+	memcpy(vb->val.octet_str.data, agent->engine_id, agent->engine_id_len);
+	return 0;
+}
+
+static int usm_engine_boots_get(struct snmp_agent *agent, const struct snmp_mib_node *node,
+				struct snmp_varbind *vb)
+{
+	(void)node;
+	if (!agent || !vb) {
+		return -EINVAL;
+	}
+	vb->type = ASN1_TAG_INTEGER;
+	vb->val.int_val = (int32_t)agent->engine_boots;
+	return 0;
+}
+
+static int usm_engine_time_get(struct snmp_agent *agent, const struct snmp_mib_node *node,
+			       struct snmp_varbind *vb)
+{
+	(void)node;
+	if (!agent || !vb) {
+		return -EINVAL;
+	}
+	vb->type = ASN1_TAG_INTEGER;
+	vb->val.int_val = (int32_t)snmp_usm_get_engine_time(agent);
+	return 0;
+}
+
+static int usm_engine_max_size_get(struct snmp_agent *agent, const struct snmp_mib_node *node,
+				   struct snmp_varbind *vb)
+{
+	(void)node;
+	if (!agent || !vb) {
+		return -EINVAL;
+	}
+	vb->type = ASN1_TAG_INTEGER;
+	vb->val.int_val = CONFIG_SNMP_MAX_PDU_SIZE;
+	return 0;
+}
+
+static int usm_stats_get(struct snmp_agent *agent, const struct snmp_mib_node *node,
+			 struct snmp_varbind *vb)
+{
+	if (!agent || !node || !vb || node->oid.len != 11) {
+		return -EINVAL;
+	}
+	uint32_t subid = node->oid.ids[9];
+	uint32_t val = 0;
+
+	switch (subid) {
+	case 1:
+		val = agent->usm_stats.unsupported_sec_levels;
+		break;
+	case 2:
+		val = agent->usm_stats.not_in_time_windows;
+		break;
+	case 3:
+		val = agent->usm_stats.unknown_user_names;
+		break;
+	case 4:
+		val = agent->usm_stats.unknown_engine_ids;
+		break;
+	case 5:
+		val = agent->usm_stats.wrong_digests;
+		break;
+	case 6:
+		val = agent->usm_stats.decryption_errors;
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	vb->type = SNMP_TAG_COUNTER32;
+	vb->val.uint_val = val;
+	return 0;
+}
+
+static int mpd_stats_get(struct snmp_agent *agent, const struct snmp_mib_node *node,
+			 struct snmp_varbind *vb)
+{
+	if (!agent || !node || !vb || node->oid.len != 11) {
+		return -EINVAL;
+	}
+	uint32_t subid = node->oid.ids[9];
+	uint32_t val = 0;
+
+	switch (subid) {
+	case 1:
+		val = agent->mpd_stats.unknown_security_models;
+		break;
+	case 2:
+		val = agent->mpd_stats.invalid_msgs;
+		break;
+	case 3:
+		val = agent->mpd_stats.unknown_pdu_handlers;
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	vb->type = SNMP_TAG_COUNTER32;
+	vb->val.uint_val = val;
+	return 0;
+}
+
+int snmp_usm_register_mibs(struct snmp_agent *inst)
+{
+	if (!inst) {
+		return -EINVAL;
+	}
+
+	/* 1. RFC 3411 snmpEngine group: 1.3.6.1.6.3.10.2.1.<subid>.0 */
+	static const uint32_t engine_base[] = {1, 3, 6, 1, 6, 3, 10, 2, 1};
+	struct snmp_mib_node node;
+
+	for (uint32_t subid = 1; subid <= 4; subid++) {
+		memset(&node, 0, sizeof(node));
+		node.oid.len = 11;
+		memcpy(node.oid.ids, engine_base, sizeof(engine_base));
+		node.oid.ids[9] = subid;
+		node.oid.ids[10] = 0;
+		node.set_cb = NULL;
+		node.user_data = NULL;
+
+		if (subid == 1) {
+			node.type = ASN1_TAG_OCTET_STRING;
+			node.get_cb = usm_engine_id_get;
+		} else if (subid == 2) {
+			node.type = ASN1_TAG_INTEGER;
+			node.get_cb = usm_engine_boots_get;
+		} else if (subid == 3) {
+			node.type = ASN1_TAG_INTEGER;
+			node.get_cb = usm_engine_time_get;
+		} else {
+			node.type = ASN1_TAG_INTEGER;
+			node.get_cb = usm_engine_max_size_get;
+		}
+
+		int ret = snmp_mib_register(inst, &node);
+		if (ret < 0) {
+			return ret;
+		}
+	}
+
+	/* 2. RFC 3414 usmStats group: 1.3.6.1.6.3.15.1.1.<subid>.0 */
+	static const uint32_t usm_stats_base[] = {1, 3, 6, 1, 6, 3, 15, 1, 1};
+
+	for (uint32_t subid = 1; subid <= 6; subid++) {
+		memset(&node, 0, sizeof(node));
+		node.oid.len = 11;
+		memcpy(node.oid.ids, usm_stats_base, sizeof(usm_stats_base));
+		node.oid.ids[9] = subid;
+		node.oid.ids[10] = 0;
+		node.type = SNMP_TAG_COUNTER32;
+		node.get_cb = usm_stats_get;
+		node.set_cb = NULL;
+		node.user_data = NULL;
+
+		int ret = snmp_mib_register(inst, &node);
+		if (ret < 0) {
+			return ret;
+		}
+	}
+
+	/* 3. RFC 3412 snmpMPD group: 1.3.6.1.6.3.11.2.1.<subid>.0 */
+	static const uint32_t mpd_stats_base[] = {1, 3, 6, 1, 6, 3, 11, 2, 1};
+
+	for (uint32_t subid = 1; subid <= 3; subid++) {
+		memset(&node, 0, sizeof(node));
+		node.oid.len = 11;
+		memcpy(node.oid.ids, mpd_stats_base, sizeof(mpd_stats_base));
+		node.oid.ids[9] = subid;
+		node.oid.ids[10] = 0;
+		node.type = SNMP_TAG_COUNTER32;
+		node.get_cb = mpd_stats_get;
+		node.set_cb = NULL;
+		node.user_data = NULL;
+
+		int ret = snmp_mib_register(inst, &node);
+		if (ret < 0) {
+			return ret;
+		}
+	}
+
 	return 0;
 }
 

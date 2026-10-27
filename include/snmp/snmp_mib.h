@@ -159,10 +159,19 @@ void snmp_agent_zero_counters(struct snmp_agent *agent);
 
 static inline void snmp_counter_inc(uint32_t *counter)
 {
-#if defined(CONFIG_ATOMIC_OPERATIONS)
+#if defined(__ZEPHYR__)
 	atomic_inc((atomic_t *)counter);
 #else
 	(*counter)++;
+#endif
+}
+
+static inline void snmp_counter_add(uint32_t *counter, uint32_t value)
+{
+#if defined(__ZEPHYR__)
+	atomic_add((atomic_t *)counter, (atomic_val_t)value);
+#else
+	*counter += value;
 #endif
 }
 

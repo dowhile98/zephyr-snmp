@@ -68,17 +68,30 @@ jobs:
             zephyr-snmp/twister-out/*/twister_report.xml
 
   sample-builds:
-    name: Sample Build (${{ matrix.target }})
+    name: Sample Build (${{ matrix.sample }} @ ${{ matrix.target }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         include:
           - target: native_sim/native/64
+            sample: samples/snmp_agent
             toolchain: ""
           - target: qemu_x86
+            sample: samples/snmp_agent
             toolchain: x86_64-zephyr-elf
           - target: nucleo_h743zi
+            sample: samples/snmp_agent
+            toolchain: arm-zephyr-eabi
+          # v3 sample: pulls in PSA Crypto / mbedTLS through CONFIG_SNMP_VERSION_3.
+          - target: native_sim/native/64
+            sample: samples/snmp_agent_v3
+            toolchain: ""
+          - target: qemu_x86
+            sample: samples/snmp_agent_v3
+            toolchain: x86_64-zephyr-elf
+          - target: nucleo_h743zi
+            sample: samples/snmp_agent_v3
             toolchain: arm-zephyr-eabi
     steps:
       - uses: actions/checkout@v4
@@ -96,4 +109,4 @@ jobs:
       - name: Build Sample
         working-directory: zephyr-snmp
         run: |
-          west build -p always -b ${{ matrix.target }} samples/snmp_agent
+          west build -p always -b ${{ matrix.target }} ${{ matrix.sample }}

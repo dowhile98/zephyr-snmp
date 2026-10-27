@@ -172,3 +172,26 @@ Capture raw packets with ``tcpdump``:
    sudo tcpdump -i any -nn -vv -X udp port 162
 
 Or use a Python UDP socket listener on port 1162 (when configured with ``CONFIG_SNMP_TRAP_PORT=1162``).
+
+SNMPv3 Validation Sample
+------------------------
+
+``samples/snmp_agent_v3/`` is the v3 counterpart of the sample above. It runs on the
+same caller-owned agent and adds what only v3 can exercise:
+
+- an authPriv USM user (HMAC-SHA-256 + AES-128-CFB) plus an authNoPriv user added at
+  runtime (HMAC-SHA-1), so both security levels can be compared against one engine;
+- the VACM boundary between those users (full subtree vs. the system group only), where a
+  denied read is answered with a ``Response`` carrying ``authorizationError``;
+- engine discovery and the ``Report`` exchange, including ``snmpEngineBoots`` handling;
+- SNMPv3 notifications signed with the configured USM user.
+
+All credentials in ``samples/snmp_agent_v3/prj.conf`` are public test values and are
+logged at boot. See ``samples/snmp_agent_v3/README.md`` for the Net-SNMP commands and
+the negative cases (unknown user, wrong digest, stale message, wrong security level).
+
+.. code-block:: bash
+
+   west build -p always -b qemu_x86 samples/snmp_agent_v3
+   west build -p always -b native_sim/native/64 samples/snmp_agent_v3
+   west build -p always -b nucleo_h743zi samples/snmp_agent_v3

@@ -930,6 +930,20 @@ int snmp_mib_dispatch(struct snmp_agent *inst, struct snmp_pdu *pdu)
 	if (!inst || !pdu)
 		return -EINVAL;
 
+	/*
+	 * Only the four retrieval/update requests reach the engine. Anything else
+	 * (Response, Trap, Report, ...) must never be re-encoded as a response.
+	 */
+	switch (pdu->type) {
+	case SNMP_PDU_GET_REQ:
+	case SNMP_PDU_GET_NEXT_REQ:
+	case SNMP_PDU_GET_BULK_REQ:
+	case SNMP_PDU_SET_REQ:
+		break;
+	default:
+		return -EINVAL;
+	}
+
 	pdu->error_status = 0;
 	pdu->error_index = 0;
 
@@ -960,7 +974,14 @@ int snmp_mib_dispatch(struct snmp_agent *inst, struct snmp_pdu *pdu)
 		MIB_COUNTER_INC(inst, snmpInGetNexts);
 		for (uint8_t i = 0; i < pdu->varbind_cnt; i++) {
 			MIB_COUNTER_INC(inst, snmpInTotalReqVars);
-			snmp_mib_get_next(inst, &pdu->varbinds[i].oid, &pdu->varbinds[i]);
+			int gret =
+			    snmp_mib_get_next(inst, &pdu->varbinds[i].oid, &pdu->varbinds[i]);
+			if (gret < 0) {
+				pdu->error_status = SNMP_ERR_GEN_ERR;
+				pdu->error_index = i + 1;
+				MIB_COUNTER_INC(inst, snmpOutGenErrs);
+				break;
+			}
 			if (pdu->version == 0 &&
 			    pdu->varbinds[i].type == SNMP_TAG_EXCEPT_END_MIB_VIEW) {
 				pdu->error_status = 2; /* noSuchName per RFC 1157 */
@@ -981,6 +1002,7 @@ int snmp_mib_dispatch(struct snmp_agent *inst, struct snmp_pdu *pdu)
 		if (non_rep > orig_cnt)
 			non_rep = orig_cnt;
 		uint8_t new_cnt = 0;
+		int gret = 0;
 
 		snmp_mib_lock(inst);
 		struct snmp_varbind *res_vb = inst->scratch.bulk.res_vb;
@@ -988,12 +1010,14 @@ int snmp_mib_dispatch(struct snmp_agent *inst, struct snmp_pdu *pdu)
 
 		for (int i = 0; i < non_rep && new_cnt < CONFIG_SNMP_MAX_VARBINDS; i++) {
 			res_vb[new_cnt] = pdu->varbinds[i];
-			snmp_mib_get_next(inst, &pdu->varbinds[i].oid, &res_vb[new_cnt]);
+			gret = snmp_mib_get_next(inst, &pdu->varbinds[i].oid, &res_vb[new_cnt]);
 			new_cnt++;
+			if (gret < 0)
+				break;
 		}
 
 		uint8_t num_repeaters = orig_cnt - non_rep;
-		if (num_repeaters > 0 && max_rep > 0) {
+		if (gret == 0 && num_repeaters > 0 && max_rep > 0) {
 			for (uint8_t r = 0; r < num_repeaters; r++) {
 				current_oids[r] = pdu->varbinds[non_rep + r].oid;
 			}
@@ -1003,14 +1027,16 @@ int snmp_mib_dispatch(struct snmp_agent *inst, struct snmp_pdu *pdu)
 				for (uint8_t r = 0;
 				     r < num_repeaters && new_cnt < CONFIG_SNMP_MAX_VARBINDS; r++) {
 					struct snmp_varbind *vb = &res_vb[new_cnt];
-					snmp_mib_get_next(inst, &current_oids[r], vb);
+					gret = snmp_mib_get_next(inst, &current_oids[r], vb);
+					if (gret < 0)
+						break;
 					if (vb->type != SNMP_TAG_EXCEPT_END_MIB_VIEW) {
 						all_end = false;
 						current_oids[r] = vb->oid;
 					}
 					new_cnt++;
 				}
-				if (all_end)
+				if (gret < 0 || all_end)
 					break;
 			}
 		}
@@ -1020,10 +1046,17 @@ int snmp_mib_dispatch(struct snmp_agent *inst, struct snmp_pdu *pdu)
 		snmp_mib_unlock(inst);
 
 		/* RFC 1907: count total variables processed by GetBulk, once, here. */
-		inst->counters.snmpInTotalReqVars += new_cnt;
+		snmp_counter_add(&inst->counters.snmpInTotalReqVars, new_cnt);
 
 		pdu->type = SNMP_PDU_GET_RESP;
 		MIB_COUNTER_INC(inst, snmpOutGetResponses);
+
+		if (gret < 0) {
+			/* A read callback failed mid-sweep: report genErr, keep the prefix. */
+			pdu->error_status = SNMP_ERR_GEN_ERR;
+			pdu->error_index = new_cnt > 0 ? new_cnt : 1;
+			MIB_COUNTER_INC(inst, snmpOutGenErrs);
+		}
 	} else if (pdu->type == SNMP_PDU_SET_REQ) {
 		MIB_COUNTER_INC(inst, snmpInSetRequests);
 
@@ -1257,7 +1290,7 @@ int snmp_mib_dispatch(struct snmp_agent *inst, struct snmp_pdu *pdu)
 			return 0;
 		}
 
-		/* Phase 4: Commit Succeeded -> Cleanup & Read Back */
+		/* Phase 4: Commit Succeeded -> Cleanup */
 		for (uint8_t j = 0; j < pdu->varbind_cnt; j++) {
 			if (tx_items[j].reserved && tx_items[j].node &&
 			    tx_items[j].node->set_tx_cb) {
@@ -1267,10 +1300,11 @@ int snmp_mib_dispatch(struct snmp_agent *inst, struct snmp_pdu *pdu)
 			}
 		}
 
-		/* Read back confirmed values per RFC 3416 §4.2.5 */
-		for (uint8_t i = 0; i < pdu->varbind_cnt; i++) {
-			snmp_mib_get(inst, &pdu->varbinds[i].oid, &pdu->varbinds[i]);
-		}
+		/*
+		 * RFC 1157 §4.1.5 and RFC 3416 §4.2.5: The value of the variable-bindings
+		 * field of the generated response is that of the received message.
+		 * No redundant or error-prone read-back is needed.
+		 */
 
 		snmp_mib_unlock(inst);
 
@@ -1281,6 +1315,10 @@ int snmp_mib_dispatch(struct snmp_agent *inst, struct snmp_pdu *pdu)
 		return 0;
 	}
 
+	/*
+	 * Reached by the GET and GETNEXT branches above (GetBulk and Set return from
+	 * inside their own branch); the entry guard rejected every other PDU type.
+	 */
 	return 0;
 }
 

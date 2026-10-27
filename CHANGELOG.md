@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] — 2026-10-27
+
+### Added
+
+- **Multi-Instance Concurrency**: Replaced implicit singleton architecture with caller-owned `struct snmp_agent` instances. Up to 8 concurrent agent instances (`CONFIG_SNMP_MAX_INSTANCES`) can run independently on separate ports, IP interfaces, and MIB contexts.
+- **Two-Phase Commit (2PC) SET Transactions**: Full atomic reserve/commit/rollback transactional engine complying with RFC 1157, RFC 1905, and RFC 3416 across multi-varbind SET requests.
+- **RFC 3415 View-Based Access Control Model (VACM)**: Complete implementation of all four VACM tables (`vacmContextTable`, `vacmSecurityToGroupTable`, `vacmAccessTable`, and `vacmViewTreeFamilyTable`) with subtree wildcard bitmask evaluation.
+- **RFC 3411, RFC 3412 & RFC 3414 Standard MIBs**: Exposed `snmpEngine` scalars (`1.3.6.1.6.3.10.2.1`), `snmpMPDStats` counters (`1.3.6.1.6.3.11.2.1`), and `usmMIB` statistics counters (`1.3.6.1.6.3.15.1.1`) directly queryable by SNMP managers.
+- **Standalone SNMPv3 Sample**: New dedicated sample application in `samples/snmp_agent_v3/` validating authPriv (HMAC-SHA-256 + AES-128-CFB) and authNoPriv (SHA-1) with VACM isolation.
+- **Hardware-in-the-Loop (HIL) Certification**: Verified 100% PASS across 33 physical test cases on STMicroelectronics NUCLEO-H753ZI (Cortex-M7 @ 480 MHz, LAN8742A RMII PHY) using Net-SNMP 5.9.4.
+
+### Fixed
+
+- **CRITICAL (AUD-43)**: Fixed HMAC-SHA-256 authentication digest length mismatch. Corrected MAC truncation to 24 octets (192-bit MAC) per RFC 7860 §4 `usmHMAC192SHA256AuthProtocol`.
+- **CRITICAL (AUD-44)**: Fixed non-conformant `ASN1_TAG_SEQUENCE` wrapper around `encryptedPDU` in `src/snmp_ber.c` and `src/snmp_usm.c`. Conformed to RFC 3412 §6 `ScopedPduData ::= CHOICE { plaintext ScopedPDU, encryptedPDU OCTET STRING }`.
+- **HIGH (AUD-45)**: Fixed thread stack overflow MPU fault during SNMPv3 trap emission by raising `CONFIG_SHELL_STACK_SIZE` and `CONFIG_SYSTEM_WORKQUEUE_STACK_SIZE` to 16 KiB.
+- **MEDIUM (AUD-46)**: Added missing VACM group mapping for secondary demonstration user `v3monitor`.
+- **HIGH (AUD-01 to AUD-15)**: Hardened BER decoder against hostile lengths, 32-bit addition overflow, invalid arc-2 multibyte sub-identifiers, and non-padded 9-byte 64-bit integers.
+- **HIGH (AUD-16 to AUD-30)**: Hardened USM cryptographic pipeline: raw datagram HMAC hashing with zeroed auth_params (RFC 3414 §6.3.1), constant-time MAC comparison, verified security level derivation, and monotonic per-engine IV salt.
+- **MEDIUM (AUD-31 to AUD-42)**: Removed redundant post-commit SET read-back loop (RFC 3416 §4.2.5), added atomic counter helpers, and hardened unregister socket bounds.
+
+---
+
 ## [1.0.0] — 2026-09-18
 
 ### Fixed

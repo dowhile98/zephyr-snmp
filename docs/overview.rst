@@ -13,9 +13,10 @@ Key Features
   - **SNMPv2c (RFC 1901, RFC 3416)**: GET, GETNEXT, GETBULK (with dynamic repetition pruning and tooBig fallback), SET (2PC), and SNMPv2-Trap.
   - **SNMPv3 (RFC 3412, RFC 3414, RFC 3415)**: User-Based Security Model (USM) and View-Based Access Control Model (VACM).
 - **USM Cryptographic Security**:
-  - Authentication: HMAC-MD5-96, HMAC-SHA-96, and HMAC-SHA-256 (RFC 7860).
-  - Privacy: CBC-DES and AES-128 CFB (RFC 3826).
+  - Authentication: HMAC-SHA-1-96 (RFC 3414) and HMAC-SHA-256-192 (RFC 7860); HMAC-MD5-96 is available but off by default.
+  - Privacy: AES-128-CFB (RFC 3826). DES-CBC is **not implemented** (rejected with ``-ENOTSUP``).
   - Streaming password-to-key localization (RFC 3414 A.2) and anti-replay window checking with ``usmStatsNotInTimeWindows.0`` Report-PDUs.
+  - Wrong digests and decryption failures are discarded silently and counted; Reports are only sent for reportable requests.
 - **VACM Access Control**: Four-table access model (Security-to-Group, Access, View Tree Family, Context) with subtree wildcard mask matching.
 - **MIB Engine**:
   - :math:`O(\log N)` binary search node lookup (``snmp_oid_compare``) over sorted MIB nodes.

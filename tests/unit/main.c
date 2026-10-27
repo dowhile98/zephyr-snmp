@@ -67,6 +67,7 @@ extern void test_set_2pc_rollback_on_commit_failure(void);
 extern void test_set_2pc_atomic_success(void);
 extern void test_smiv2_error_code_mapping_v2c_and_v1(void);
 extern void test_multi_instance_independence(void);
+extern void test_set_write_only_node_preserves_varbind(void);
 extern void test_mib_bsearch_lookup(void);
 extern void test_mib_no_such_object_vs_instance(void);
 extern void test_getbulk_response_pruning_on_buffer_limit(void);
@@ -74,6 +75,17 @@ extern void test_mib2_interfaces_group(void);
 extern void test_mib2_ip_group(void);
 extern void test_mib2_icmp_group(void);
 extern void test_mib2_tcp_udp_groups(void);
+extern void test_ber_oid_arc2_multibyte_first_subid(void);
+extern void test_ber_oid_large_subid_roundtrip(void);
+extern void test_ber_oid_arc2_overflow_rejected(void);
+extern void test_ber_oversized_length_rejected(void);
+extern void test_ber_uint64_padding_rules(void);
+extern void test_ber_per_varbind_bounds_enforced(void);
+extern void test_ber_varbind_count_overflow_rejected(void);
+extern void test_pdu_reflection_rejected(void);
+extern void test_community_binary_and_prefix_rejected(void);
+extern void test_inform_is_acknowledged_without_mib_dispatch(void);
+extern void test_v1_trap_parameters_from_trap_oid(void);
 
 int main(void)
 {
@@ -97,6 +109,19 @@ int main(void)
 	RUN_TEST(test_oid_compare_lexicographic);
 	RUN_TEST(test_oid_encode_decode_roundtrip);
 	RUN_TEST(test_oid_max_depth);
+
+	printf("\nReceive-Path Hardening (regressions):\n");
+	RUN_TEST(test_ber_oid_arc2_multibyte_first_subid);
+	RUN_TEST(test_ber_oid_large_subid_roundtrip);
+	RUN_TEST(test_ber_oid_arc2_overflow_rejected);
+	RUN_TEST(test_ber_oversized_length_rejected);
+	RUN_TEST(test_ber_uint64_padding_rules);
+	RUN_TEST(test_ber_per_varbind_bounds_enforced);
+	RUN_TEST(test_ber_varbind_count_overflow_rejected);
+	RUN_TEST(test_pdu_reflection_rejected);
+	RUN_TEST(test_community_binary_and_prefix_rejected);
+	RUN_TEST(test_inform_is_acknowledged_without_mib_dispatch);
+	RUN_TEST(test_v1_trap_parameters_from_trap_oid);
 
 	printf("\nMIB Engine:\n");
 	RUN_TEST(test_mib_register_get);
@@ -128,6 +153,7 @@ int main(void)
 	RUN_TEST(test_set_2pc_atomic_success);
 	RUN_TEST(test_smiv2_error_code_mapping_v2c_and_v1);
 	RUN_TEST(test_multi_instance_independence);
+	RUN_TEST(test_set_write_only_node_preserves_varbind);
 
 	printf("\n=====================\n");
 	printf("Results: %d passed, 0 failed, %d total\n", tests_passed, tests_run);

@@ -168,7 +168,6 @@ static bool snmp_rate_check(struct snmp_agent *agent)
 int snmp_sock_bind_to_iface(int sock, struct net_if *iface)
 {
 	struct net_ifreq ifr;
-	const char *name;
 
 	if (sock < 0) {
 		return -EINVAL;
@@ -178,9 +177,13 @@ int snmp_sock_bind_to_iface(int sock, struct net_if *iface)
 	}
 
 	memset(&ifr, 0, sizeof(ifr));
-	name = net_if_get_device(iface)->name;
-	strncpy(ifr.ifr_name, name, sizeof(ifr.ifr_name) - 1);
-	ifr.ifr_name[sizeof(ifr.ifr_name) - 1] = '\0';
+	/* net_if_get_device() can be NULL for virtual interfaces; the name accessor
+	 * is the portable one and also fixes the old IP-only code path. */
+	int name_ret = net_if_get_name(iface, ifr.ifr_name, sizeof(ifr.ifr_name));
+
+	if (name_ret < 0 || ifr.ifr_name[0] == '\0') {
+		return -ENODEV;
+	}
 
 	return zsock_setsockopt(sock, SOL_SOCKET, SO_BINDTODEVICE, &ifr, sizeof(ifr));
 }
@@ -477,9 +480,16 @@ int snmp_service_attach(struct snmp_agent *agent)
 		return ret;
 	}
 
+	char if_name[16] = "any";
+
+	if (agent->bound_iface != NULL) {
+		if (net_if_get_name(agent->bound_iface, if_name, sizeof(if_name)) < 0) {
+			strncpy(if_name, "?", sizeof(if_name) - 1);
+		}
+	}
+
 	LOG_INF("SNMP agent listening on UDP port %u (%d socket%s, iface %s)", agent->port, n,
-		n > 1 ? "s" : "",
-		agent->bound_iface ? net_if_get_device(agent->bound_iface)->name : "any");
+		n > 1 ? "s" : "", if_name);
 	return 0;
 }
 
@@ -508,7 +518,11 @@ int snmp_service_detach(struct snmp_agent *agent)
 	 * outlives everything.
 	 */
 	if (slot < CONFIG_SNMP_MAX_INSTANCES) {
-		(void)net_socket_service_unregister(s_slot_desc[slot]);
+		int uret = net_socket_service_unregister(s_slot_desc[slot]);
+
+		if (uret < 0 && uret != -ENOENT) {
+			LOG_WRN("net_socket_service_unregister failed (%d)", uret);
+		}
 	}
 
 	k_mutex_lock(&agent->lock, K_FOREVER);

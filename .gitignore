@@ -47,9 +47,26 @@ coverage/
 #files
 task.md
 task2.md
+TASK.md
 
 twister-out*
 _build_doxygen*
 _build_sphinx*
 validation.md
 .serial_mcp*
+docs/AUDIT_REPORT.md
+.agentic-hil/logs/com-20261027T143646086Z-console.jsonl
+.agentic-hil/logs/com-20261027T143734440Z-console.jsonl
+.agentic-hil/logs/stlink-20261027T143359904Z-probe_target.log
+.agentic-hil/logs/com-20261027T144509132Z-console.jsonl
+.agentic-hil/logs/stlink-20261027T143402507Z-reset_target.log
+.agentic-hil/logs/stlink-20261027T143400180Z-reset_target.log
+.agentic-hil/logs/stlink-20261027T143646217Z-flash_firmware.log
+.agentic-hil/logs/stlink-20261027T144509377Z-flash_firmware.log
+.agentic-hil/logs/stlink-20261027T145550395Z-flash_firmware.log
+.agentic-hil/logs/stlink-20261027T150603723Z-flash_firmware.log
+.agentic-hil/logs/stlink-20261027T151117899Z-flash_firmware.log
+.agentic-hil/reports/last-report.json
+.agentic-hil/reports/last-failure.json
+.serial_mcp/traces/trace.jsonl
+.serial_mcp/traces/trace.jsonl
