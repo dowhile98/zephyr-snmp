@@ -18,3 +18,4 @@ manifest:
           - cmsis_6
           - hal_stm32
           - mbedtls
+          - tf-psa-crypto
