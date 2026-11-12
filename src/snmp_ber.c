@@ -1071,7 +1071,6 @@ static int ber_push_pdu_body(uint8_t *buf, size_t *pos, const struct snmp_pdu *p
 
 	size_t pdu_len = vb_list_end - *pos;
 	return ber_push_header(buf, pos, pdu->type, pdu_len);
-
 }
 
 int snmp_ber_encode_pdu_body(uint8_t *buf, size_t buf_len, size_t *out_len,

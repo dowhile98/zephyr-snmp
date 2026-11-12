@@ -244,5 +244,4 @@ void test_ber_encode_buffer_overflow(void)
 
 	int ret = snmp_ber_encode_int(tiny_buf, 2, &off, ASN1_TAG_INTEGER, 12345);
 	ASSERT_EQ(ret, -ENOBUFS);
-
 }

@@ -24,7 +24,7 @@ typedef struct k_mutex k_mutex;
 
 /* --- Mutex Stubs --- */
 #define K_MUTEX_DEFINE(name) struct k_mutex name = {0}
-#define K_FOREVER            ((k_timeout_t)-1)
+#define K_FOREVER            ((k_timeout_t)(-1))
 
 static inline int k_mutex_init(struct k_mutex *mutex)
 {
