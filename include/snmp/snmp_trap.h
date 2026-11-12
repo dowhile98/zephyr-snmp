@@ -15,6 +15,11 @@ extern "C" {
 
 #ifdef CONFIG_SNMP_AGENT
 
+/**
+ * @addtogroup snmp_trap
+ * @{
+ */
+
 #ifndef CONFIG_SNMP_TRAP_DEST_COUNT
 #define CONFIG_SNMP_TRAP_DEST_COUNT 3
 #endif
@@ -67,6 +72,8 @@ int snmp_trap_send_coldstart(struct snmp_agent *inst);
  * @return 0 when sent or suppressed, negative errno on socket failure.
  */
 int snmp_trap_send_auth_failure(struct snmp_agent *inst);
+
+/** @} */
 
 #endif /* CONFIG_SNMP_AGENT */
 

@@ -99,6 +99,7 @@ void test_ber_oid_arc2_overflow_rejected(void)
 	/* Arc 0/1 with a second sub-id above 39 is not a legal OID either. */
 	struct snmp_oid bad2 = {.len = 2, .ids = {1, 40}};
 	off = 0;
+
 	ASSERT_EQ(snmp_ber_encode_oid(buf, sizeof(buf), &off, &bad2), -EINVAL);
 }
 
@@ -117,6 +118,7 @@ void test_ber_oversized_length_rejected(void)
 	/* Indefinite length (0x80) is prohibited by RFC 1157 §3.2.1. */
 	const uint8_t indef[] = {0x30, 0x80, 0x00, 0x00};
 	off = 0;
+
 	ASSERT_EQ(snmp_ber_decode_header(indef, sizeof(indef), &off, &tag, &len), -EBADMSG);
 }
 
@@ -127,12 +129,12 @@ void test_ber_uint64_padding_rules(void)
 
 	/* Nine octets are only legal with a leading zero pad. */
 	const uint8_t bad[] = {
-	    SNMP_TAG_COUNTER64, 0x09, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+		SNMP_TAG_COUNTER64, 0x09, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 
 	ASSERT_EQ(snmp_ber_decode_uint64(bad, sizeof(bad), &off, &val), -EBADMSG);
 
 	const uint8_t good[] = {
-	    SNMP_TAG_COUNTER64, 0x09, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02};
+		SNMP_TAG_COUNTER64, 0x09, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02};
 
 	off = 0;
 	ASSERT_EQ(snmp_ber_decode_uint64(good, sizeof(good), &off, &val), 0);
@@ -212,15 +214,15 @@ void test_ber_per_varbind_bounds_enforced(void)
 	 * Before the fix the inner length was honoured against the whole datagram, so a
 	 * varbind could read into the neighbouring one.
 	 */
-	const uint8_t frame[] = {0x30, 0x1D,				    /* message */
-				 0x02, 0x01, 0x01,			    /* version 1 */
+	const uint8_t frame[] = {0x30, 0x1D,                                /* message */
+				 0x02, 0x01, 0x01,                          /* version 1 */
 				 0x04, 0x06, 'p',  'u', 'b', 'l', 'i', 'c', /* community */
-				 0xA0, 0x10,				    /* GetRequest */
-				 0x02, 0x01, 0x01,			    /* request-id */
-				 0x02, 0x01, 0x00,			    /* error-status */
-				 0x02, 0x01, 0x00,			    /* error-index */
-				 0x30, 0x05,	   /* varbind list: 5 bytes */
-				 0x30, 0x04,	   /* varbind claims 4 bytes */
+				 0xA0, 0x10,                                /* GetRequest */
+				 0x02, 0x01, 0x01,                          /* request-id */
+				 0x02, 0x01, 0x00,                          /* error-status */
+				 0x02, 0x01, 0x00,                          /* error-index */
+				 0x30, 0x05,       /* varbind list: 5 bytes */
+				 0x30, 0x04,       /* varbind claims 4 bytes */
 				 0x06, 0x01, 0x2B, /* only 3 remain before the end */
 				 0x05, 0x00};
 
@@ -232,8 +234,8 @@ void test_ber_per_varbind_bounds_enforced(void)
 	size_t resp_len = 0;
 
 	ASSERT_EQ(
-	    snmp_agent_process_pdu(&agent, frame, sizeof(frame), resp, sizeof(resp), &resp_len),
-	    -EBADMSG);
+		snmp_agent_process_pdu(&agent, frame, sizeof(frame), resp, sizeof(resp), &resp_len),
+		-EBADMSG);
 	ASSERT_EQ(resp_len, 0);
 	ASSERT_EQ(agent.counters.snmpInASNParseErrs, 1);
 }

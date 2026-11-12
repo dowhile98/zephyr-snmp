@@ -80,27 +80,27 @@ NET_SOCKET_SERVICE_SYNC_DEFINE_STATIC(snmp_svc_7, snmp_service_cb, SNMP_SVC_FDS)
 #endif
 
 static const struct net_socket_service_desc *const s_slot_desc[CONFIG_SNMP_MAX_INSTANCES] = {
-    &snmp_svc_0,
+	&snmp_svc_0,
 #if CONFIG_SNMP_MAX_INSTANCES >= 2
-    &snmp_svc_1,
+	&snmp_svc_1,
 #endif
 #if CONFIG_SNMP_MAX_INSTANCES >= 3
-    &snmp_svc_2,
+	&snmp_svc_2,
 #endif
 #if CONFIG_SNMP_MAX_INSTANCES >= 4
-    &snmp_svc_3,
+	&snmp_svc_3,
 #endif
 #if CONFIG_SNMP_MAX_INSTANCES >= 5
-    &snmp_svc_4,
+	&snmp_svc_4,
 #endif
 #if CONFIG_SNMP_MAX_INSTANCES >= 6
-    &snmp_svc_5,
+	&snmp_svc_5,
 #endif
 #if CONFIG_SNMP_MAX_INSTANCES >= 7
-    &snmp_svc_6,
+	&snmp_svc_6,
 #endif
 #if CONFIG_SNMP_MAX_INSTANCES >= 8
-    &snmp_svc_7,
+	&snmp_svc_7,
 #endif
 };
 
@@ -204,9 +204,9 @@ static bool snmp_bind_addr_from_iface(const struct snmp_agent *agent, struct soc
 	for (i = 0; i < NET_IF_MAX_IPV4_ADDR; i++) {
 		if (agent->bound_iface->config.ip.ipv4->unicast[i].ipv4.is_used &&
 		    agent->bound_iface->config.ip.ipv4->unicast[i].ipv4.address.in_addr.s_addr !=
-			0) {
+			    0) {
 			addr->sin_addr =
-			    agent->bound_iface->config.ip.ipv4->unicast[i].ipv4.address.in_addr;
+				agent->bound_iface->config.ip.ipv4->unicast[i].ipv4.address.in_addr;
 			return true;
 		}
 	}

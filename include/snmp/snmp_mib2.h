@@ -13,6 +13,13 @@
 extern "C" {
 #endif
 
+#ifdef CONFIG_SNMP_AGENT
+
+/**
+ * @addtogroup snmp_mib2
+ * @{
+ */
+
 /**
  * @brief Register MIB-II Interfaces group (ifNumber, ifTable) per RFC 1213 / RFC 2863.
  *
@@ -61,6 +68,8 @@ int snmp_mib2_register_udp(struct snmp_agent *agent);
  */
 int snmp_mib2_register_all(struct snmp_agent *agent);
 
+/** @} */
+
 #if !defined(__ZEPHYR__)
 struct snmp_mock_iface {
 	uint32_t index;
@@ -81,6 +90,8 @@ struct snmp_mock_iface {
 
 void snmp_mib2_mock_set_ifaces(const struct snmp_mock_iface *ifaces, size_t count);
 #endif
+
+#endif /* CONFIG_SNMP_AGENT */
 
 #ifdef __cplusplus
 }

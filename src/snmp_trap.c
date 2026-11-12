@@ -55,7 +55,7 @@ static bool snmp_trap_iface_ipv4(struct net_if *iface, struct net_in_addr *addr)
  */
 #if defined(CONFIG_SNMP_VERSION_3)
 #if !defined(CONFIG_SNMP_TRAP_FORMAT_V1) && !defined(CONFIG_SNMP_TRAP_FORMAT_V2C) &&               \
-    !defined(CONFIG_SNMP_VERSION_2C)
+	!defined(CONFIG_SNMP_VERSION_2C)
 #define SNMP_TRAP_V3_REACHED 1
 #endif
 #if defined(CONFIG_SNMP_TRAP_FORMAT_V3) || defined(SNMP_TRAP_V3_REACHED)
@@ -65,19 +65,24 @@ static bool snmp_trap_iface_ipv4(struct net_if *iface, struct net_in_addr *addr)
 
 int snmp_trap_add_destination(struct snmp_agent *inst, const char *addr)
 {
-	if (!inst || !addr)
+	if (!inst || !addr) {
 		return -EINVAL;
-	if (inst->trap_dest_cnt >= CONFIG_SNMP_TRAP_DEST_COUNT)
+	}
+	if (inst->trap_dest_cnt >= CONFIG_SNMP_TRAP_DEST_COUNT) {
 		return -ENOMEM;
+	}
 
 	struct sockaddr_in *dest = &inst->trap_dests[inst->trap_dest_cnt];
 	memset(dest, 0, sizeof(*dest));
+
 	dest->sin_family = AF_INET;
 	dest->sin_port = htons(CONFIG_SNMP_TRAP_PORT);
 
 	int ret = zsock_inet_pton(AF_INET, addr, &dest->sin_addr);
-	if (ret <= 0)
+	if (ret <= 0) {
+
 		return -EINVAL;
+	}
 
 	inst->trap_dest_cnt++;
 	return 0;
@@ -123,6 +128,7 @@ static int snmp_trap_send_v3(struct snmp_agent *inst, const struct snmp_oid *tra
 #if defined(CONFIG_NET_IPV4)
 	struct net_if *iface = inst->bound_iface ? inst->bound_iface : net_if_get_default();
 	if (!snmp_trap_iface_ipv4(iface, NULL)) {
+
 		return -ENETDOWN;
 	}
 #endif
@@ -157,11 +163,12 @@ static int snmp_trap_send_v3(struct snmp_agent *inst, const struct snmp_oid *tra
 
 	if (user_name[0] == '\0') {
 		user_name =
-		    inst->user_cnt > 0 ? inst->users[0].user_name : CONFIG_SNMP_V3_USER_NAME;
+			inst->user_cnt > 0 ? inst->users[0].user_name : CONFIG_SNMP_V3_USER_NAME;
 	}
 
 	size_t u_len = snmp_strnlen(user_name, sizeof(msg.usm.user_name));
 	if (u_len == 0 || u_len >= sizeof(msg.usm.user_name)) {
+
 		k_mutex_unlock(&inst->lock);
 		return -EACCES;
 	}
@@ -170,6 +177,7 @@ static int snmp_trap_send_v3(struct snmp_agent *inst, const struct snmp_oid *tra
 
 	const struct snmp_usm_user *user = trap_find_user(inst, user_name);
 	if (user == NULL) {
+
 		k_mutex_unlock(&inst->lock);
 		return -EACCES;
 	}
@@ -214,6 +222,7 @@ static int snmp_trap_send_v3(struct snmp_agent *inst, const struct snmp_oid *tra
 
 	uint8_t eng_len = sizeof(msg.scoped.context_engine_id);
 	if (snmp_usm_get_engine_id(inst, msg.scoped.context_engine_id, &eng_len) == 0) {
+
 		msg.scoped.context_engine_id_len = eng_len;
 	}
 	msg.scoped.context_name_len = 0;
@@ -274,7 +283,7 @@ static int snmp_trap_send_v3(struct snmp_agent *inst, const struct snmp_oid *tra
 #if defined(CONFIG_SNMP_TRAP_FORMAT_V1)
 #define SNMP_TRAP_IS_V1 1
 #elif defined(CONFIG_SNMP_TRAP_FORMAT_V2C) || defined(CONFIG_SNMP_TRAP_FORMAT_V3) ||               \
-    defined(CONFIG_SNMP_VERSION_2C)
+	defined(CONFIG_SNMP_VERSION_2C)
 #define SNMP_TRAP_IS_V1 0
 #elif defined(CONFIG_SNMP_VERSION_1)
 #define SNMP_TRAP_IS_V1 1
@@ -285,15 +294,18 @@ static int snmp_trap_send_v3(struct snmp_agent *inst, const struct snmp_oid *tra
 int snmp_trap_send(struct snmp_agent *inst, const struct snmp_oid *trap_oid,
 		   const struct snmp_varbind *varbinds, uint8_t varbind_cnt, bool is_inform)
 {
-	if (!inst || !trap_oid)
+	if (!inst || !trap_oid) {
 		return -EINVAL;
+	}
 
 	/* Never fall back to a broadcast: an unconfigured destination is an error. */
-	if (inst->trap_dest_cnt == 0)
+	if (inst->trap_dest_cnt == 0) {
 		return -EDESTADDRREQ;
+	}
 
-	if (varbind_cnt > CONFIG_SNMP_MAX_VARBINDS - 2)
+	if (varbind_cnt > CONFIG_SNMP_MAX_VARBINDS - 2) {
 		return -E2BIG;
+	}
 
 #if defined(CONFIG_SNMP_TRAP_FORMAT_V3)
 	return snmp_trap_send_v3(inst, trap_oid, varbinds, varbind_cnt, is_inform);
@@ -314,6 +326,7 @@ int snmp_trap_send(struct snmp_agent *inst, const struct snmp_oid *trap_oid,
 #if defined(CONFIG_NET_IPV4)
 	struct net_if *iface = inst->bound_iface ? inst->bound_iface : net_if_get_default();
 	if (!snmp_trap_iface_ipv4(iface, NULL)) {
+
 		return -ENETDOWN;
 	}
 #endif
@@ -322,6 +335,7 @@ int snmp_trap_send(struct snmp_agent *inst, const struct snmp_oid *trap_oid,
 
 	int sock = zsock_socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
 	if (sock < 0) {
+
 		k_mutex_unlock(&inst->lock);
 		return -errno;
 	}
@@ -329,6 +343,7 @@ int snmp_trap_send(struct snmp_agent *inst, const struct snmp_oid *trap_oid,
 	/* Multi-homed egress: leave through the interface this agent is bound to. */
 	int bind_ret = snmp_sock_bind_to_iface(sock, inst->bound_iface);
 	if (bind_ret < 0) {
+
 		zsock_close(sock);
 		k_mutex_unlock(&inst->lock);
 		return bind_ret;
@@ -354,6 +369,7 @@ int snmp_trap_send(struct snmp_agent *inst, const struct snmp_oid *trap_oid,
 	struct net_if *iface_v1 = inst->bound_iface ? inst->bound_iface : net_if_get_default();
 	struct net_in_addr agent_addr;
 	if (snmp_trap_iface_ipv4(iface_v1, &agent_addr)) {
+
 		memcpy(inst->current_pdu.agent_addr, &agent_addr, sizeof(agent_addr));
 	}
 #endif
@@ -394,8 +410,8 @@ int snmp_trap_send(struct snmp_agent *inst, const struct snmp_oid *trap_oid,
 	}
 
 	size_t tx_len = 0;
-	int ret =
-	    snmp_ber_encode_pdu(inst->tx_buf, sizeof(inst->tx_buf), &tx_len, &inst->current_pdu);
+	int ret = snmp_ber_encode_pdu(inst->tx_buf, sizeof(inst->tx_buf), &tx_len,
+				      &inst->current_pdu);
 	if (ret < 0) {
 		zsock_close(sock);
 		k_mutex_unlock(&inst->lock);

@@ -4,6 +4,11 @@
  */
 
 #include <snmp/snmp_mib2.h>
+#if defined(__ZEPHYR__)
+#include <zephyr/sys/util.h>
+#else
+#define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
+#endif
 #include <string.h>
 #include <errno.h>
 
@@ -52,6 +57,7 @@ void snmp_mib2_mock_set_ifaces(const struct snmp_mock_iface *ifaces, size_t coun
 	}
 	size_t to_copy = count;
 	if (to_copy > CONFIG_SNMP_MAX_IFACES) {
+
 		to_copy = CONFIG_SNMP_MAX_IFACES;
 	}
 	memcpy(s_mock_ifaces, ifaces, to_copy * sizeof(struct snmp_mock_iface));
@@ -75,6 +81,7 @@ static size_t zephyr_get_iface_count(void)
 {
 	size_t cnt = 0;
 	net_if_foreach(zephyr_count_cb, &cnt);
+
 	return cnt;
 }
 
@@ -87,6 +94,7 @@ static void zephyr_iface_collect_cb(struct net_if *iface, void *user_data)
 {
 	struct iface_collect_ctx *ctx = (struct iface_collect_ctx *)user_data;
 	if (ctx->count < CONFIG_SNMP_MAX_IFACES) {
+
 		ctx->ifaces[ctx->count++] = iface;
 	}
 }
@@ -137,6 +145,7 @@ static int if_col_descr_get(struct snmp_agent *agent, const struct snmp_table_ro
 #if defined(CONFIG_NET_INTERFACE_NAME)
 	char ifname[IFNAMSIZ];
 	if (net_if_get_name(iface, ifname, sizeof(ifname)) > 0) {
+
 		name = ifname;
 	}
 #endif
@@ -148,6 +157,7 @@ static int if_col_descr_get(struct snmp_agent *agent, const struct snmp_table_ro
 	}
 	size_t len = strlen(name);
 	if (len > sizeof(vb->val.octet_str.data)) {
+
 		len = sizeof(vb->val.octet_str.data);
 	}
 	memcpy(vb->val.octet_str.data, name, len);
@@ -155,11 +165,13 @@ static int if_col_descr_get(struct snmp_agent *agent, const struct snmp_table_ro
 #else
 	const struct snmp_mock_iface *m = (const struct snmp_mock_iface *)row->user_data;
 	if (!m || !m->descr) {
+
 		vb->val.octet_str.len = 0;
 		return 0;
 	}
 	size_t len = strlen(m->descr);
 	if (len > sizeof(vb->val.octet_str.data)) {
+
 		len = sizeof(vb->val.octet_str.data);
 	}
 	memcpy(vb->val.octet_str.data, m->descr, len);
@@ -182,6 +194,7 @@ static int if_col_type_get(struct snmp_agent *agent, const struct snmp_table_row
 #else
 	const struct snmp_mock_iface *m = (const struct snmp_mock_iface *)row->user_data;
 	vb->val.int_val = m ? (int32_t)m->type : 1;
+
 #endif
 	return 0;
 }
@@ -198,9 +211,11 @@ static int if_col_mtu_get(struct snmp_agent *agent, const struct snmp_table_row 
 #if defined(SNMP_MIB2_ZEPHYR_NET)
 	struct net_if *iface = (struct net_if *)row->user_data;
 	vb->val.int_val = iface ? (int32_t)net_if_get_mtu(iface) : 1500;
+
 #else
 	const struct snmp_mock_iface *m = (const struct snmp_mock_iface *)row->user_data;
 	vb->val.int_val = m ? (int32_t)m->mtu : 1500;
+
 #endif
 	return 0;
 }
@@ -219,6 +234,7 @@ static int if_col_speed_get(struct snmp_agent *agent, const struct snmp_table_ro
 #else
 	const struct snmp_mock_iface *m = (const struct snmp_mock_iface *)row->user_data;
 	vb->val.uint_val = m ? m->speed : 10000000;
+
 #endif
 	return 0;
 }
@@ -236,9 +252,10 @@ static int if_col_phys_address_get(struct snmp_agent *agent, const struct snmp_t
 	struct net_if *iface = (struct net_if *)row->user_data;
 	struct net_linkaddr *ll = iface ? net_if_get_link_addr(iface) : NULL;
 	if (ll && ll->len > 0) {
+
 		size_t len = ll->len > sizeof(vb->val.octet_str.data)
-				 ? sizeof(vb->val.octet_str.data)
-				 : ll->len;
+				     ? sizeof(vb->val.octet_str.data)
+				     : ll->len;
 		memcpy(vb->val.octet_str.data, ll->addr, len);
 		vb->val.octet_str.len = (uint16_t)len;
 	} else {
@@ -247,6 +264,7 @@ static int if_col_phys_address_get(struct snmp_agent *agent, const struct snmp_t
 #else
 	const struct snmp_mock_iface *m = (const struct snmp_mock_iface *)row->user_data;
 	if (m) {
+
 		memcpy(vb->val.octet_str.data, m->mac, 6);
 		vb->val.octet_str.len = 6;
 	} else {
@@ -268,9 +286,11 @@ static int if_col_admin_status_get(struct snmp_agent *agent, const struct snmp_t
 #if defined(SNMP_MIB2_ZEPHYR_NET)
 	struct net_if *iface = (struct net_if *)row->user_data;
 	vb->val.int_val = (iface && net_if_is_admin_up(iface)) ? 1 : 2;
+
 #else
 	const struct snmp_mock_iface *m = (const struct snmp_mock_iface *)row->user_data;
 	vb->val.int_val = m ? (int32_t)m->admin_status : 1;
+
 #endif
 	return 0;
 }
@@ -287,9 +307,11 @@ static int if_col_oper_status_get(struct snmp_agent *agent, const struct snmp_ta
 #if defined(SNMP_MIB2_ZEPHYR_NET)
 	struct net_if *iface = (struct net_if *)row->user_data;
 	vb->val.int_val = (iface && net_if_is_up(iface)) ? 1 : 2;
+
 #else
 	const struct snmp_mock_iface *m = (const struct snmp_mock_iface *)row->user_data;
 	vb->val.int_val = m ? (int32_t)m->oper_status : 1;
+
 #endif
 	return 0;
 }
@@ -321,12 +343,14 @@ static int if_col_in_octets_get(struct snmp_agent *agent, const struct snmp_tabl
 #if defined(CONFIG_NET_STATISTICS_PER_INTERFACE)
 	struct net_if *iface = (struct net_if *)row->user_data;
 	vb->val.uint_val = iface ? (uint32_t)iface->stats.bytes.received : 0;
+
 #else
 	vb->val.uint_val = 0;
 #endif
 #else
 	const struct snmp_mock_iface *m = (const struct snmp_mock_iface *)row->user_data;
 	vb->val.uint_val = m ? m->in_octets : 0;
+
 #endif
 	return 0;
 }
@@ -344,12 +368,14 @@ static int if_col_in_ucast_get(struct snmp_agent *agent, const struct snmp_table
 #if defined(CONFIG_NET_STATISTICS_PER_INTERFACE)
 	struct net_if *iface = (struct net_if *)row->user_data;
 	vb->val.uint_val = iface ? (uint32_t)iface->stats.unicast.rx : 0;
+
 #else
 	vb->val.uint_val = 0;
 #endif
 #else
 	const struct snmp_mock_iface *m = (const struct snmp_mock_iface *)row->user_data;
 	vb->val.uint_val = m ? m->in_ucast : 0;
+
 #endif
 	return 0;
 }
@@ -367,12 +393,14 @@ static int if_col_in_errors_get(struct snmp_agent *agent, const struct snmp_tabl
 #if defined(CONFIG_NET_STATISTICS_PER_INTERFACE)
 	struct net_if *iface = (struct net_if *)row->user_data;
 	vb->val.uint_val = iface ? (uint32_t)iface->stats.errors.rx : 0;
+
 #else
 	vb->val.uint_val = 0;
 #endif
 #else
 	const struct snmp_mock_iface *m = (const struct snmp_mock_iface *)row->user_data;
 	vb->val.uint_val = m ? m->in_errors : 0;
+
 #endif
 	return 0;
 }
@@ -390,12 +418,14 @@ static int if_col_out_octets_get(struct snmp_agent *agent, const struct snmp_tab
 #if defined(CONFIG_NET_STATISTICS_PER_INTERFACE)
 	struct net_if *iface = (struct net_if *)row->user_data;
 	vb->val.uint_val = iface ? (uint32_t)iface->stats.bytes.sent : 0;
+
 #else
 	vb->val.uint_val = 0;
 #endif
 #else
 	const struct snmp_mock_iface *m = (const struct snmp_mock_iface *)row->user_data;
 	vb->val.uint_val = m ? m->out_octets : 0;
+
 #endif
 	return 0;
 }
@@ -413,12 +443,14 @@ static int if_col_out_ucast_get(struct snmp_agent *agent, const struct snmp_tabl
 #if defined(CONFIG_NET_STATISTICS_PER_INTERFACE)
 	struct net_if *iface = (struct net_if *)row->user_data;
 	vb->val.uint_val = iface ? (uint32_t)iface->stats.unicast.tx : 0;
+
 #else
 	vb->val.uint_val = 0;
 #endif
 #else
 	const struct snmp_mock_iface *m = (const struct snmp_mock_iface *)row->user_data;
 	vb->val.uint_val = m ? m->out_ucast : 0;
+
 #endif
 	return 0;
 }
@@ -436,40 +468,42 @@ static int if_col_out_errors_get(struct snmp_agent *agent, const struct snmp_tab
 #if defined(CONFIG_NET_STATISTICS_PER_INTERFACE)
 	struct net_if *iface = (struct net_if *)row->user_data;
 	vb->val.uint_val = iface ? (uint32_t)iface->stats.errors.tx : 0;
+
 #else
 	vb->val.uint_val = 0;
 #endif
 #else
 	const struct snmp_mock_iface *m = (const struct snmp_mock_iface *)row->user_data;
 	vb->val.uint_val = m ? m->out_errors : 0;
+
 #endif
 	return 0;
 }
 
 static const uint8_t s_if_cols[] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14, 16, 17, 20};
 static const uint8_t s_if_types[] = {
-    ASN1_TAG_INTEGER,	   /* 1: ifIndex */
-    ASN1_TAG_OCTET_STRING, /* 2: ifDescr */
-    ASN1_TAG_INTEGER,	   /* 3: ifType */
-    ASN1_TAG_INTEGER,	   /* 4: ifMtu */
-    SNMP_TAG_GAUGE32,	   /* 5: ifSpeed */
-    ASN1_TAG_OCTET_STRING, /* 6: ifPhysAddress */
-    ASN1_TAG_INTEGER,	   /* 7: ifAdminStatus */
-    ASN1_TAG_INTEGER,	   /* 8: ifOperStatus */
-    SNMP_TAG_TIMETICKS,	   /* 9: ifLastChange */
-    SNMP_TAG_COUNTER32,	   /* 10: ifInOctets */
-    SNMP_TAG_COUNTER32,	   /* 11: ifInUcastPkts */
-    SNMP_TAG_COUNTER32,	   /* 14: ifInErrors */
-    SNMP_TAG_COUNTER32,	   /* 16: ifOutOctets */
-    SNMP_TAG_COUNTER32,	   /* 17: ifOutUcastPkts */
-    SNMP_TAG_COUNTER32,	   /* 20: ifOutErrors */
+	ASN1_TAG_INTEGER,      /* 1: ifIndex */
+	ASN1_TAG_OCTET_STRING, /* 2: ifDescr */
+	ASN1_TAG_INTEGER,      /* 3: ifType */
+	ASN1_TAG_INTEGER,      /* 4: ifMtu */
+	SNMP_TAG_GAUGE32,      /* 5: ifSpeed */
+	ASN1_TAG_OCTET_STRING, /* 6: ifPhysAddress */
+	ASN1_TAG_INTEGER,      /* 7: ifAdminStatus */
+	ASN1_TAG_INTEGER,      /* 8: ifOperStatus */
+	SNMP_TAG_TIMETICKS,    /* 9: ifLastChange */
+	SNMP_TAG_COUNTER32,    /* 10: ifInOctets */
+	SNMP_TAG_COUNTER32,    /* 11: ifInUcastPkts */
+	SNMP_TAG_COUNTER32,    /* 14: ifInErrors */
+	SNMP_TAG_COUNTER32,    /* 16: ifOutOctets */
+	SNMP_TAG_COUNTER32,    /* 17: ifOutUcastPkts */
+	SNMP_TAG_COUNTER32,    /* 20: ifOutErrors */
 };
 static const snmp_table_get_cb_t s_if_get_cbs[] = {
-    if_col_index_get,	     if_col_descr_get,	     if_col_type_get,
-    if_col_mtu_get,	     if_col_speed_get,	     if_col_phys_address_get,
-    if_col_admin_status_get, if_col_oper_status_get, if_col_last_change_get,
-    if_col_in_octets_get,    if_col_in_ucast_get,    if_col_in_errors_get,
-    if_col_out_octets_get,   if_col_out_ucast_get,   if_col_out_errors_get,
+	if_col_index_get,        if_col_descr_get,       if_col_type_get,
+	if_col_mtu_get,          if_col_speed_get,       if_col_phys_address_get,
+	if_col_admin_status_get, if_col_oper_status_get, if_col_last_change_get,
+	if_col_in_octets_get,    if_col_in_ucast_get,    if_col_in_errors_get,
+	if_col_out_octets_get,   if_col_out_ucast_get,   if_col_out_errors_get,
 };
 
 int snmp_mib2_register_interfaces(struct snmp_agent *agent)
@@ -482,6 +516,7 @@ int snmp_mib2_register_interfaces(struct snmp_agent *agent)
 	static const uint32_t if_base[7] = {1, 3, 6, 1, 2, 1, 2};
 	struct snmp_mib_node ifnum_node;
 	memset(&ifnum_node, 0, sizeof(ifnum_node));
+
 	ifnum_node.oid.len = 9;
 	memcpy(ifnum_node.oid.ids, if_base, 7 * sizeof(uint32_t));
 	ifnum_node.oid.ids[7] = 1;
@@ -492,6 +527,7 @@ int snmp_mib2_register_interfaces(struct snmp_agent *agent)
 	ifnum_node.user_data = NULL;
 	int ret = snmp_mib_register(agent, &ifnum_node);
 	if (ret < 0) {
+
 		return ret;
 	}
 
@@ -501,7 +537,7 @@ int snmp_mib2_register_interfaces(struct snmp_agent *agent)
 	memcpy(agent->if_table.table_oid.ids, if_base, 7 * sizeof(uint32_t));
 	agent->if_table.table_oid.ids[7] = 2;
 	agent->if_table.table_oid.ids[8] = 1;
-	agent->if_table.column_cnt = sizeof(s_if_cols) / sizeof(s_if_cols[0]);
+	agent->if_table.column_cnt = ARRAY_SIZE(s_if_cols);
 	agent->if_table.column_subids = s_if_cols;
 	agent->if_table.column_types = s_if_types;
 	agent->if_table.get_cbs = (snmp_table_get_cb_t *)s_if_get_cbs;
@@ -518,10 +554,12 @@ int snmp_mib2_register_interfaces(struct snmp_agent *agent)
 #if defined(SNMP_MIB2_ZEPHYR_NET)
 	struct iface_collect_ctx ctx = {0};
 	net_if_foreach(zephyr_iface_collect_cb, &ctx);
+
 	for (size_t i = ctx.count; i > 0; i--) {
 		size_t idx = i - 1;
 		struct snmp_table_row *row = &agent->if_rows[idx];
 		memset(row, 0, sizeof(*row));
+
 		row->index = (uint32_t)net_if_get_by_iface(ctx.ifaces[idx]);
 		row->user_data = ctx.ifaces[idx];
 		ret = snmp_mib_table_add_row(agent, &agent->if_table, row);
@@ -533,8 +571,10 @@ int snmp_mib2_register_interfaces(struct snmp_agent *agent)
 	for (size_t i = s_mock_iface_cnt; i > 0; i--) {
 		size_t idx = i - 1;
 		if (idx < CONFIG_SNMP_MAX_IFACES) {
+
 			struct snmp_table_row *row = &agent->if_rows[idx];
 			memset(row, 0, sizeof(*row));
+
 			row->index = s_mock_ifaces[idx].index;
 			row->user_data = (void *)&s_mock_ifaces[idx];
 			ret = snmp_mib_table_add_row(agent, &agent->if_table, row);
@@ -564,6 +604,7 @@ static int register_scalar_group(struct snmp_agent *agent, const uint32_t *base_
 	for (size_t i = 0; i < count; i++) {
 		struct snmp_mib_node node;
 		memset(&node, 0, sizeof(node));
+
 		node.oid.len = (uint8_t)(base_len + 2);
 		memcpy(node.oid.ids, base_oid, base_len * sizeof(uint32_t));
 		node.oid.ids[base_len] = defs[i].subid;
@@ -574,6 +615,7 @@ static int register_scalar_group(struct snmp_agent *agent, const uint32_t *base_
 		node.user_data = NULL;
 		int ret = snmp_mib_register(agent, &node);
 		if (ret < 0) {
+
 			return ret;
 		}
 	}
@@ -724,11 +766,15 @@ static int ip_out_discards_get(struct snmp_agent *agent, const struct snmp_mib_n
 }
 
 static const struct scalar_node_def s_ip_defs[] = {
-    {1, ASN1_TAG_INTEGER, ip_forwarding_get},	    {2, ASN1_TAG_INTEGER, ip_default_ttl_get},
-    {3, SNMP_TAG_COUNTER32, ip_in_receives_get},    {4, SNMP_TAG_COUNTER32, ip_in_hdr_errors_get},
-    {5, SNMP_TAG_COUNTER32, ip_in_addr_errors_get}, {8, SNMP_TAG_COUNTER32, ip_in_discards_get},
-    {9, SNMP_TAG_COUNTER32, ip_in_delivers_get},    {10, SNMP_TAG_COUNTER32, ip_out_requests_get},
-    {11, SNMP_TAG_COUNTER32, ip_out_discards_get},
+	{1, ASN1_TAG_INTEGER, ip_forwarding_get},
+	{2, ASN1_TAG_INTEGER, ip_default_ttl_get},
+	{3, SNMP_TAG_COUNTER32, ip_in_receives_get},
+	{4, SNMP_TAG_COUNTER32, ip_in_hdr_errors_get},
+	{5, SNMP_TAG_COUNTER32, ip_in_addr_errors_get},
+	{8, SNMP_TAG_COUNTER32, ip_in_discards_get},
+	{9, SNMP_TAG_COUNTER32, ip_in_delivers_get},
+	{10, SNMP_TAG_COUNTER32, ip_out_requests_get},
+	{11, SNMP_TAG_COUNTER32, ip_out_discards_get},
 };
 
 int snmp_mib2_register_ip(struct snmp_agent *agent)
@@ -738,7 +784,8 @@ int snmp_mib2_register_ip(struct snmp_agent *agent)
 	}
 	static const uint32_t ip_base[7] = {1, 3, 6, 1, 2, 1, 4};
 	return register_scalar_group(agent, ip_base, 7, s_ip_defs,
-				     sizeof(s_ip_defs) / sizeof(s_ip_defs[0]));
+
+				     ARRAY_SIZE(s_ip_defs));
 }
 
 /* -------------------------------------------------------------------------- */
@@ -772,7 +819,7 @@ static int icmp_in_errors_get(struct snmp_agent *agent, const struct snmp_mib_no
 #if defined(SNMP_MIB2_ZEPHYR_NET)
 #if defined(CONFIG_NET_STATISTICS) && defined(CONFIG_NET_STATISTICS_ICMP)
 	vb->val.uint_val =
-	    (uint32_t)(net_stats.icmp.drop + net_stats.icmp.chkerr + net_stats.icmp.typeerr);
+		(uint32_t)(net_stats.icmp.drop + net_stats.icmp.chkerr + net_stats.icmp.typeerr);
 #else
 	vb->val.uint_val = 0;
 #endif
@@ -891,16 +938,16 @@ static int icmp_out_echo_reps_get(struct snmp_agent *agent, const struct snmp_mi
 }
 
 static const struct scalar_node_def s_icmp_defs[] = {
-    {1, SNMP_TAG_COUNTER32, icmp_in_msgs_get},
-    {2, SNMP_TAG_COUNTER32, icmp_in_errors_get},
-    {3, SNMP_TAG_COUNTER32, icmp_in_dest_unreachs_get},
-    {4, SNMP_TAG_COUNTER32, icmp_in_time_excds_get},
-    {8, SNMP_TAG_COUNTER32, icmp_in_echos_get},
-    {9, SNMP_TAG_COUNTER32, icmp_in_echo_reps_get},
-    {14, SNMP_TAG_COUNTER32, icmp_out_msgs_get},
-    {15, SNMP_TAG_COUNTER32, icmp_out_errors_get},
-    {16, SNMP_TAG_COUNTER32, icmp_out_dest_unreachs_get},
-    {21, SNMP_TAG_COUNTER32, icmp_out_echo_reps_get},
+	{1, SNMP_TAG_COUNTER32, icmp_in_msgs_get},
+	{2, SNMP_TAG_COUNTER32, icmp_in_errors_get},
+	{3, SNMP_TAG_COUNTER32, icmp_in_dest_unreachs_get},
+	{4, SNMP_TAG_COUNTER32, icmp_in_time_excds_get},
+	{8, SNMP_TAG_COUNTER32, icmp_in_echos_get},
+	{9, SNMP_TAG_COUNTER32, icmp_in_echo_reps_get},
+	{14, SNMP_TAG_COUNTER32, icmp_out_msgs_get},
+	{15, SNMP_TAG_COUNTER32, icmp_out_errors_get},
+	{16, SNMP_TAG_COUNTER32, icmp_out_dest_unreachs_get},
+	{21, SNMP_TAG_COUNTER32, icmp_out_echo_reps_get},
 };
 
 int snmp_mib2_register_icmp(struct snmp_agent *agent)
@@ -910,7 +957,8 @@ int snmp_mib2_register_icmp(struct snmp_agent *agent)
 	}
 	static const uint32_t icmp_base[7] = {1, 3, 6, 1, 2, 1, 5};
 	return register_scalar_group(agent, icmp_base, 7, s_icmp_defs,
-				     sizeof(s_icmp_defs) / sizeof(s_icmp_defs[0]));
+
+				     ARRAY_SIZE(s_icmp_defs));
 }
 
 /* -------------------------------------------------------------------------- */
@@ -1022,10 +1070,14 @@ static int tcp_out_segs_get(struct snmp_agent *agent, const struct snmp_mib_node
 }
 
 static const struct scalar_node_def s_tcp_defs[] = {
-    {1, ASN1_TAG_INTEGER, tcp_rto_algorithm_get},  {2, ASN1_TAG_INTEGER, tcp_rto_min_get},
-    {3, ASN1_TAG_INTEGER, tcp_rto_max_get},	   {4, ASN1_TAG_INTEGER, tcp_max_conn_get},
-    {5, SNMP_TAG_COUNTER32, tcp_active_opens_get}, {6, SNMP_TAG_COUNTER32, tcp_passive_opens_get},
-    {10, SNMP_TAG_COUNTER32, tcp_in_segs_get},	   {11, SNMP_TAG_COUNTER32, tcp_out_segs_get},
+	{1, ASN1_TAG_INTEGER, tcp_rto_algorithm_get},
+	{2, ASN1_TAG_INTEGER, tcp_rto_min_get},
+	{3, ASN1_TAG_INTEGER, tcp_rto_max_get},
+	{4, ASN1_TAG_INTEGER, tcp_max_conn_get},
+	{5, SNMP_TAG_COUNTER32, tcp_active_opens_get},
+	{6, SNMP_TAG_COUNTER32, tcp_passive_opens_get},
+	{10, SNMP_TAG_COUNTER32, tcp_in_segs_get},
+	{11, SNMP_TAG_COUNTER32, tcp_out_segs_get},
 };
 
 int snmp_mib2_register_tcp(struct snmp_agent *agent)
@@ -1035,7 +1087,8 @@ int snmp_mib2_register_tcp(struct snmp_agent *agent)
 	}
 	static const uint32_t tcp_base[7] = {1, 3, 6, 1, 2, 1, 6};
 	return register_scalar_group(agent, tcp_base, 7, s_tcp_defs,
-				     sizeof(s_tcp_defs) / sizeof(s_tcp_defs[0]));
+
+				     ARRAY_SIZE(s_tcp_defs));
 }
 
 /* -------------------------------------------------------------------------- */
@@ -1111,10 +1164,10 @@ static int udp_out_datagrams_get(struct snmp_agent *agent, const struct snmp_mib
 }
 
 static const struct scalar_node_def s_udp_defs[] = {
-    {1, SNMP_TAG_COUNTER32, udp_in_datagrams_get},
-    {2, SNMP_TAG_COUNTER32, udp_no_ports_get},
-    {3, SNMP_TAG_COUNTER32, udp_in_errors_get},
-    {4, SNMP_TAG_COUNTER32, udp_out_datagrams_get},
+	{1, SNMP_TAG_COUNTER32, udp_in_datagrams_get},
+	{2, SNMP_TAG_COUNTER32, udp_no_ports_get},
+	{3, SNMP_TAG_COUNTER32, udp_in_errors_get},
+	{4, SNMP_TAG_COUNTER32, udp_out_datagrams_get},
 };
 
 int snmp_mib2_register_udp(struct snmp_agent *agent)
@@ -1124,7 +1177,8 @@ int snmp_mib2_register_udp(struct snmp_agent *agent)
 	}
 	static const uint32_t udp_base[7] = {1, 3, 6, 1, 2, 1, 7};
 	return register_scalar_group(agent, udp_base, 7, s_udp_defs,
-				     sizeof(s_udp_defs) / sizeof(s_udp_defs[0]));
+
+				     ARRAY_SIZE(s_udp_defs));
 }
 
 /* -------------------------------------------------------------------------- */

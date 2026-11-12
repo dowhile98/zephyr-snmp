@@ -66,8 +66,9 @@ static bool community_matches(const struct snmp_pdu *pdu, const char *configured
 {
 	size_t len;
 
-	if (!pdu || !configured)
+	if (!pdu || !configured) {
 		return false;
+	}
 
 	len = strlen(configured);
 	return pdu->community_len == len && memcmp(pdu->community, configured, len) == 0;
@@ -368,13 +369,17 @@ static int snmp_detect_version(const uint8_t *buf, size_t buf_len)
 	size_t seq_len;
 
 	int ret = snmp_ber_decode_header(buf, buf_len, &off, &tag, &seq_len);
-	if (ret < 0 || tag != ASN1_TAG_SEQUENCE)
+	if (ret < 0 || tag != ASN1_TAG_SEQUENCE) {
+
 		return -1;
+	}
 
 	int32_t version = 0;
 	ret = snmp_ber_decode_int(buf, buf_len, &off, &version);
-	if (ret < 0)
+
+	if (ret < 0) {
 		return -1;
+	}
 
 	return version;
 }
@@ -389,6 +394,7 @@ static int process_v1v2c(struct snmp_agent *agent, const uint8_t *req_buf, size_
 	memset(&agent->current_pdu, 0, sizeof(agent->current_pdu));
 	int ret = snmp_ber_decode_pdu(req_buf, req_len, &agent->current_pdu);
 	if (ret < 0) {
+
 		INST_COUNTER_INC(agent, snmpInASNParseErrs);
 		return ret;
 	}
@@ -449,7 +455,7 @@ static int process_v1v2c(struct snmp_agent *agent, const uint8_t *req_buf, size_
 
 	uint8_t req_type = agent->current_pdu.type;
 	int32_t non_rep =
-	    agent->current_pdu.non_repeaters < 0 ? 0 : agent->current_pdu.non_repeaters;
+		agent->current_pdu.non_repeaters < 0 ? 0 : agent->current_pdu.non_repeaters;
 	if (non_rep > (int32_t)agent->current_pdu.varbind_cnt) {
 		non_rep = agent->current_pdu.varbind_cnt;
 	}
@@ -475,6 +481,7 @@ static int process_v1v2c(struct snmp_agent *agent, const uint8_t *req_buf, size_
 	/* Encode response PDU */
 	size_t encoded_len = 0;
 	ret = snmp_ber_encode_pdu(resp_buf, max_resp_len, &encoded_len, &agent->current_pdu);
+
 	if (ret == -ENOBUFS && req_type == SNMP_PDU_GET_BULK_REQ) {
 		while (ret == -ENOBUFS && agent->current_pdu.varbind_cnt > (uint8_t)non_rep) {
 			agent->current_pdu.varbind_cnt--;
@@ -495,8 +502,8 @@ static int process_v1v2c(struct snmp_agent *agent, const uint8_t *req_buf, size_
 		agent->current_pdu.error_index = 0;
 		agent->current_pdu.varbind_cnt = 0;
 		agent->current_pdu.type = SNMP_PDU_GET_RESP;
-		int enc_ret =
-		    snmp_ber_encode_pdu(resp_buf, max_resp_len, &encoded_len, &agent->current_pdu);
+		int enc_ret = snmp_ber_encode_pdu(resp_buf, max_resp_len, &encoded_len,
+						  &agent->current_pdu);
 		if (enc_ret == 0) {
 			*out_resp_len = encoded_len;
 			INST_COUNTER_INC(agent, snmpOutPkts);
@@ -519,6 +526,7 @@ static int process_v3(struct snmp_agent *agent, const uint8_t *req_buf, size_t r
 	struct snmp_v3_msg msg;
 	int ret = snmp_ber_decode_v3_msg(req_buf, req_len, &msg);
 	if (ret < 0) {
+
 		INST_COUNTER_INC(agent, snmpInASNParseErrs);
 		if (ret == -ENOTSUP) {
 			agent->mpd_stats.unknown_security_models++;
@@ -552,6 +560,7 @@ static int process_v3(struct snmp_agent *agent, const uint8_t *req_buf, size_t r
 
 		size_t encoded_len = 0;
 		ret = snmp_ber_encode_v3_msg(resp_buf, max_resp_len, &encoded_len, &msg);
+
 		if (ret < 0) {
 			return ret;
 		}
@@ -575,8 +584,8 @@ static int process_v3(struct snmp_agent *agent, const uint8_t *req_buf, size_t r
 
 	char user_name[sizeof(msg.usm.user_name) + 1];
 	size_t name_len = msg.usm.user_name_len < sizeof(msg.usm.user_name)
-			      ? msg.usm.user_name_len
-			      : sizeof(msg.usm.user_name);
+				  ? msg.usm.user_name_len
+				  : sizeof(msg.usm.user_name);
 	memcpy(user_name, msg.usm.user_name, name_len);
 	user_name[name_len] = '\0';
 
@@ -601,6 +610,7 @@ static int process_v3(struct snmp_agent *agent, const uint8_t *req_buf, size_t r
 	uint8_t req_type = msg.scoped.pdu.type;
 	int32_t non_rep = msg.scoped.pdu.non_repeaters < 0 ? 0 : msg.scoped.pdu.non_repeaters;
 	if (non_rep > (int32_t)msg.scoped.pdu.varbind_cnt) {
+
 		non_rep = msg.scoped.pdu.varbind_cnt;
 	}
 
@@ -642,6 +652,7 @@ static int process_v3(struct snmp_agent *agent, const uint8_t *req_buf, size_t r
 	/* Encode */
 	size_t encoded_len = 0;
 	ret = snmp_ber_encode_v3_msg(resp_buf, max_resp_len, &encoded_len, &msg);
+
 	if (ret == -ENOBUFS && req_type == SNMP_PDU_GET_BULK_REQ) {
 		while (ret == -ENOBUFS && msg.scoped.pdu.varbind_cnt > (uint8_t)non_rep) {
 			msg.scoped.pdu.varbind_cnt--;
@@ -667,7 +678,7 @@ static int process_v3(struct snmp_agent *agent, const uint8_t *req_buf, size_t r
 		msg.scoped.pdu.type = SNMP_PDU_GET_RESP;
 		if (snmp_usm_build_outgoing(agent, &msg) == 0) {
 			int enc_ret =
-			    snmp_ber_encode_v3_msg(resp_buf, max_resp_len, &encoded_len, &msg);
+				snmp_ber_encode_v3_msg(resp_buf, max_resp_len, &encoded_len, &msg);
 			if (enc_ret == 0) {
 				*out_resp_len = encoded_len;
 				INST_COUNTER_INC(agent, snmpOutPkts);

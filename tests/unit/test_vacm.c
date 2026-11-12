@@ -41,9 +41,9 @@ void test_vacm_group_mapping_resolution(void)
 	struct snmp_oid sys_oid = {.len = 8, .ids = {1, 3, 6, 1, 2, 1, 1, 1, 0}};
 
 	/* Default admin user ("admin") maps to group admin and has full access */
-	ret =
-	    snmp_vacm_check_access_ex(&s_vacm_test_agent, "", SNMP_SEC_MODEL_USM, "admin",
-				      SNMP_SEC_LEVEL_AUTH_NOPRIV, SNMP_VACM_ACCESS_READ, &sys_oid);
+	ret = snmp_vacm_check_access_ex(&s_vacm_test_agent, "", SNMP_SEC_MODEL_USM, "admin",
+					SNMP_SEC_LEVEL_AUTH_NOPRIV, SNMP_VACM_ACCESS_READ,
+					&sys_oid);
 	ASSERT_EQ(ret, 0);
 
 	/* Default monitor user ("monitor") maps to group readonly */
@@ -53,9 +53,9 @@ void test_vacm_group_mapping_resolution(void)
 	ASSERT_EQ(ret, 0);
 
 	/* Unknown user has no mapping -> rejected */
-	ret =
-	    snmp_vacm_check_access_ex(&s_vacm_test_agent, "", SNMP_SEC_MODEL_USM, "unknown_user",
-				      SNMP_SEC_LEVEL_AUTH_NOPRIV, SNMP_VACM_ACCESS_READ, &sys_oid);
+	ret = snmp_vacm_check_access_ex(&s_vacm_test_agent, "", SNMP_SEC_MODEL_USM, "unknown_user",
+					SNMP_SEC_LEVEL_AUTH_NOPRIV, SNMP_VACM_ACCESS_READ,
+					&sys_oid);
 	ASSERT_EQ(ret, -EACCES);
 
 	/* Add new mapping for operator user -> group admin */
@@ -63,9 +63,9 @@ void test_vacm_group_mapping_resolution(void)
 					  "admin");
 	ASSERT_EQ(ret, 0);
 
-	ret =
-	    snmp_vacm_check_access_ex(&s_vacm_test_agent, "", SNMP_SEC_MODEL_USM, "operator",
-				      SNMP_SEC_LEVEL_AUTH_NOPRIV, SNMP_VACM_ACCESS_READ, &sys_oid);
+	ret = snmp_vacm_check_access_ex(&s_vacm_test_agent, "", SNMP_SEC_MODEL_USM, "operator",
+					SNMP_SEC_LEVEL_AUTH_NOPRIV, SNMP_VACM_ACCESS_READ,
+					&sys_oid);
 	ASSERT_EQ(ret, 0);
 }
 
@@ -90,9 +90,9 @@ void test_vacm_security_level_enforcement(void)
 	ASSERT_EQ(ret, -EACCES);
 
 	/* Request with authNoPriv (2) meets min_sec_level -> ALLOWED */
-	ret =
-	    snmp_vacm_check_access_ex(&s_vacm_test_agent, "", SNMP_SEC_MODEL_USM, "admin",
-				      SNMP_SEC_LEVEL_AUTH_NOPRIV, SNMP_VACM_ACCESS_WRITE, &sys_oid);
+	ret = snmp_vacm_check_access_ex(&s_vacm_test_agent, "", SNMP_SEC_MODEL_USM, "admin",
+					SNMP_SEC_LEVEL_AUTH_NOPRIV, SNMP_VACM_ACCESS_WRITE,
+					&sys_oid);
 	ASSERT_EQ(ret, 0);
 
 	/* Request with authPriv (3) exceeds min_sec_level -> ALLOWED */
@@ -122,10 +122,10 @@ void test_vacm_oid_subtree_matching(void)
 	struct snmp_oid sys_descr = {.len = 8, .ids = {1, 3, 6, 1, 2, 1, 1, 1, 0}};
 	struct snmp_oid sys_uptime = {.len = 8, .ids = {1, 3, 6, 1, 2, 1, 1, 3, 0}};
 	struct snmp_oid if_number = {
-	    .len = 8, .ids = {1, 3, 6, 1, 2, 1, 2, 1, 0} /* 1.3.6.1.2.1.2 is interfaces */
+		.len = 8, .ids = {1, 3, 6, 1, 2, 1, 2, 1, 0} /* 1.3.6.1.2.1.2 is interfaces */
 	};
 	struct snmp_oid ent_sensor = {
-	    .len = 9, .ids = {1, 3, 6, 1, 4, 1, 54321, 1, 0} /* Enterprise OID */
+		.len = 9, .ids = {1, 3, 6, 1, 4, 1, 54321, 1, 0} /* Enterprise OID */
 	};
 
 	/* monitor user in restrictedView: system group is allowed */
@@ -171,6 +171,7 @@ void test_vacm_oid_subtree_excluded(void)
 	/* In fullView (1.3.6.1 included), add an EXCLUDED subtree: 1.3.6.1.4.1.99999 */
 	struct snmp_oid secret_subtree = {.len = 7, .ids = {1, 3, 6, 1, 4, 1, 99999}};
 	ret = snmp_vacm_add_view_tree(&s_vacm_test_agent, "fullView", &secret_subtree, NULL, 0,
+
 				      SNMP_VACM_VIEW_EXCLUDED);
 	ASSERT_EQ(ret, 0);
 
@@ -242,23 +243,26 @@ void test_vacm_wildcard_mask(void)
 
 	/* Target A: 1.3.6.1.4.1.10.1.0 (id[6] = 10, id[7] = 1) -> MATCH */
 	struct snmp_oid target_a = {.len = 9, .ids = {1, 3, 6, 1, 4, 1, 10, 1, 0}};
-	ret =
-	    snmp_vacm_check_access_ex(&s_vacm_test_agent, "", SNMP_SEC_MODEL_USM, "admin",
-				      SNMP_SEC_LEVEL_AUTH_NOPRIV, SNMP_VACM_ACCESS_READ, &target_a);
+	ret = snmp_vacm_check_access_ex(&s_vacm_test_agent, "", SNMP_SEC_MODEL_USM, "admin",
+
+					SNMP_SEC_LEVEL_AUTH_NOPRIV, SNMP_VACM_ACCESS_READ,
+					&target_a);
 	ASSERT_EQ(ret, 0);
 
 	/* Target B: 1.3.6.1.4.1.99.1.0 (id[6] = 99, id[7] = 1) -> MATCH */
 	struct snmp_oid target_b = {.len = 9, .ids = {1, 3, 6, 1, 4, 1, 99, 1, 0}};
-	ret =
-	    snmp_vacm_check_access_ex(&s_vacm_test_agent, "", SNMP_SEC_MODEL_USM, "admin",
-				      SNMP_SEC_LEVEL_AUTH_NOPRIV, SNMP_VACM_ACCESS_READ, &target_b);
+	ret = snmp_vacm_check_access_ex(&s_vacm_test_agent, "", SNMP_SEC_MODEL_USM, "admin",
+
+					SNMP_SEC_LEVEL_AUTH_NOPRIV, SNMP_VACM_ACCESS_READ,
+					&target_b);
 	ASSERT_EQ(ret, 0);
 
 	/* Target C: 1.3.6.1.4.1.10.2.0 (id[6] = 10, id[7] = 2 != 1) -> MISMATCH */
 	struct snmp_oid target_c = {.len = 9, .ids = {1, 3, 6, 1, 4, 1, 10, 2, 0}};
-	ret =
-	    snmp_vacm_check_access_ex(&s_vacm_test_agent, "", SNMP_SEC_MODEL_USM, "admin",
-				      SNMP_SEC_LEVEL_AUTH_NOPRIV, SNMP_VACM_ACCESS_READ, &target_c);
+	ret = snmp_vacm_check_access_ex(&s_vacm_test_agent, "", SNMP_SEC_MODEL_USM, "admin",
+
+					SNMP_SEC_LEVEL_AUTH_NOPRIV, SNMP_VACM_ACCESS_READ,
+					&target_c);
 	ASSERT_EQ(ret, -EACCES);
 }
 
@@ -270,15 +274,15 @@ void test_vacm_unknown_context_rejected(void)
 	struct snmp_oid sys_oid = {.len = 8, .ids = {1, 3, 6, 1, 2, 1, 1, 1, 0}};
 
 	/* Default context "" is valid */
-	ret =
-	    snmp_vacm_check_access_ex(&s_vacm_test_agent, "", SNMP_SEC_MODEL_USM, "admin",
-				      SNMP_SEC_LEVEL_AUTH_NOPRIV, SNMP_VACM_ACCESS_READ, &sys_oid);
+	ret = snmp_vacm_check_access_ex(&s_vacm_test_agent, "", SNMP_SEC_MODEL_USM, "admin",
+					SNMP_SEC_LEVEL_AUTH_NOPRIV, SNMP_VACM_ACCESS_READ,
+					&sys_oid);
 	ASSERT_EQ(ret, 0);
 
 	/* Non-existent context "vrf1" is rejected */
-	ret =
-	    snmp_vacm_check_access_ex(&s_vacm_test_agent, "vrf1", SNMP_SEC_MODEL_USM, "admin",
-				      SNMP_SEC_LEVEL_AUTH_NOPRIV, SNMP_VACM_ACCESS_READ, &sys_oid);
+	ret = snmp_vacm_check_access_ex(&s_vacm_test_agent, "vrf1", SNMP_SEC_MODEL_USM, "admin",
+					SNMP_SEC_LEVEL_AUTH_NOPRIV, SNMP_VACM_ACCESS_READ,
+					&sys_oid);
 	ASSERT_EQ(ret, -EACCES);
 
 	/* Add context "vrf1" */
@@ -292,9 +296,9 @@ void test_vacm_unknown_context_rejected(void)
 	ASSERT_EQ(ret, 0);
 
 	/* Now context "vrf1" is accepted */
-	ret =
-	    snmp_vacm_check_access_ex(&s_vacm_test_agent, "vrf1", SNMP_SEC_MODEL_USM, "admin",
-				      SNMP_SEC_LEVEL_AUTH_NOPRIV, SNMP_VACM_ACCESS_READ, &sys_oid);
+	ret = snmp_vacm_check_access_ex(&s_vacm_test_agent, "vrf1", SNMP_SEC_MODEL_USM, "admin",
+					SNMP_SEC_LEVEL_AUTH_NOPRIV, SNMP_VACM_ACCESS_READ,
+					&sys_oid);
 	ASSERT_EQ(ret, 0);
 }
 
@@ -351,10 +355,12 @@ void test_vacm_report_pdu_timeliness_structure(void)
 {
 	struct snmp_agent test_agent;
 	memset(&test_agent, 0, sizeof(test_agent));
+
 	test_agent.engine_boots = 1;
 
 	struct snmp_v3_msg msg;
 	memset(&msg, 0, sizeof(msg));
+
 	msg.global.msg_id = 98765;
 	msg.scoped.pdu.type = SNMP_PDU_GET_REQ;
 
@@ -365,6 +371,7 @@ void test_vacm_report_pdu_timeliness_structure(void)
 	msg.scoped.pdu.request_id = msg.global.msg_id;
 	static const uint32_t not_in_time_windows_oid[] = {1, 3, 6, 1, 6, 3, 15, 1, 1, 2, 0};
 	msg.scoped.pdu.varbinds[0].oid.len = 11;
+
 	memcpy(msg.scoped.pdu.varbinds[0].oid.ids, not_in_time_windows_oid,
 	       sizeof(not_in_time_windows_oid));
 	msg.scoped.pdu.varbinds[0].type = SNMP_TAG_COUNTER32;
@@ -387,13 +394,16 @@ void test_vacm_report_pdu_timeliness_structure(void)
 	uint8_t raw[1024];
 	size_t raw_len = 0;
 	msg.global.msg_max_size = 1024;
+
 	msg.global.msg_security_model = 3;
 	int ret = snmp_ber_encode_v3_msg(raw, sizeof(raw), &raw_len, &msg);
 	ASSERT_EQ(ret, 0);
+
 	ASSERT(raw_len > 0);
 
 	struct snmp_v3_msg decoded_msg;
 	memset(&decoded_msg, 0, sizeof(decoded_msg));
+
 	ret = snmp_ber_decode_v3_msg(raw, raw_len, &decoded_msg);
 	ASSERT_EQ(ret, 0);
 	ASSERT_EQ(decoded_msg.scoped.pdu.type, SNMP_PDU_REPORT);
@@ -428,6 +438,7 @@ void test_continuous_uptime_wrap_guard(void)
 {
 	struct snmp_agent test_agent;
 	memset(&test_agent, 0, sizeof(test_agent));
+
 	test_agent.engine_boots = 1;
 	test_agent.engine_time_base = 0;
 
@@ -473,6 +484,7 @@ int main(void)
 {
 	int tests_passed = 0;
 	printf("SNMP VACM Unit Tests (RFC 3415)\n");
+
 	printf("===============================\n\n");
 
 	RUN_TEST(test_vacm_group_mapping_resolution);

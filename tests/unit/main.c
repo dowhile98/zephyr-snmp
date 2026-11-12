@@ -9,9 +9,9 @@
 #include <stdlib.h>
 
 /* Simple test framework */
-static int tests_run = 0;
-static int tests_passed = 0;
-static int tests_failed = 0;
+static int tests_run;
+static int tests_passed;
+static int tests_failed;
 
 #define TEST(name) void name(void)
 #define RUN_TEST(name)                                                                             \

@@ -15,19 +15,24 @@ extern "C" {
 
 #ifdef CONFIG_SNMP_AGENT
 
+/**
+ * @addtogroup snmp_vacm
+ * @{
+ */
+
 /* ---- VACM Access Types ---- */
-#define SNMP_VACM_ACCESS_READ 1
-#define SNMP_VACM_ACCESS_WRITE 2
+#define SNMP_VACM_ACCESS_READ   1
+#define SNMP_VACM_ACCESS_WRITE  2
 #define SNMP_VACM_ACCESS_NOTIFY 3
 
 /* ---- VACM Security Levels (RFC 3411 §3.4.3 / RFC 3415) ---- */
 #define SNMP_SEC_LEVEL_NOAUTH_NOPRIV 1
-#define SNMP_SEC_LEVEL_AUTH_NOPRIV 2
-#define SNMP_SEC_LEVEL_AUTH_PRIV 3
+#define SNMP_SEC_LEVEL_AUTH_NOPRIV   2
+#define SNMP_SEC_LEVEL_AUTH_PRIV     3
 
 /* ---- VACM Security Models ---- */
 #define SNMP_SEC_MODEL_ANY 0
-#define SNMP_SEC_MODEL_V1 1
+#define SNMP_SEC_MODEL_V1  1
 #define SNMP_SEC_MODEL_V2C 2
 #define SNMP_SEC_MODEL_USM 3
 
@@ -175,6 +180,8 @@ int snmp_vacm_check_access_ex(struct snmp_agent *inst, const char *context_name,
  * @return 0 when all varbinds are accessible, -EACCES on the first denial.
  */
 int snmp_vacm_check_access(struct snmp_agent *inst, const struct snmp_v3_msg *msg, bool is_write);
+
+/** @} */
 
 #endif /* CONFIG_SNMP_AGENT */
 

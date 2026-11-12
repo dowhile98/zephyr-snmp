@@ -74,10 +74,10 @@ static int set_legacy_val2(struct snmp_agent *agent, struct snmp_mib_node *node,
 /* 2PC Transactional test state */
 static int32_t s_tx_val_a = 50;
 static int32_t s_tx_val_b = 60;
-static bool s_tx_b_fail_reserve = false;
-static bool s_tx_b_fail_commit = false;
-static bool s_tx_a_undo_called = false;
-static bool s_tx_a_cleanup_called = false;
+static bool s_tx_b_fail_reserve;
+static bool s_tx_b_fail_commit;
+static bool s_tx_a_undo_called;
+static bool s_tx_a_cleanup_called;
 
 static int get_tx_val_a(struct snmp_agent *agent, const struct snmp_mib_node *node,
 			struct snmp_varbind *vb)
@@ -172,61 +172,61 @@ static void setup_test_nodes(void)
 
 	/* Node 1: 1.3.6.1.4.1.9999.1.0 (legacy) */
 	struct snmp_mib_node node1 = {
-	    .oid = {.len = 8, .ids = {1, 3, 6, 1, 4, 1, 9999, 1}},
-	    .type = ASN1_TAG_INTEGER,
-	    .get_cb = get_legacy_val1,
-	    .set_cb = set_legacy_val1,
-	    .set_tx_cb = NULL,
+		.oid = {.len = 8, .ids = {1, 3, 6, 1, 4, 1, 9999, 1}},
+		.type = ASN1_TAG_INTEGER,
+		.get_cb = get_legacy_val1,
+		.set_cb = set_legacy_val1,
+		.set_tx_cb = NULL,
 	};
 	snmp_mib_register(&s_2pc_agent, &node1);
 
 	/* Node 2: 1.3.6.1.4.1.9999.2.0 (legacy) */
 	struct snmp_mib_node node2 = {
-	    .oid = {.len = 8, .ids = {1, 3, 6, 1, 4, 1, 9999, 2}},
-	    .type = ASN1_TAG_INTEGER,
-	    .get_cb = get_legacy_val2,
-	    .set_cb = set_legacy_val2,
-	    .set_tx_cb = NULL,
+		.oid = {.len = 8, .ids = {1, 3, 6, 1, 4, 1, 9999, 2}},
+		.type = ASN1_TAG_INTEGER,
+		.get_cb = get_legacy_val2,
+		.set_cb = set_legacy_val2,
+		.set_tx_cb = NULL,
 	};
 	snmp_mib_register(&s_2pc_agent, &node2);
 
 	/* Node A: 1.3.6.1.4.1.9999.3.0 (2PC) */
 	struct snmp_mib_node node_a = {
-	    .oid = {.len = 8, .ids = {1, 3, 6, 1, 4, 1, 9999, 3}},
-	    .type = ASN1_TAG_INTEGER,
-	    .get_cb = get_tx_val_a,
-	    .set_cb = NULL,
-	    .set_tx_cb = set_tx_val_a,
+		.oid = {.len = 8, .ids = {1, 3, 6, 1, 4, 1, 9999, 3}},
+		.type = ASN1_TAG_INTEGER,
+		.get_cb = get_tx_val_a,
+		.set_cb = NULL,
+		.set_tx_cb = set_tx_val_a,
 	};
 	snmp_mib_register(&s_2pc_agent, &node_a);
 
 	/* Node B: 1.3.6.1.4.1.9999.4.0 (2PC) */
 	struct snmp_mib_node node_b = {
-	    .oid = {.len = 8, .ids = {1, 3, 6, 1, 4, 1, 9999, 4}},
-	    .type = ASN1_TAG_INTEGER,
-	    .get_cb = get_tx_val_b,
-	    .set_cb = NULL,
-	    .set_tx_cb = set_tx_val_b,
+		.oid = {.len = 8, .ids = {1, 3, 6, 1, 4, 1, 9999, 4}},
+		.type = ASN1_TAG_INTEGER,
+		.get_cb = get_tx_val_b,
+		.set_cb = NULL,
+		.set_tx_cb = set_tx_val_b,
 	};
 	snmp_mib_register(&s_2pc_agent, &node_b);
 
 	/* Read-only Node: 1.3.6.1.4.1.9999.5.0 */
 	struct snmp_mib_node node_ro = {
-	    .oid = {.len = 8, .ids = {1, 3, 6, 1, 4, 1, 9999, 5}},
-	    .type = ASN1_TAG_INTEGER,
-	    .get_cb = get_legacy_val1,
-	    .set_cb = NULL,
-	    .set_tx_cb = NULL,
+		.oid = {.len = 8, .ids = {1, 3, 6, 1, 4, 1, 9999, 5}},
+		.type = ASN1_TAG_INTEGER,
+		.get_cb = get_legacy_val1,
+		.set_cb = NULL,
+		.set_tx_cb = NULL,
 	};
 	snmp_mib_register(&s_2pc_agent, &node_ro);
 
 	/* Write-only Node (no get_cb): 1.3.6.1.4.1.9999.6.0 */
 	struct snmp_mib_node node_wo = {
-	    .oid = {.len = 8, .ids = {1, 3, 6, 1, 4, 1, 9999, 6}},
-	    .type = ASN1_TAG_INTEGER,
-	    .get_cb = NULL,
-	    .set_cb = set_legacy_val1,
-	    .set_tx_cb = NULL,
+		.oid = {.len = 8, .ids = {1, 3, 6, 1, 4, 1, 9999, 6}},
+		.type = ASN1_TAG_INTEGER,
+		.get_cb = NULL,
+		.set_cb = set_legacy_val1,
+		.set_tx_cb = NULL,
 	};
 	snmp_mib_register(&s_2pc_agent, &node_wo);
 }
@@ -237,6 +237,7 @@ void test_set_2pc_atomic_failure_legacy(void)
 
 	struct snmp_pdu pdu;
 	memset(&pdu, 0, sizeof(pdu));
+
 	pdu.version = 1; /* SNMPv2c */
 	pdu.type = SNMP_PDU_SET_REQ;
 	pdu.varbind_cnt = 2;
@@ -275,6 +276,7 @@ void test_set_2pc_atomic_failure_tx(void)
 
 	struct snmp_pdu pdu;
 	memset(&pdu, 0, sizeof(pdu));
+
 	pdu.version = 1; /* SNMPv2c */
 	pdu.type = SNMP_PDU_SET_REQ;
 	pdu.varbind_cnt = 2;
@@ -312,6 +314,7 @@ void test_set_2pc_rollback_on_commit_failure(void)
 
 	struct snmp_pdu pdu;
 	memset(&pdu, 0, sizeof(pdu));
+
 	pdu.version = 1; /* SNMPv2c */
 	pdu.type = SNMP_PDU_SET_REQ;
 	pdu.varbind_cnt = 2;
@@ -348,6 +351,7 @@ void test_set_2pc_atomic_success(void)
 
 	struct snmp_pdu pdu;
 	memset(&pdu, 0, sizeof(pdu));
+
 	pdu.version = 1; /* SNMPv2c */
 	pdu.type = SNMP_PDU_SET_REQ;
 	pdu.varbind_cnt = 2;
@@ -387,6 +391,7 @@ void test_smiv2_error_code_mapping_v2c_and_v1(void)
 	/* 1. Read-only node on v2c request -> notWritable (17) */
 	struct snmp_pdu pdu_v2_ro;
 	memset(&pdu_v2_ro, 0, sizeof(pdu_v2_ro));
+
 	pdu_v2_ro.version = 1;
 	pdu_v2_ro.type = SNMP_PDU_SET_REQ;
 	pdu_v2_ro.varbind_cnt = 1;
@@ -403,6 +408,7 @@ void test_smiv2_error_code_mapping_v2c_and_v1(void)
 	/* 2. Read-only node on v1 request -> readOnly (4) */
 	struct snmp_pdu pdu_v1_ro;
 	memset(&pdu_v1_ro, 0, sizeof(pdu_v1_ro));
+
 	pdu_v1_ro.version = 0;
 	pdu_v1_ro.type = SNMP_PDU_SET_REQ;
 	pdu_v1_ro.varbind_cnt = 1;
@@ -419,6 +425,7 @@ void test_smiv2_error_code_mapping_v2c_and_v1(void)
 	/* 3. Type mismatch on v2c -> wrongType (7) */
 	struct snmp_pdu pdu_v2_type;
 	memset(&pdu_v2_type, 0, sizeof(pdu_v2_type));
+
 	pdu_v2_type.version = 1;
 	pdu_v2_type.type = SNMP_PDU_SET_REQ;
 	pdu_v2_type.varbind_cnt = 1;
@@ -434,6 +441,7 @@ void test_smiv2_error_code_mapping_v2c_and_v1(void)
 	/* 4. Type mismatch on v1 -> badValue (3) */
 	struct snmp_pdu pdu_v1_type;
 	memset(&pdu_v1_type, 0, sizeof(pdu_v1_type));
+
 	pdu_v1_type.version = 0;
 	pdu_v1_type.type = SNMP_PDU_SET_REQ;
 	pdu_v1_type.varbind_cnt = 1;
@@ -457,6 +465,7 @@ void test_multi_instance_independence(void)
 	int ret1 = snmp_agent_init(&inst1, NULL);
 	int ret2 = snmp_agent_init(&inst2, NULL);
 	ASSERT_EQ(ret1, 0);
+
 	ASSERT_EQ(ret2, 0);
 
 	snmp_agent_set_read_community(&inst1, "dept_alpha");
@@ -468,6 +477,7 @@ void test_multi_instance_independence(void)
 	/* Build encoded SNMPv2c GET request for Node 1 with community 'dept_alpha' */
 	struct snmp_pdu req_pdu;
 	memset(&req_pdu, 0, sizeof(req_pdu));
+
 	req_pdu.version = 1; /* v2c */
 	strncpy((char *)req_pdu.community, "dept_alpha", sizeof(req_pdu.community) - 1);
 	req_pdu.community_len = strlen((char *)req_pdu.community);
@@ -488,8 +498,8 @@ void test_multi_instance_independence(void)
 	size_t resp_len = 0;
 
 	/* 1. Pass request with 'dept_alpha' to inst1 -> should succeed */
-	int proc_ret1 =
-	    snmp_agent_process_pdu(&inst1, req_buf, req_len, resp_buf, sizeof(resp_buf), &resp_len);
+	int proc_ret1 = snmp_agent_process_pdu(&inst1, req_buf, req_len, resp_buf, sizeof(resp_buf),
+					       &resp_len);
 	ASSERT_EQ(proc_ret1, 0);
 	ASSERT(resp_len > 0);
 	ASSERT_EQ(inst1.counters.snmpInPkts, 1);
@@ -497,8 +507,8 @@ void test_multi_instance_independence(void)
 
 	/* 2. Pass SAME request with 'dept_alpha' to inst2 -> should be rejected with -EACCES */
 	resp_len = 0;
-	int proc_ret2 =
-	    snmp_agent_process_pdu(&inst2, req_buf, req_len, resp_buf, sizeof(resp_buf), &resp_len);
+	int proc_ret2 = snmp_agent_process_pdu(&inst2, req_buf, req_len, resp_buf, sizeof(resp_buf),
+					       &resp_len);
 	ASSERT_EQ(proc_ret2, -EACCES);
 	ASSERT_EQ(resp_len, 0);
 	ASSERT_EQ(inst2.counters.snmpInPkts, 1);
@@ -515,6 +525,7 @@ void test_set_write_only_node_preserves_varbind(void)
 
 	struct snmp_pdu pdu;
 	memset(&pdu, 0, sizeof(pdu));
+
 	pdu.version = 1; /* v2c */
 	pdu.type = SNMP_PDU_SET_REQ;
 	pdu.varbind_cnt = 1;
@@ -526,6 +537,7 @@ void test_set_write_only_node_preserves_varbind(void)
 
 	int ret = snmp_mib_dispatch(&s_2pc_agent, &pdu);
 	ASSERT_EQ(ret, 0);
+
 	ASSERT_EQ(pdu.error_status, SNMP_ERR_NO_ERROR);
 	ASSERT_EQ(pdu.error_index, 0);
 	ASSERT_EQ(s_legacy_val1, 777);

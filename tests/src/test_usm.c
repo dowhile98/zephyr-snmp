@@ -304,8 +304,8 @@ ZTEST(snmp_usm, test_stale_authenticated_message_reports_not_in_time_window)
 static void add_monitor_user(void)
 {
 	struct snmp_usm_user monitor = {
-	    .auth_protocol = SNMP_USM_AUTH_NONE,
-	    .priv_protocol = SNMP_USM_PRIV_NONE,
+		.auth_protocol = SNMP_USM_AUTH_NONE,
+		.priv_protocol = SNMP_USM_PRIV_NONE,
 	};
 
 	strcpy(monitor.user_name, "monitor");
@@ -517,6 +517,7 @@ ZTEST(snmp_usm, test_v3_usm_stats_mib_queries)
 	req.usm.auth_params[0] ^= 0x55;
 	size_t req_len = encode(&req, raw, sizeof(raw));
 	zassert_equal(process(raw, req_len, out, &out_len), -EACCES);
+
 	zassert_equal(s_agent.usm_stats.wrong_digests, 1);
 
 	/* Query usmStatsWrongDigests.0 via valid authenticated GET */

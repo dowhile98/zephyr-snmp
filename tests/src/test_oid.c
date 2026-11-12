@@ -11,11 +11,11 @@
 #include <zephyr/ztest.h>
 #include <snmp/snmp_ber.h>
 
-#define ASSERT(c) zassert_true(c, #c)
-#define ASSERT_EQ(a, b) zassert_equal(a, b, NULL)
-#define ASSERT_NE(a, b) zassert_not_equal(a, b, NULL)
-#define ASSERT_GT(a, b) zassert_true((a) > (b), NULL)
-#define ASSERT_LT(a, b) zassert_true((a) < (b), NULL)
+#define ASSERT(c)          zassert_true(c, #c)
+#define ASSERT_EQ(a, b)    zassert_equal(a, b, NULL)
+#define ASSERT_NE(a, b)    zassert_not_equal(a, b, NULL)
+#define ASSERT_GT(a, b)    zassert_true((a) > (b), NULL)
+#define ASSERT_LT(a, b)    zassert_true((a) < (b), NULL)
 #define ASSERT_STREQ(a, b) zassert_mem_equal(a, b, strlen(b), NULL)
 
 ZTEST(snmp_oid, test_oid_equal)
@@ -60,6 +60,7 @@ ZTEST(snmp_oid, test_oid_encode_decode_roundtrip)
 	size_t dec_off = 0;
 	struct snmp_oid decoded = {0};
 	ret = snmp_ber_decode_oid(buf, off, &dec_off, &decoded);
+
 	ASSERT_EQ(ret, 0);
 	ASSERT_EQ(decoded.len, original.len);
 	for (int i = 0; i < original.len; i++) {
@@ -81,6 +82,7 @@ ZTEST(snmp_oid, test_oid_max_depth)
 	size_t dec_off = 0;
 	struct snmp_oid decoded = {0};
 	ret = snmp_ber_decode_oid(buf, off, &dec_off, &decoded);
+
 	ASSERT_EQ(ret, 0);
 	ASSERT_EQ(decoded.len, 16);
 }

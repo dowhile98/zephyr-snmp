@@ -7,7 +7,6 @@
 #define ZEPHYR_MODULES_SNMP_INCLUDE_SNMP_MIB_H_
 
 #include <zephyr/kernel.h>
-#include <zephyr/sys/atomic.h>
 #include <snmp/snmp_ber.h>
 
 #ifdef __cplusplus
@@ -15,6 +14,11 @@ extern "C" {
 #endif
 
 #ifdef CONFIG_SNMP_AGENT
+
+/**
+ * @addtogroup snmp_mib
+ * @{
+ */
 
 #ifndef CONFIG_SNMP_MAX_MIB_NODES
 #define CONFIG_SNMP_MAX_MIB_NODES 128
@@ -33,30 +37,30 @@ struct snmp_agent;
 enum snmp_set_action {
 	SNMP_SET_RESERVE, /**< Phase 1: validate types, values, and reserve resources */
 	SNMP_SET_COMMIT,  /**< Phase 2: apply modifications */
-	SNMP_SET_UNDO,	  /**< Phase 3: rollback on partial failure */
+	SNMP_SET_UNDO,    /**< Phase 3: rollback on partial failure */
 	SNMP_SET_CLEANUP  /**< Phase 4: release transaction resources */
 };
 
 /* RFC 3416 Protocol Error Status Codes */
-#define SNMP_ERR_NO_ERROR 0
-#define SNMP_ERR_TOO_BIG 1
-#define SNMP_ERR_NO_SUCH_NAME 2
-#define SNMP_ERR_BAD_VALUE 3
-#define SNMP_ERR_READ_ONLY 4
-#define SNMP_ERR_GEN_ERR 5
-#define SNMP_ERR_NO_ACCESS 6
-#define SNMP_ERR_WRONG_TYPE 7
-#define SNMP_ERR_WRONG_LENGTH 8
-#define SNMP_ERR_WRONG_ENCODING 9
-#define SNMP_ERR_WRONG_VALUE 10
-#define SNMP_ERR_NO_CREATION 11
-#define SNMP_ERR_INCONSISTENT_VALUE 12
+#define SNMP_ERR_NO_ERROR             0
+#define SNMP_ERR_TOO_BIG              1
+#define SNMP_ERR_NO_SUCH_NAME         2
+#define SNMP_ERR_BAD_VALUE            3
+#define SNMP_ERR_READ_ONLY            4
+#define SNMP_ERR_GEN_ERR              5
+#define SNMP_ERR_NO_ACCESS            6
+#define SNMP_ERR_WRONG_TYPE           7
+#define SNMP_ERR_WRONG_LENGTH         8
+#define SNMP_ERR_WRONG_ENCODING       9
+#define SNMP_ERR_WRONG_VALUE          10
+#define SNMP_ERR_NO_CREATION          11
+#define SNMP_ERR_INCONSISTENT_VALUE   12
 #define SNMP_ERR_RESOURCE_UNAVAILABLE 13
-#define SNMP_ERR_COMMIT_FAILED 14
-#define SNMP_ERR_UNDO_FAILED 15
-#define SNMP_ERR_AUTHORIZATION_ERR 16
-#define SNMP_ERR_NOT_WRITABLE 17
-#define SNMP_ERR_INCONSISTENT_NAME 18
+#define SNMP_ERR_COMMIT_FAILED        14
+#define SNMP_ERR_UNDO_FAILED          15
+#define SNMP_ERR_AUTHORIZATION_ERR    16
+#define SNMP_ERR_NOT_WRITABLE         17
+#define SNMP_ERR_INCONSISTENT_NAME    18
 
 /**
  * @brief Read callback for a scalar MIB node.
@@ -97,45 +101,45 @@ struct snmp_mib_node {
 	 * @brief Application context handed back to the callbacks.
 	 *
 	 * MUST point only at application-owned state (sensor records, device structs) or
-	 * at compile-time constants. It must NEVER point at a @ref struct snmp_agent or at
-	 * a field inside one: the owning agent is delivered as the first callback argument,
-	 * and instance recovery through the node would defeat the multi-instance model.
+	 * at compile-time constants. It must NEVER point at a @ref snmp_agent or at a field
+	 * inside one: the owning agent is delivered as the first callback argument, and
+	 * instance recovery through the node would defeat the multi-instance model.
 	 */
 	void *user_data;
 };
 
 /* --- Global SNMP MIB-II Group (1.3.6.1.2.1.11) Counters --- */
 struct snmp_mib2_counters {
-	uint32_t snmpInPkts;		  /* 11.1.0 */
-	uint32_t snmpOutPkts;		  /* 11.2.0 */
-	uint32_t snmpInBadVersions;	  /* 11.3.0 */
+	uint32_t snmpInPkts;              /* 11.1.0 */
+	uint32_t snmpOutPkts;             /* 11.2.0 */
+	uint32_t snmpInBadVersions;       /* 11.3.0 */
 	uint32_t snmpInBadCommunityNames; /* 11.4.0 */
 	uint32_t snmpInBadCommunityUses;  /* 11.5.0 */
-	uint32_t snmpInASNParseErrs;	  /* 11.6.0 */
-	uint32_t snmpInTooBigs;		  /* 11.8.0 */
-	uint32_t snmpInNoSuchNames;	  /* 11.9.0 */
-	uint32_t snmpInBadValues;	  /* 11.10.0 */
-	uint32_t snmpInReadOnlys;	  /* 11.11.0 */
-	uint32_t snmpInGenErrs;		  /* 11.12.0 */
-	uint32_t snmpInTotalReqVars;	  /* 11.13.0 */
-	uint32_t snmpInTotalSetVars;	  /* 11.14.0 */
-	uint32_t snmpInGetRequests;	  /* 11.15.0 */
-	uint32_t snmpInGetNexts;	  /* 11.16.0 */
-	uint32_t snmpInSetRequests;	  /* 11.17.0 */
-	uint32_t snmpInGetResponses;	  /* 11.18.0 */
-	uint32_t snmpInTraps;		  /* 11.19.0 */
-	uint32_t snmpOutTooBigs;	  /* 11.20.0 */
-	uint32_t snmpOutNoSuchNames;	  /* 11.21.0 */
-	uint32_t snmpOutBadValues;	  /* 11.22.0 */
-	uint32_t snmpOutGenErrs;	  /* 11.24.0 */
-	uint32_t snmpOutGetRequests;	  /* 11.25.0 */
-	uint32_t snmpOutGetNexts;	  /* 11.26.0 */
-	uint32_t snmpOutSetRequests;	  /* 11.27.0 */
-	uint32_t snmpOutGetResponses;	  /* 11.28.0 */
-	uint32_t snmpOutTraps;		  /* 11.29.0 */
-	int32_t snmpEnableAuthenTraps;	  /* 11.30.0 (1=enabled, 2=disabled) */
-	uint32_t snmpSilentDrops;	  /* 11.31.0 */
-	uint32_t snmpProxyDrops;	  /* 11.32.0 */
+	uint32_t snmpInASNParseErrs;      /* 11.6.0 */
+	uint32_t snmpInTooBigs;           /* 11.8.0 */
+	uint32_t snmpInNoSuchNames;       /* 11.9.0 */
+	uint32_t snmpInBadValues;         /* 11.10.0 */
+	uint32_t snmpInReadOnlys;         /* 11.11.0 */
+	uint32_t snmpInGenErrs;           /* 11.12.0 */
+	uint32_t snmpInTotalReqVars;      /* 11.13.0 */
+	uint32_t snmpInTotalSetVars;      /* 11.14.0 */
+	uint32_t snmpInGetRequests;       /* 11.15.0 */
+	uint32_t snmpInGetNexts;          /* 11.16.0 */
+	uint32_t snmpInSetRequests;       /* 11.17.0 */
+	uint32_t snmpInGetResponses;      /* 11.18.0 */
+	uint32_t snmpInTraps;             /* 11.19.0 */
+	uint32_t snmpOutTooBigs;          /* 11.20.0 */
+	uint32_t snmpOutNoSuchNames;      /* 11.21.0 */
+	uint32_t snmpOutBadValues;        /* 11.22.0 */
+	uint32_t snmpOutGenErrs;          /* 11.24.0 */
+	uint32_t snmpOutGetRequests;      /* 11.25.0 */
+	uint32_t snmpOutGetNexts;         /* 11.26.0 */
+	uint32_t snmpOutSetRequests;      /* 11.27.0 */
+	uint32_t snmpOutGetResponses;     /* 11.28.0 */
+	uint32_t snmpOutTraps;            /* 11.29.0 */
+	int32_t snmpEnableAuthenTraps;    /* 11.30.0 (1=enabled, 2=disabled) */
+	uint32_t snmpSilentDrops;         /* 11.31.0 */
+	uint32_t snmpProxyDrops;          /* 11.32.0 */
 };
 
 /**
@@ -160,7 +164,7 @@ void snmp_agent_zero_counters(struct snmp_agent *agent);
 static inline void snmp_counter_inc(uint32_t *counter)
 {
 #if defined(__ZEPHYR__)
-	atomic_inc((atomic_t *)counter);
+	__atomic_fetch_add(counter, 1U, __ATOMIC_RELAXED);
 #else
 	(*counter)++;
 #endif
@@ -169,7 +173,7 @@ static inline void snmp_counter_inc(uint32_t *counter)
 static inline void snmp_counter_add(uint32_t *counter, uint32_t value)
 {
 #if defined(__ZEPHYR__)
-	atomic_add((atomic_t *)counter, (atomic_val_t)value);
+	__atomic_fetch_add(counter, value, __ATOMIC_RELAXED);
 #else
 	*counter += value;
 #endif
@@ -199,11 +203,15 @@ typedef int (*snmp_table_set_cb_t)(struct snmp_agent *agent, struct snmp_table_r
 				   uint8_t column, const struct snmp_varbind *vb);
 
 struct snmp_table_row {
-	uint32_t index;			   /* Legacy single index (backward compatible) */
+	uint32_t index;                    /* Legacy single index (backward compatible) */
 	struct snmp_table_index index_oid; /* Generalized / Compound index suffix */
 	struct snmp_table_row *next;
-	/** @brief Application-owned row context. Same rule as struct snmp_mib_node::user_data:
-	 *         never a @ref struct snmp_agent or a pointer into one. */
+	/**
+	 * @brief Application-owned row context.
+	 *
+	 * Same rule as struct snmp_mib_node::user_data: never a @ref snmp_agent or a
+	 * pointer into one.
+	 */
 	void *user_data;
 };
 
@@ -226,16 +234,16 @@ struct snmp_mib_table {
  * and reservation status during atomic multi-varbind SET operations.
  */
 struct snmp_set_tx_item {
-	struct snmp_mib_node *node;	/**< Target scalar node (if !is_table). */
-	struct snmp_mib_table *tbl;	/**< Target table descriptor (if is_table). */
+	struct snmp_mib_node *node;     /**< Target scalar node (if !is_table). */
+	struct snmp_mib_table *tbl;     /**< Target table descriptor (if is_table). */
 	struct snmp_table_row *tbl_row; /**< Target table row (if is_table). */
-	uint8_t tbl_col;		/**< Target column index within the table. */
-	bool is_table;	 /**< True if the item targets a table column rather than a scalar. */
-	bool reserved;	 /**< True if Phase 1 (Test/Reserve) succeeded for this item. */
+	uint8_t tbl_col;                /**< Target column index within the table. */
+	bool is_table;   /**< True if the item targets a table column rather than a scalar. */
+	bool reserved;   /**< True if Phase 1 (Test/Reserve) succeeded for this item. */
 	bool has_old_vb; /**< True if old_vb contains a valid backup for rollback. */
 	struct snmp_varbind
-	    old_vb;   /**< Backup of prior value used during Phase 2 rollback on failure. */
-	void *tx_ctx; /**< Opaque application transaction context. */
+		old_vb; /**< Backup of prior value used during Phase 2 rollback on failure. */
+	void *tx_ctx;   /**< Opaque application transaction context. */
 };
 
 /**
@@ -372,6 +380,8 @@ int snmp_mib2_set_sysdescr(struct snmp_agent *inst, const char *descr);
 int snmp_mib2_set_syscontact(struct snmp_agent *inst, const char *contact);
 int snmp_mib2_set_sysname(struct snmp_agent *inst, const char *name);
 int snmp_mib2_set_syslocation(struct snmp_agent *inst, const char *location);
+
+/** @} */
 
 #endif /* CONFIG_SNMP_AGENT */
 

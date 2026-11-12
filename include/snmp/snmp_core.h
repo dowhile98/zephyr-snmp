@@ -25,10 +25,15 @@ extern "C" {
 
 #ifdef CONFIG_SNMP_AGENT
 
+/**
+ * @addtogroup snmp_core
+ * @{
+ */
+
 struct net_if; /* forward declaration: host (non-Zephyr) builds keep it incomplete */
 
 /**
- * @brief Lifecycle states of a &ref agent_instance "struct snmp_agent".
+ * @brief Lifecycle states of a @ref snmp_agent "struct snmp_agent".
  *
  * Legal transitions:
  * @code
@@ -42,11 +47,11 @@ struct net_if; /* forward declaration: host (non-Zephyr) builds keep it incomple
  * Any API invoked in the wrong state returns @c -EPERM.
  */
 enum snmp_agent_state {
-	SNMP_AGENT_UNINIT = 0,	/**< Zero-filled storage; snmp_agent_init() not called. */
+	SNMP_AGENT_UNINIT = 0,  /**< Zero-filled storage; snmp_agent_init() not called. */
 	SNMP_AGENT_INITIALIZED, /**< Domain state ready, transport not listening. */
-	SNMP_AGENT_RUNNING,	/**< Sockets bound and registered with the socket service. */
-	SNMP_AGENT_STOPPING,	/**< Deregistration in progress (quiesce barrier). */
-	SNMP_AGENT_STOPPED,	/**< Transport closed; may be started again or deinitialized. */
+	SNMP_AGENT_RUNNING,     /**< Sockets bound and registered with the socket service. */
+	SNMP_AGENT_STOPPING,    /**< Deregistration in progress (quiesce barrier). */
+	SNMP_AGENT_STOPPED,     /**< Transport closed; may be started again or deinitialized. */
 };
 
 /** Value of struct snmp_agent::svc_slot when the agent owns no socket-service slot. */
@@ -56,24 +61,24 @@ enum snmp_agent_state {
  * @brief Optional creation-time configuration for snmp_agent_init().
  *
  * Every member is optional: a NULL string / NULL pointer / zero value selects the
- * Kconfig default. Passing @ NULL for the whole structure is legal and yields the
+ * Kconfig default. Passing @c NULL for the whole structure is legal and yields the
  * Kconfig defaults for all fields.
  */
 struct snmp_agent_cfg {
-	uint16_t port;			      /**< 0 = CONFIG_SNMP_AGENT_PORT (default port). */
-	struct net_if *iface;		      /**< NULL = any interface (routing default). */
-	const char *read_community;	      /**< NULL = CONFIG_SNMP_COMMUNITY_READ. */
-	const char *write_community;	      /**< NULL = CONFIG_SNMP_COMMUNITY_WRITE. */
-	const uint8_t *engine_id;	      /**< v3; NULL = derived USM default. */
-	uint8_t engine_id_len;		      /**< v3; length of engine_id. */
-	const char *sys_descr;		      /**< NULL = built-in default. */
-	const char *sys_contact;	      /**< NULL = built-in default. */
-	const char *sys_name;		      /**< NULL = built-in default. */
-	const char *sys_location;	      /**< NULL = built-in default. */
+	uint16_t port;                        /**< 0 = CONFIG_SNMP_AGENT_PORT (default port). */
+	struct net_if *iface;                 /**< NULL = any interface (routing default). */
+	const char *read_community;           /**< NULL = CONFIG_SNMP_COMMUNITY_READ. */
+	const char *write_community;          /**< NULL = CONFIG_SNMP_COMMUNITY_WRITE. */
+	const uint8_t *engine_id;             /**< v3; NULL = derived USM default. */
+	uint8_t engine_id_len;                /**< v3; length of engine_id. */
+	const char *sys_descr;                /**< NULL = built-in default. */
+	const char *sys_contact;              /**< NULL = built-in default. */
+	const char *sys_name;                 /**< NULL = built-in default. */
+	const char *sys_location;             /**< NULL = built-in default. */
 	const struct snmp_oid *sys_object_id; /**< NULL = keep default enterprise OID. */
-	uint32_t engine_boots;		      /**< v3; 0 = CONFIG_SNMP_V3_ENGINE_BOOTS. */
-	const char *settings_prefix;	      /**< e.g. "snmp/lan"; NULL = no persistence. */
-	const void *user_data;		      /**< Opaque pointer returned to the application. */
+	uint32_t engine_boots;                /**< v3; 0 = CONFIG_SNMP_V3_ENGINE_BOOTS. */
+	const char *settings_prefix;          /**< e.g. "snmp/lan"; NULL = no persistence. */
+	const void *user_data;                /**< Opaque pointer returned to the application. */
 };
 
 /**
@@ -84,11 +89,11 @@ struct snmp_agent_cfg {
  */
 struct snmp_usm_stats {
 	uint32_t unsupported_sec_levels; /* usmStatsUnsupportedSecLevels.0 */
-	uint32_t not_in_time_windows;	 /* usmStatsNotInTimeWindows.0 */
-	uint32_t unknown_user_names;	 /* usmStatsUnknownUserNames.0 */
-	uint32_t unknown_engine_ids;	 /* usmStatsUnknownEngineIDs.0 */
-	uint32_t wrong_digests;		 /* usmStatsWrongDigests.0 */
-	uint32_t decryption_errors;	 /* usmStatsDecryptionErrors.0 */
+	uint32_t not_in_time_windows;    /* usmStatsNotInTimeWindows.0 */
+	uint32_t unknown_user_names;     /* usmStatsUnknownUserNames.0 */
+	uint32_t unknown_engine_ids;     /* usmStatsUnknownEngineIDs.0 */
+	uint32_t wrong_digests;          /* usmStatsWrongDigests.0 */
+	uint32_t decryption_errors;      /* usmStatsDecryptionErrors.0 */
 };
 
 /**
@@ -96,8 +101,8 @@ struct snmp_usm_stats {
  */
 struct snmp_mpd_stats {
 	uint32_t unknown_security_models; /* snmpUnknownSecurityModels.0 */
-	uint32_t invalid_msgs;		  /* snmpInvalidMsgs.0 */
-	uint32_t unknown_pdu_handlers;	  /* snmpUnknownPDUHandlers.0 */
+	uint32_t invalid_msgs;            /* snmpInvalidMsgs.0 */
+	uint32_t unknown_pdu_handlers;    /* snmpUnknownPDUHandlers.0 */
 };
 
 /**
@@ -200,16 +205,13 @@ struct snmp_agent {
 	 * avoiding large frame allocations on the RTOS thread stack (<100 B stack frame).
 	 */
 	union {
-		struct snmp_set_tx_item
-		    tx_items[CONFIG_SNMP_MAX_VARBINDS]; /**< 2PC transaction items for SET
-							   processing. */
+		/** 2PC transaction items for SET processing. */
+		struct snmp_set_tx_item tx_items[CONFIG_SNMP_MAX_VARBINDS];
 		struct {
-			struct snmp_varbind
-			    res_vb[CONFIG_SNMP_MAX_VARBINDS]; /**< Output varbinds collected during
-								 GETBULK. */
-			struct snmp_oid
-			    current_oids[CONFIG_SNMP_MAX_VARBINDS]; /**< Working OIDs during GETBULK
-								       repetition cycles. */
+			/** Output varbinds collected during GETBULK. */
+			struct snmp_varbind res_vb[CONFIG_SNMP_MAX_VARBINDS];
+			/** Working OIDs during GETBULK repetition cycles. */
+			struct snmp_oid current_oids[CONFIG_SNMP_MAX_VARBINDS];
 		} bulk;
 	} scratch;
 	struct snmp_mib2_counters counters;
@@ -228,6 +230,13 @@ struct snmp_agent {
 	void *user_data;
 };
 
+/** @} */
+
+/**
+ * @addtogroup snmp_api
+ * @{
+ */
+
 /**
  * @brief Initialize an SNMP agent instance with the Kconfig defaults, overridden by
  *        the optional creation-time configuration.
@@ -237,7 +246,7 @@ struct snmp_agent {
  * snmp_agent_deinit() on the same storage.
  *
  * @param agent Pointer to caller-owned agent storage.
- * @param cfg   Optional creation-time configuration; @ NULL selects Kconfig defaults.
+ * @param cfg   Optional creation-time configuration; @c NULL selects Kconfig defaults.
  * @return 0 on success, -EINVAL if @p agent is NULL.
  */
 int snmp_agent_init(struct snmp_agent *agent, const struct snmp_agent_cfg *cfg);
@@ -341,6 +350,8 @@ int snmp_agent_set_write_community(struct snmp_agent *agent, const char *communi
  */
 int snmp_agent_load_engine_boots(struct snmp_agent *agent);
 #endif /* CONFIG_SNMP_VERSION_3 */
+
+/** @} */
 
 #endif /* CONFIG_SNMP_AGENT */
 

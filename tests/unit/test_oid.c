@@ -61,6 +61,7 @@ void test_oid_encode_decode_roundtrip(void)
 	size_t dec_off = 0;
 	struct snmp_oid decoded = {0};
 	ret = snmp_ber_decode_oid(buf, off, &dec_off, &decoded);
+
 	ASSERT_EQ(ret, 0);
 	ASSERT_EQ(decoded.len, original.len);
 	for (int i = 0; i < original.len; i++) {
@@ -82,6 +83,7 @@ void test_oid_max_depth(void)
 	size_t dec_off = 0;
 	struct snmp_oid decoded = {0};
 	ret = snmp_ber_decode_oid(buf, off, &dec_off, &decoded);
+
 	ASSERT_EQ(ret, 0);
 	ASSERT_EQ(decoded.len, 16);
 }

@@ -103,6 +103,7 @@ static const struct vacm_access_rule_entry *vacm_find_access_rule(const struct s
 		/* Context prefix matching */
 		size_t prefix_len = strlen(rule->context_prefix);
 		if (prefix_len > 0) {
+
 			if (strncmp(ctx, rule->context_prefix, prefix_len) != 0) {
 				continue;
 			}
@@ -118,6 +119,7 @@ static const struct vacm_access_rule_entry *vacm_find_access_rule(const struct s
 		 */
 		int score = 0;
 		if (rule->security_model == security_model) {
+
 			score += 100;
 		}
 		score += (int)prefix_len * 10;
@@ -171,6 +173,7 @@ static int vacm_evaluate_view(const struct snmp_agent *inst, const char *view_na
 		/* Check each sub-identifier against subtree and mask */
 		bool matches = true;
 		for (size_t j = 0; j < entry->subtree.len; j++) {
+
 			size_t byte_idx = j / 8;
 			uint8_t bit_mask = 0x80 >> (j % 8);
 			bool check_exact = true;
@@ -221,6 +224,7 @@ int snmp_vacm_init(struct snmp_agent *inst)
 	/* Default context: empty string ("") */
 	int ret = snmp_vacm_add_context(inst, "");
 	if (ret < 0) {
+
 		return ret;
 	}
 
@@ -242,6 +246,7 @@ int snmp_vacm_init(struct snmp_agent *inst)
 	/* View "fullView": includes internet subtree (1.3.6.1) */
 	struct snmp_oid internet_oid = {.len = 4, .ids = {1, 3, 6, 1}};
 	ret = snmp_vacm_add_view_tree(inst, "fullView", &internet_oid, NULL, 0,
+
 				      SNMP_VACM_VIEW_INCLUDED);
 	if (ret < 0) {
 		return ret;
@@ -265,6 +270,7 @@ int snmp_vacm_init(struct snmp_agent *inst)
 	 * (1.3.6.1.6.3.10.2.1) */
 	struct snmp_oid system_oid = {.len = 7, .ids = {1, 3, 6, 1, 2, 1, 1}};
 	ret = snmp_vacm_add_view_tree(inst, "restrictedView", &system_oid, NULL, 0,
+
 				      SNMP_VACM_VIEW_INCLUDED);
 	if (ret < 0) {
 		return ret;
@@ -272,6 +278,7 @@ int snmp_vacm_init(struct snmp_agent *inst)
 
 	struct snmp_oid engine_oid = {.len = 9, .ids = {1, 3, 6, 1, 6, 3, 10, 2, 1}};
 	ret = snmp_vacm_add_view_tree(inst, "restrictedView", &engine_oid, NULL, 0,
+
 				      SNMP_VACM_VIEW_INCLUDED);
 	if (ret < 0) {
 		return ret;
@@ -362,6 +369,7 @@ int snmp_vacm_add_access_rule(struct snmp_agent *inst, const char *group_name,
 
 	const char *prefix = context_prefix ? context_prefix : "";
 	if (strlen(group_name) >= SNMP_VACM_NAME_MAX_LEN ||
+
 	    strlen(prefix) >= SNMP_VACM_NAME_MAX_LEN) {
 		return -EINVAL;
 	}
@@ -477,12 +485,13 @@ int snmp_vacm_check_access_ex(struct snmp_agent *inst, const char *context_name,
 	/* 2. Security-to-Group mapping */
 	const char *group = vacm_resolve_group(inst, security_model, security_name);
 	if (!group) {
+
 		return -EACCES;
 	}
 
 	/* 3. Access table lookup & security level verification */
 	const struct vacm_access_rule_entry *rule =
-	    vacm_find_access_rule(inst, group, ctx, security_model, sec_level);
+		vacm_find_access_rule(inst, group, ctx, security_model, sec_level);
 	if (!rule) {
 		return -EACCES;
 	}
@@ -490,6 +499,7 @@ int snmp_vacm_check_access_ex(struct snmp_agent *inst, const char *context_name,
 	/* 4. Select view by access type */
 	const char *view = NULL;
 	switch (access_type) {
+
 	case SNMP_VACM_ACCESS_READ:
 		view = rule->read_view;
 		break;
@@ -519,6 +529,7 @@ int snmp_vacm_check_access(struct snmp_agent *inst, const struct snmp_v3_msg *ms
 
 	int sec_level = SNMP_SEC_LEVEL_NOAUTH_NOPRIV;
 	if (msg->global.msg_flags & 0x02) {
+
 		sec_level = SNMP_SEC_LEVEL_AUTH_PRIV;
 	} else if (msg->global.msg_flags & 0x01) {
 		sec_level = SNMP_SEC_LEVEL_AUTH_NOPRIV;
@@ -528,8 +539,8 @@ int snmp_vacm_check_access(struct snmp_agent *inst, const struct snmp_v3_msg *ms
 
 	char user_name[sizeof(msg->usm.user_name) + 1];
 	size_t name_len = msg->usm.user_name_len < sizeof(msg->usm.user_name)
-			      ? msg->usm.user_name_len
-			      : sizeof(msg->usm.user_name);
+				  ? msg->usm.user_name_len
+				  : sizeof(msg->usm.user_name);
 	memcpy(user_name, msg->usm.user_name, name_len);
 	user_name[name_len] = '\0';
 
@@ -540,9 +551,10 @@ int snmp_vacm_check_access(struct snmp_agent *inst, const struct snmp_v3_msg *ms
 	}
 
 	for (size_t i = 0; i < msg->scoped.pdu.varbind_cnt; i++) {
-		int ret = snmp_vacm_check_access_ex(
-		    inst, (const char *)msg->scoped.context_name, msg->global.msg_security_model,
-		    user_name, sec_level, access_type, &msg->scoped.pdu.varbinds[i].oid);
+		int ret = snmp_vacm_check_access_ex(inst, (const char *)msg->scoped.context_name,
+						    msg->global.msg_security_model, user_name,
+						    sec_level, access_type,
+						    &msg->scoped.pdu.varbinds[i].oid);
 		if (ret < 0) {
 			return ret;
 		}

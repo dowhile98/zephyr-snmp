@@ -15,6 +15,11 @@ extern "C" {
 
 #ifdef CONFIG_SNMP_AGENT
 
+/**
+ * @addtogroup snmp_usm
+ * @{
+ */
+
 /*
  * Maximum USM users per instance. Normally provided by Kconfig (SNMP_V3_MAX_USERS,
  * depends on SNMP_VERSION_3); the fallback keeps the header usable in host builds
@@ -25,15 +30,15 @@ extern "C" {
 #endif
 
 /* Authentication Protocols (RFC 3414, RFC 7860) */
-#define SNMP_USM_AUTH_NONE 0
-#define SNMP_USM_AUTH_SHA1 1
-#define SNMP_USM_AUTH_MD5 2
+#define SNMP_USM_AUTH_NONE   0
+#define SNMP_USM_AUTH_SHA1   1
+#define SNMP_USM_AUTH_MD5    2
 #define SNMP_USM_AUTH_SHA256 3
 
 /* Privacy Protocols (RFC 3414, RFC 3826) */
 #define SNMP_USM_PRIV_NONE 0
-#define SNMP_USM_PRIV_AES 1
-#define SNMP_USM_PRIV_DES 2
+#define SNMP_USM_PRIV_AES  1
+#define SNMP_USM_PRIV_DES  2
 
 /* Forward declaration of agent instance */
 struct snmp_agent;
@@ -118,6 +123,8 @@ int snmp_usm_set_engine_time(struct snmp_agent *inst, uint32_t time);
  * @return 0 on success, negative errno on failure.
  */
 int snmp_usm_register_mibs(struct snmp_agent *inst);
+
+/** @} */
 
 /*
  * snmp_usm_verify_incoming() and snmp_usm_build_outgoing() are module-internal:

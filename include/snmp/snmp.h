@@ -4,6 +4,7 @@
  *
  * @file snmp.h
  * @brief Public API for the SNMP agent module (v1 / v2c / v3).
+ * @ingroup snmp_api
  *
  * ## Architecture
  *
@@ -32,7 +33,7 @@
  *
  * ## Quick Start
  *
- * The agent has no default instance: the application owns one @ref struct snmp_agent
+ * The agent has no default instance: the application owns one @ref snmp_agent
  * per SNMP endpoint (static storage, zero dynamic allocation) and drives it through
  * the instance API.
  *

@@ -12,10 +12,10 @@ LOG_MODULE_REGISTER(app_led, LOG_LEVEL_INF);
 
 #if DT_NODE_EXISTS(DT_ALIAS(led0))
 static const struct gpio_dt_spec s_led = GPIO_DT_SPEC_GET(DT_ALIAS(led0), gpios);
-static bool s_hardware_available = false;
+static bool s_hardware_available;
 #endif
 
-static int s_led_state = 0;
+static int s_led_state;
 
 int app_led_init(void)
 {
@@ -27,6 +27,7 @@ int app_led_init(void)
 
 	int ret = gpio_pin_configure_dt(&s_led, GPIO_OUTPUT_INACTIVE);
 	if (ret < 0) {
+
 		LOG_ERR("Failed to configure User LED pin: %d", ret);
 		return ret;
 	}
@@ -60,6 +61,7 @@ int app_led_set_state(int state)
 	if (s_hardware_available) {
 		int ret = gpio_pin_set_dt(&s_led, state);
 		if (ret < 0) {
+
 			LOG_ERR("Failed to set physical LED pin: %d", ret);
 			return ret;
 		}

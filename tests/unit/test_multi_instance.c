@@ -14,6 +14,10 @@
 #include <snmp/snmp_mib.h>
 #include <snmp/snmp_core.h>
 
+#ifndef ARRAY_SIZE
+#define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
+#endif
+
 #define ASSERT(cond)                                                                               \
 	do {                                                                                       \
 		if (!(cond)) {                                                                     \
@@ -50,6 +54,7 @@ static size_t build_get_req_packet(uint8_t *buf, size_t buf_sz, const char *comm
 {
 	struct snmp_pdu pdu;
 	memset(&pdu, 0, sizeof(pdu));
+
 	pdu.version = 1; /* SNMPv2c */
 	pdu.type = SNMP_PDU_GET_REQ;
 	pdu.request_id = req_id;
@@ -63,6 +68,7 @@ static size_t build_get_req_packet(uint8_t *buf, size_t buf_sz, const char *comm
 	size_t enc_len = 0;
 	int ret = snmp_ber_encode_pdu(buf, buf_sz, &enc_len, &pdu);
 	ASSERT_EQ(ret, 0);
+
 	return enc_len;
 }
 
@@ -74,6 +80,7 @@ void test_multi_instance_coexistence(void)
 	/* 1. Initialize both independent instances */
 	int ret = snmp_agent_init(&lan_agent, NULL);
 	ASSERT_EQ(ret, 0);
+
 	ret = snmp_agent_init(&wan_agent, NULL);
 	ASSERT_EQ(ret, 0);
 
@@ -92,6 +99,7 @@ void test_multi_instance_coexistence(void)
 	/* 4. Register scalar .1.3.6.1.4.1.1111.1.0 on lan_agent only */
 	struct snmp_mib_node node1 = {0};
 	node1.oid.len = 9;
+
 	node1.oid.ids[0] = 1;
 	node1.oid.ids[1] = 3;
 	node1.oid.ids[2] = 6;
@@ -109,6 +117,7 @@ void test_multi_instance_coexistence(void)
 	/* 5. Register scalar .1.3.6.1.4.1.2222.1.0 on wan_agent only */
 	struct snmp_mib_node node2 = {0};
 	node2.oid.len = 9;
+
 	node2.oid.ids[0] = 1;
 	node2.oid.ids[1] = 3;
 	node2.oid.ids[2] = 6;
@@ -204,6 +213,7 @@ void test_multi_instance_coexistence(void)
 	/* 11. Query MIB-II sysName on lan_agent -> should return "router-lan" */
 	struct snmp_oid sysname_oid = {.len = 9, .ids = {1, 3, 6, 1, 2, 1, 1, 5, 0}};
 	req_len = build_get_req_packet(req_buf, sizeof(req_buf), "lan_pub", &sysname_oid, 105);
+
 	ret = snmp_agent_process_pdu(&lan_agent, req_buf, req_len, resp_buf, sizeof(resp_buf),
 				     &resp_len);
 	ASSERT_EQ(ret, 0);
@@ -238,8 +248,8 @@ void test_multi_instance_coexistence(void)
 
 /* RFC 3418 / RFC 1213: sub-identifiers 7 and 23 of the snmp group do not exist. */
 static const uint32_t ci_subids[] = {
-    1,	2,  3,	4,  5,	6,  8,	9,  10, 11, 12, 13, 14, 15, 16,
-    17, 18, 19, 20, 21, 22, 24, 25, 26, 27, 28, 29, 30, 31, 32,
+	1,  2,  3,  4,  5,  6,  8,  9,  10, 11, 12, 13, 14, 15, 16,
+	17, 18, 19, 20, 21, 22, 24, 25, 26, 27, 28, 29, 30, 31, 32,
 };
 
 static void ci_make_counter_oid(struct snmp_oid *oid, uint32_t subid)
@@ -262,6 +272,7 @@ static size_t ci_build_request(uint8_t *buf, size_t buf_sz, const char *communit
 {
 	struct snmp_pdu pdu;
 	memset(&pdu, 0, sizeof(pdu));
+
 	pdu.version = 1; /* SNMPv2c */
 	pdu.type = pdu_type;
 	pdu.request_id = req_id;
@@ -274,6 +285,7 @@ static size_t ci_build_request(uint8_t *buf, size_t buf_sz, const char *communit
 
 	size_t enc_len = 0;
 	ASSERT_EQ(snmp_ber_encode_pdu(buf, buf_sz, &enc_len, &pdu), 0);
+
 	return enc_len;
 }
 
@@ -285,8 +297,10 @@ static uint32_t ci_read_counter(struct snmp_agent *agent, uint32_t subid)
 
 	struct snmp_varbind vb;
 	memset(&vb, 0, sizeof(vb));
+
 	int ret = snmp_mib_get(agent, &oid, &vb);
 	if (ret != 0) {
+
 		printf("FAIL: snmp_mib_get(.11.%u.0) -> %d\n", subid, ret);
 		exit(1);
 	}
@@ -309,16 +323,16 @@ void test_multi_instance_counter_isolation(void)
 	size_t resp_len;
 
 	struct snmp_oid sysname = {
-	    .len = 9,
-	    .ids = {1, 3, 6, 1, 2, 1, 1, 5, 0},
+		.len = 9,
+		.ids = {1, 3, 6, 1, 2, 1, 1, 5, 0},
 	};
 	struct snmp_oid absent = {
-	    .len = 9,
-	    .ids = {1, 3, 6, 1, 4, 1, 99999, 1, 0},
+		.len = 9,
+		.ids = {1, 3, 6, 1, 4, 1, 99999, 1, 0},
 	};
 	struct snmp_oid uptime = {
-	    .len = 9,
-	    .ids = {1, 3, 6, 1, 2, 1, 1, 3, 0},
+		.len = 9,
+		.ids = {1, 3, 6, 1, 2, 1, 1, 3, 0},
 	};
 
 	/* --- Traffic on agent A only, exercising as many counter paths as possible --- */
@@ -352,10 +366,11 @@ void test_multi_instance_counter_isolation(void)
 
 	/* 7. A saw all of that traffic; every counter of B must still read zero. */
 	ASSERT(ci_read_counter(&agent_a, 1) > 0); /* snmpInPkts */
-	for (size_t i = 0; i < sizeof(ci_subids) / sizeof(ci_subids[0]); i++) {
+	for (size_t i = 0; i < ARRAY_SIZE(ci_subids); i++) {
 		uint32_t sub = ci_subids[i];
 		uint32_t val_b = ci_read_counter(&agent_b, sub);
 		if (sub == 30) { /* snmpEnableAuthenTraps defaults to 1, not a counter */
+
 			ASSERT_EQ(val_b, 1);
 		} else if (val_b != 0) {
 			printf("FAIL: agent B .11.%u.0 reads %u, expected 0\n", sub, val_b);
@@ -366,9 +381,10 @@ void test_multi_instance_counter_isolation(void)
 	/* 8. Cross-check the MIB nodes against the snapshot API of the same fields. */
 	struct snmp_mib2_counters cb;
 	snmp_agent_get_counters(&agent_b, &cb);
+
 	const uint32_t *words = (const uint32_t *)&cb;
 	size_t authen_word =
-	    offsetof(struct snmp_mib2_counters, snmpEnableAuthenTraps) / sizeof(uint32_t);
+		offsetof(struct snmp_mib2_counters, snmpEnableAuthenTraps) / sizeof(uint32_t);
 	for (size_t i = 0; i < sizeof(cb) / sizeof(uint32_t); i++) {
 		if (i == authen_word) {
 			continue;
@@ -382,6 +398,7 @@ void test_multi_instance_counter_isolation(void)
 	/* 9. A's own counters did move, and they are visible through the MIB too. */
 	struct snmp_mib2_counters ca;
 	snmp_agent_get_counters(&agent_a, &ca);
+
 	ASSERT(ca.snmpInPkts > 0);
 	ASSERT(ca.snmpInBadCommunityNames > 0);
 	ASSERT(ca.snmpInTotalReqVars > 0);
@@ -393,11 +410,12 @@ void test_multi_instance_counter_isolation(void)
 	 */
 	struct snmp_varbind vb_set;
 	memset(&vb_set, 0, sizeof(vb_set));
+
 	vb_set.type = ASN1_TAG_INTEGER;
 	vb_set.val.int_val = 2;
 	struct snmp_oid authen = {
-	    .len = 9,
-	    .ids = {1, 3, 6, 1, 2, 1, 11, 30, 0},
+		.len = 9,
+		.ids = {1, 3, 6, 1, 2, 1, 11, 30, 0},
 	};
 	ASSERT_EQ(snmp_mib_set(&agent_a, &authen, &vb_set), 0);
 	ASSERT_EQ(agent_a.counters.snmpEnableAuthenTraps, 2);
@@ -410,6 +428,7 @@ void test_multi_instance_counter_isolation(void)
 	for (size_t i = 0; i < agent_a.mib_node_cnt; i++) {
 		const struct snmp_mib_node *n = &agent_a.mib_nodes[i];
 		if (n->oid.len == 9 && n->oid.ids[0] == 1 && n->oid.ids[3] == 1 &&
+
 		    n->oid.ids[5] == 1 && (n->oid.ids[6] == 1 || n->oid.ids[6] == 11)) {
 			if (n->user_data != NULL) {
 				printf("FAIL: default node still aliases instance state "

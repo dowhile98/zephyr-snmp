@@ -17,7 +17,7 @@ LOG_MODULE_REGISTER(app_button, LOG_LEVEL_INF);
 #define CONFIG_SNMP_SAMPLE_ENTERPRISE_ID 54321
 #endif
 
-static uint32_t s_button_counter = 0;
+static uint32_t s_button_counter;
 
 /* Agent to notify through; set by app_button_init() from main.c's storage. */
 static struct snmp_agent *s_trap_agent;
@@ -25,8 +25,8 @@ static struct snmp_agent *s_trap_agent;
 #if DT_NODE_EXISTS(DT_ALIAS(sw0))
 static const struct gpio_dt_spec s_btn = GPIO_DT_SPEC_GET(DT_ALIAS(sw0), gpios);
 static struct gpio_callback s_btn_cb_data;
-static bool s_hardware_available = false;
-static int64_t s_last_press_time = 0;
+static bool s_hardware_available;
+static int64_t s_last_press_time;
 
 static void button_work_handler(struct k_work *work);
 static K_WORK_DEFINE(s_button_work, button_work_handler);
@@ -39,6 +39,7 @@ static void button_isr(const struct device *dev, struct gpio_callback *cb, uint3
 
 	int64_t now = k_uptime_get();
 	if (now - s_last_press_time > 200) {
+
 		s_last_press_time = now;
 		k_work_submit(&s_button_work);
 	}
@@ -76,6 +77,7 @@ int app_button_init(struct snmp_agent *agent)
 
 	int ret = gpio_pin_configure_dt(&s_btn, GPIO_INPUT);
 	if (ret < 0) {
+
 		LOG_ERR("Failed to configure button pin: %d", ret);
 		return ret;
 	}
@@ -113,7 +115,7 @@ int app_button_trigger_notification(void)
 #if defined(CONFIG_SNMP_TRAP_ENABLED)
 	/* Notification OID: 1.3.6.1.4.1.<enterprise>.1.2.1 (buttonPressed) */
 	struct snmp_oid trap_oid = {
-	    .len = 9, .ids = {1, 3, 6, 1, 4, 1, CONFIG_SNMP_SAMPLE_ENTERPRISE_ID, 1, 2, 1}};
+		.len = 9, .ids = {1, 3, 6, 1, 4, 1, CONFIG_SNMP_SAMPLE_ENTERPRISE_ID, 1, 2, 1}};
 
 	struct snmp_varbind varbinds[2];
 
@@ -153,6 +155,7 @@ int app_button_trigger_notification(void)
 
 	int ret = snmp_trap_send(s_trap_agent, &trap_oid, varbinds, 2, false);
 	if (ret < 0) {
+
 		LOG_WRN("Failed to send button SNMP notification: %d", ret);
 		return ret;
 	}

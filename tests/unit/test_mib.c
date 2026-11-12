@@ -31,7 +31,7 @@
 static struct snmp_agent s_mib_agent;
 
 static int test_counter = 42;
-static int test_get_called = 0;
+static int test_get_called;
 
 static int my_get_cb(struct snmp_agent *agent, const struct snmp_mib_node *node,
 		     struct snmp_varbind *vb)
@@ -63,6 +63,7 @@ void test_mib_register_get(void)
 
 	struct snmp_mib_node node = {0};
 	node.oid.len = 9;
+
 	node.oid.ids[0] = 1;
 	node.oid.ids[1] = 3;
 	node.oid.ids[2] = 6;
@@ -81,6 +82,7 @@ void test_mib_register_get(void)
 
 	struct snmp_varbind vb = {0};
 	ret = snmp_mib_get(&s_mib_agent, &node.oid, &vb);
+
 	ASSERT_EQ(ret, 0);
 	ASSERT_EQ(test_get_called, 1);
 	ASSERT_EQ(vb.type, SNMP_TAG_COUNTER32);
@@ -93,6 +95,7 @@ void test_mib_get_next(void)
 
 	struct snmp_mib_node node_a = {0};
 	node_a.oid.len = 9;
+
 	node_a.oid.ids[0] = 1;
 	node_a.oid.ids[1] = 3;
 	node_a.oid.ids[2] = 6;
@@ -108,6 +111,7 @@ void test_mib_get_next(void)
 
 	struct snmp_mib_node node_b = {0};
 	node_b.oid.len = 9;
+
 	node_b.oid.ids[0] = 1;
 	node_b.oid.ids[1] = 3;
 	node_b.oid.ids[2] = 6;
@@ -125,6 +129,7 @@ void test_mib_get_next(void)
 	struct snmp_varbind vb = {0};
 	int ret = snmp_mib_get_next(&s_mib_agent, &query, &vb);
 	ASSERT_EQ(ret, 0);
+
 	ASSERT_EQ(vb.oid.ids[7], 1);
 
 	ret = snmp_mib_get_next(&s_mib_agent, &node_a.oid, &vb);
@@ -133,6 +138,7 @@ void test_mib_get_next(void)
 
 	struct snmp_oid past_end = {.len = 9, .ids = {1, 3, 6, 1, 4, 1, 99, 99, 0}};
 	ret = snmp_mib_get_next(&s_mib_agent, &past_end, &vb);
+
 	ASSERT_EQ(ret, 0);
 	ASSERT_EQ(vb.type, SNMP_TAG_EXCEPT_END_MIB_VIEW);
 }
@@ -143,6 +149,7 @@ void test_mib_duplicate_oid(void)
 
 	struct snmp_mib_node node = {0};
 	node.oid.len = 9;
+
 	node.oid.ids[0] = 1;
 	node.oid.ids[1] = 3;
 	node.oid.ids[2] = 6;
@@ -157,14 +164,15 @@ void test_mib_duplicate_oid(void)
 
 	int ret = snmp_mib_register(&s_mib_agent, &node);
 	ASSERT_EQ(ret, 0);
+
 	ret = snmp_mib_register(&s_mib_agent, &node);
 	ASSERT_EQ(ret, 0);
 }
 
 static int32_t g_test_table_data[3][3] = {
-    {0, 0, 0},
-    {0, 101, 102}, /* row 1: col 1, col 2 */
-    {0, 201, 202}  /* row 2: col 1, col 2 */
+	{0, 0, 0},
+	{0, 101, 102}, /* row 1: col 1, col 2 */
+	{0, 201, 202}  /* row 2: col 1, col 2 */
 };
 
 static int test_col1_get(struct snmp_agent *agent, const struct snmp_table_row *row, uint8_t column,
@@ -208,14 +216,14 @@ static struct snmp_table_row g_test_rows[2] = {{.index = 1, .next = NULL, .user_
 					       {.index = 2, .next = NULL, .user_data = NULL}};
 
 static struct snmp_mib_table g_test_tbl = {
-    .table_oid = {.len = 9, .ids = {1, 3, 6, 1, 4, 1, 99, 10, 1}},
-    .column_cnt = 2,
-    .column_subids = g_test_cols,
-    .column_types = g_test_types,
-    .get_cbs = g_test_get_cbs,
-    .set_cbs = g_test_set_cbs,
-    .rows = NULL,
-    .user_data = NULL};
+	.table_oid = {.len = 9, .ids = {1, 3, 6, 1, 4, 1, 99, 10, 1}},
+	.column_cnt = 2,
+	.column_subids = g_test_cols,
+	.column_types = g_test_types,
+	.get_cbs = g_test_get_cbs,
+	.set_cbs = g_test_set_cbs,
+	.rows = NULL,
+	.user_data = NULL};
 
 void test_table_register_get(void)
 {
@@ -237,12 +245,14 @@ void test_table_register_get(void)
 	struct snmp_oid oid_c1_r1 = {.len = 11, .ids = {1, 3, 6, 1, 4, 1, 99, 10, 1, 1, 1}};
 	struct snmp_varbind vb = {0};
 	ret = snmp_mib_get(&s_mib_agent, &oid_c1_r1, &vb);
+
 	ASSERT_EQ(ret, 0);
 	ASSERT_EQ(vb.val.int_val, 101);
 
 	/* Get col 2, row 2 */
 	struct snmp_oid oid_c2_r2 = {.len = 11, .ids = {1, 3, 6, 1, 4, 1, 99, 10, 1, 2, 2}};
 	memset(&vb, 0, sizeof(vb));
+
 	ret = snmp_mib_get(&s_mib_agent, &oid_c2_r2, &vb);
 	ASSERT_EQ(ret, 0);
 	ASSERT_EQ(vb.val.int_val, 202);
@@ -250,6 +260,7 @@ void test_table_register_get(void)
 	/* Non-existent row 3 */
 	struct snmp_oid oid_c1_r3 = {.len = 11, .ids = {1, 3, 6, 1, 4, 1, 99, 10, 1, 1, 3}};
 	memset(&vb, 0, sizeof(vb));
+
 	ret = snmp_mib_get(&s_mib_agent, &oid_c1_r3, &vb);
 	ASSERT_EQ(ret, 0);
 	ASSERT_EQ(vb.type, SNMP_TAG_EXCEPT_NO_SUCH_INST);
@@ -273,6 +284,7 @@ void test_table_get_next_order(void)
 	struct snmp_oid query = {.len = 9, .ids = {1, 3, 6, 1, 4, 1, 99, 10, 0}};
 	int ret = snmp_mib_get_next(&s_mib_agent, &query, &vb);
 	ASSERT_EQ(ret, 0);
+
 	/* Should hit col 1, row 1 */
 	ASSERT_EQ(vb.oid.len, 11);
 	ASSERT_EQ(vb.oid.ids[9], 1);  /* col 1 */
@@ -324,15 +336,16 @@ void test_table_set(void)
 
 	/* Set col 2, row 1 to 999 */
 	struct snmp_varbind vb_set = {
-	    .oid = {.len = 11, .ids = {1, 3, 6, 1, 4, 1, 99, 10, 1, 2, 1}},
-	    .type = ASN1_TAG_INTEGER,
-	    .val = {.int_val = 999}};
+		.oid = {.len = 11, .ids = {1, 3, 6, 1, 4, 1, 99, 10, 1, 2, 1}},
+		.type = ASN1_TAG_INTEGER,
+		.val = {.int_val = 999}};
 	int ret = snmp_mib_set(&s_mib_agent, &vb_set.oid, &vb_set);
 	ASSERT_EQ(ret, 0);
 
 	/* Verify via get */
 	struct snmp_varbind vb_get = {0};
 	ret = snmp_mib_get(&s_mib_agent, &vb_set.oid, &vb_get);
+
 	ASSERT_EQ(ret, 0);
 	ASSERT_EQ(vb_get.val.int_val, 999);
 
@@ -394,10 +407,10 @@ static int set_legacy_val2(struct snmp_agent *agent, struct snmp_mib_node *node,
 
 static int32_t s_tx_val_a = 50;
 static int32_t s_tx_val_b = 60;
-static bool s_tx_b_fail_reserve = false;
-static bool s_tx_b_fail_commit = false;
-static bool s_tx_a_undo_called = false;
-static bool s_tx_a_cleanup_called = false;
+static bool s_tx_b_fail_reserve;
+static bool s_tx_b_fail_commit;
+static bool s_tx_a_undo_called;
+static bool s_tx_a_cleanup_called;
 
 static int get_tx_val_a(struct snmp_agent *agent, const struct snmp_mib_node *node,
 			struct snmp_varbind *vb)
@@ -492,51 +505,51 @@ static void setup_2pc_test_nodes(void)
 
 	/* Node 1: 1.3.6.1.4.1.9999.1.0 (legacy) */
 	struct snmp_mib_node node1 = {
-	    .oid = {.len = 8, .ids = {1, 3, 6, 1, 4, 1, 9999, 1}},
-	    .type = ASN1_TAG_INTEGER,
-	    .get_cb = get_legacy_val1,
-	    .set_cb = set_legacy_val1,
-	    .set_tx_cb = NULL,
+		.oid = {.len = 8, .ids = {1, 3, 6, 1, 4, 1, 9999, 1}},
+		.type = ASN1_TAG_INTEGER,
+		.get_cb = get_legacy_val1,
+		.set_cb = set_legacy_val1,
+		.set_tx_cb = NULL,
 	};
 	snmp_mib_register(&s_mib_agent, &node1);
 
 	/* Node 2: 1.3.6.1.4.1.9999.2.0 (legacy) */
 	struct snmp_mib_node node2 = {
-	    .oid = {.len = 8, .ids = {1, 3, 6, 1, 4, 1, 9999, 2}},
-	    .type = ASN1_TAG_INTEGER,
-	    .get_cb = get_legacy_val2,
-	    .set_cb = set_legacy_val2,
-	    .set_tx_cb = NULL,
+		.oid = {.len = 8, .ids = {1, 3, 6, 1, 4, 1, 9999, 2}},
+		.type = ASN1_TAG_INTEGER,
+		.get_cb = get_legacy_val2,
+		.set_cb = set_legacy_val2,
+		.set_tx_cb = NULL,
 	};
 	snmp_mib_register(&s_mib_agent, &node2);
 
 	/* Node A: 1.3.6.1.4.1.9999.3.0 (2PC) */
 	struct snmp_mib_node node_a = {
-	    .oid = {.len = 8, .ids = {1, 3, 6, 1, 4, 1, 9999, 3}},
-	    .type = ASN1_TAG_INTEGER,
-	    .get_cb = get_tx_val_a,
-	    .set_cb = NULL,
-	    .set_tx_cb = set_tx_val_a,
+		.oid = {.len = 8, .ids = {1, 3, 6, 1, 4, 1, 9999, 3}},
+		.type = ASN1_TAG_INTEGER,
+		.get_cb = get_tx_val_a,
+		.set_cb = NULL,
+		.set_tx_cb = set_tx_val_a,
 	};
 	snmp_mib_register(&s_mib_agent, &node_a);
 
 	/* Node B: 1.3.6.1.4.1.9999.4.0 (2PC) */
 	struct snmp_mib_node node_b = {
-	    .oid = {.len = 8, .ids = {1, 3, 6, 1, 4, 1, 9999, 4}},
-	    .type = ASN1_TAG_INTEGER,
-	    .get_cb = get_tx_val_b,
-	    .set_cb = NULL,
-	    .set_tx_cb = set_tx_val_b,
+		.oid = {.len = 8, .ids = {1, 3, 6, 1, 4, 1, 9999, 4}},
+		.type = ASN1_TAG_INTEGER,
+		.get_cb = get_tx_val_b,
+		.set_cb = NULL,
+		.set_tx_cb = set_tx_val_b,
 	};
 	snmp_mib_register(&s_mib_agent, &node_b);
 
 	/* Read-only Node: 1.3.6.1.4.1.9999.5.0 */
 	struct snmp_mib_node node_ro = {
-	    .oid = {.len = 8, .ids = {1, 3, 6, 1, 4, 1, 9999, 5}},
-	    .type = ASN1_TAG_INTEGER,
-	    .get_cb = get_legacy_val1,
-	    .set_cb = NULL,
-	    .set_tx_cb = NULL,
+		.oid = {.len = 8, .ids = {1, 3, 6, 1, 4, 1, 9999, 5}},
+		.type = ASN1_TAG_INTEGER,
+		.get_cb = get_legacy_val1,
+		.set_cb = NULL,
+		.set_tx_cb = NULL,
 	};
 	snmp_mib_register(&s_mib_agent, &node_ro);
 }
@@ -547,6 +560,7 @@ static void test_set_2pc_atomic_failure_legacy(void)
 
 	struct snmp_pdu pdu;
 	memset(&pdu, 0, sizeof(pdu));
+
 	pdu.version = 1; /* SNMPv2c */
 	pdu.type = SNMP_PDU_SET_REQ;
 	pdu.varbind_cnt = 2;
@@ -584,6 +598,7 @@ static void test_set_2pc_atomic_failure_tx(void)
 
 	struct snmp_pdu pdu;
 	memset(&pdu, 0, sizeof(pdu));
+
 	pdu.version = 1; /* SNMPv2c */
 	pdu.type = SNMP_PDU_SET_REQ;
 	pdu.varbind_cnt = 2;
@@ -621,6 +636,7 @@ static void test_set_2pc_rollback_on_commit_failure(void)
 
 	struct snmp_pdu pdu;
 	memset(&pdu, 0, sizeof(pdu));
+
 	pdu.version = 1; /* SNMPv2c */
 	pdu.type = SNMP_PDU_SET_REQ;
 	pdu.varbind_cnt = 2;
@@ -657,6 +673,7 @@ static void test_set_2pc_atomic_success(void)
 
 	struct snmp_pdu pdu;
 	memset(&pdu, 0, sizeof(pdu));
+
 	pdu.version = 1; /* SNMPv2c */
 	pdu.type = SNMP_PDU_SET_REQ;
 	pdu.varbind_cnt = 2;
@@ -694,6 +711,7 @@ static void test_smiv2_error_code_mapping_v2c_and_v1(void)
 	/* 1. Read-only node on v2c -> notWritable (17) */
 	struct snmp_pdu pdu_v2_ro;
 	memset(&pdu_v2_ro, 0, sizeof(pdu_v2_ro));
+
 	pdu_v2_ro.version = 1;
 	pdu_v2_ro.type = SNMP_PDU_SET_REQ;
 	pdu_v2_ro.varbind_cnt = 1;
@@ -710,6 +728,7 @@ static void test_smiv2_error_code_mapping_v2c_and_v1(void)
 	/* 2. Read-only node on v1 -> readOnly (4) */
 	struct snmp_pdu pdu_v1_ro;
 	memset(&pdu_v1_ro, 0, sizeof(pdu_v1_ro));
+
 	pdu_v1_ro.version = 0;
 	pdu_v1_ro.type = SNMP_PDU_SET_REQ;
 	pdu_v1_ro.varbind_cnt = 1;
@@ -726,6 +745,7 @@ static void test_smiv2_error_code_mapping_v2c_and_v1(void)
 	/* 3. Type mismatch on v2c -> wrongType (7) */
 	struct snmp_pdu pdu_v2_type;
 	memset(&pdu_v2_type, 0, sizeof(pdu_v2_type));
+
 	pdu_v2_type.version = 1;
 	pdu_v2_type.type = SNMP_PDU_SET_REQ;
 	pdu_v2_type.varbind_cnt = 1;
@@ -741,6 +761,7 @@ static void test_smiv2_error_code_mapping_v2c_and_v1(void)
 	/* 4. Type mismatch on v1 -> badValue (3) */
 	struct snmp_pdu pdu_v1_type;
 	memset(&pdu_v1_type, 0, sizeof(pdu_v1_type));
+
 	pdu_v1_type.version = 0;
 	pdu_v1_type.type = SNMP_PDU_SET_REQ;
 	pdu_v1_type.varbind_cnt = 1;
@@ -764,6 +785,7 @@ static void test_multi_instance_independence(void)
 	int ret1 = snmp_agent_init(&inst1, NULL);
 	int ret2 = snmp_agent_init(&inst2, NULL);
 	ASSERT_EQ(ret1, 0);
+
 	ASSERT_EQ(ret2, 0);
 
 	snmp_agent_set_read_community(&inst1, "dept_alpha");
@@ -775,6 +797,7 @@ static void test_multi_instance_independence(void)
 	/* Build encoded SNMPv2c GET request for Node 1 with community 'dept_alpha' */
 	struct snmp_pdu req_pdu;
 	memset(&req_pdu, 0, sizeof(req_pdu));
+
 	req_pdu.version = 1; /* v2c */
 	strncpy((char *)req_pdu.community, "dept_alpha", sizeof(req_pdu.community) - 1);
 	req_pdu.community_len = strlen((char *)req_pdu.community);
@@ -795,8 +818,8 @@ static void test_multi_instance_independence(void)
 	size_t resp_len = 0;
 
 	/* 1. Pass request with 'dept_alpha' to inst1 -> should succeed */
-	int proc_ret1 =
-	    snmp_agent_process_pdu(&inst1, req_buf, req_len, resp_buf, sizeof(resp_buf), &resp_len);
+	int proc_ret1 = snmp_agent_process_pdu(&inst1, req_buf, req_len, resp_buf, sizeof(resp_buf),
+					       &resp_len);
 	ASSERT_EQ(proc_ret1, 0);
 	ASSERT(resp_len > 0);
 	ASSERT_EQ(inst1.counters.snmpInPkts, 1);
@@ -804,8 +827,8 @@ static void test_multi_instance_independence(void)
 
 	/* 2. Pass SAME request with 'dept_alpha' to inst2 -> rejected with -EACCES */
 	resp_len = 0;
-	int proc_ret2 =
-	    snmp_agent_process_pdu(&inst2, req_buf, req_len, resp_buf, sizeof(resp_buf), &resp_len);
+	int proc_ret2 = snmp_agent_process_pdu(&inst2, req_buf, req_len, resp_buf, sizeof(resp_buf),
+					       &resp_len);
 	ASSERT_EQ(proc_ret2, -EACCES);
 	ASSERT_EQ(resp_len, 0);
 	ASSERT_EQ(inst2.counters.snmpInPkts, 1);
@@ -833,6 +856,7 @@ void test_interleaved_scalar_and_table_walk(void)
 	/* Scalar before table: 1.3.6.1.4.1.99.5.0 */
 	struct snmp_mib_node node_before = {0};
 	node_before.oid.len = 9;
+
 	node_before.oid.ids[0] = 1;
 	node_before.oid.ids[1] = 3;
 	node_before.oid.ids[2] = 6;
@@ -858,6 +882,7 @@ void test_interleaved_scalar_and_table_walk(void)
 	/* Scalar after table: 1.3.6.1.4.1.99.20.0 */
 	struct snmp_mib_node node_after = {0};
 	node_after.oid.len = 9;
+
 	node_after.oid.ids[0] = 1;
 	node_after.oid.ids[1] = 3;
 	node_after.oid.ids[2] = 6;
@@ -877,6 +902,7 @@ void test_interleaved_scalar_and_table_walk(void)
 	struct snmp_oid query = {.len = 8, .ids = {1, 3, 6, 1, 4, 1, 99, 0}};
 	int ret = snmp_mib_get_next(&s_mib_agent, &query, &vb);
 	ASSERT_EQ(ret, 0);
+
 	ASSERT_EQ(vb.oid.ids[7], 5); /* scalar before */
 
 	/* Next -> table col 1, row 1 */
@@ -934,8 +960,10 @@ void test_mib_bsearch_lookup(void)
 	/* Register 5 nodes out of order to verify lexicographic sorting */
 	static const uint32_t subids[] = {30, 10, 50, 20, 40};
 	for (size_t i = 0; i < 5; i++) {
+
 		struct snmp_mib_node node = {0};
 		node.oid.len = 9;
+
 		node.oid.ids[0] = 1;
 		node.oid.ids[1] = 3;
 		node.oid.ids[2] = 6;
@@ -956,6 +984,7 @@ void test_mib_bsearch_lookup(void)
 	/* 1. First node (subid 10) */
 	struct snmp_oid oid_first = {.len = 9, .ids = {1, 3, 6, 1, 4, 1, 88, 10, 0}};
 	memset(&vb, 0, sizeof(vb));
+
 	ret = snmp_mib_get(&agent, &oid_first, &vb);
 	ASSERT_EQ(ret, 0);
 	ASSERT_EQ(vb.type, ASN1_TAG_INTEGER);
@@ -964,6 +993,7 @@ void test_mib_bsearch_lookup(void)
 	/* 2. Middle node (subid 30) */
 	struct snmp_oid oid_mid = {.len = 9, .ids = {1, 3, 6, 1, 4, 1, 88, 30, 0}};
 	memset(&vb, 0, sizeof(vb));
+
 	ret = snmp_mib_get(&agent, &oid_mid, &vb);
 	ASSERT_EQ(ret, 0);
 	ASSERT_EQ(vb.type, ASN1_TAG_INTEGER);
@@ -972,6 +1002,7 @@ void test_mib_bsearch_lookup(void)
 	/* 3. Last node (subid 50) */
 	struct snmp_oid oid_last = {.len = 9, .ids = {1, 3, 6, 1, 4, 1, 88, 50, 0}};
 	memset(&vb, 0, sizeof(vb));
+
 	ret = snmp_mib_get(&agent, &oid_last, &vb);
 	ASSERT_EQ(ret, 0);
 	ASSERT_EQ(vb.type, ASN1_TAG_INTEGER);
@@ -980,18 +1011,21 @@ void test_mib_bsearch_lookup(void)
 	/* 4. Non-existent nodes */
 	struct snmp_oid oid_none1 = {.len = 9, .ids = {1, 3, 6, 1, 4, 1, 88, 5, 0}};
 	memset(&vb, 0, sizeof(vb));
+
 	ret = snmp_mib_get(&agent, &oid_none1, &vb);
 	ASSERT_EQ(ret, 0);
 	ASSERT_EQ(vb.type, SNMP_TAG_EXCEPT_NO_SUCH_OBJ);
 
 	struct snmp_oid oid_none2 = {.len = 9, .ids = {1, 3, 6, 1, 4, 1, 88, 25, 0}};
 	memset(&vb, 0, sizeof(vb));
+
 	ret = snmp_mib_get(&agent, &oid_none2, &vb);
 	ASSERT_EQ(ret, 0);
 	ASSERT_EQ(vb.type, SNMP_TAG_EXCEPT_NO_SUCH_OBJ);
 
 	struct snmp_oid oid_none3 = {.len = 9, .ids = {1, 3, 6, 1, 4, 1, 88, 99, 0}};
 	memset(&vb, 0, sizeof(vb));
+
 	ret = snmp_mib_get(&agent, &oid_none3, &vb);
 	ASSERT_EQ(ret, 0);
 	ASSERT_EQ(vb.type, SNMP_TAG_EXCEPT_NO_SUCH_OBJ);
@@ -1016,6 +1050,7 @@ void test_mib_no_such_object_vs_instance(void)
 	/* Register scalar: 1.3.6.1.4.1.500.1.0 */
 	struct snmp_mib_node scalar_node = {0};
 	scalar_node.oid.len = 9;
+
 	scalar_node.oid.ids[0] = 1;
 	scalar_node.oid.ids[1] = 3;
 	scalar_node.oid.ids[2] = 6;
@@ -1036,14 +1071,14 @@ void test_mib_no_such_object_vs_instance(void)
 	static snmp_table_get_cb_t t_get_cbs[] = {test_col1_get, test_col2_get};
 	static struct snmp_table_row t_row = {.index = 1, .next = NULL, .user_data = NULL};
 	struct snmp_mib_table t_table = {
-	    .table_oid = {.len = 9, .ids = {1, 3, 6, 1, 4, 1, 500, 2, 1}},
-	    .column_cnt = 2,
-	    .column_subids = t_cols,
-	    .column_types = t_types,
-	    .get_cbs = t_get_cbs,
-	    .set_cbs = NULL,
-	    .rows = NULL,
-	    .user_data = NULL};
+		.table_oid = {.len = 9, .ids = {1, 3, 6, 1, 4, 1, 500, 2, 1}},
+		.column_cnt = 2,
+		.column_subids = t_cols,
+		.column_types = t_types,
+		.get_cbs = t_get_cbs,
+		.set_cbs = NULL,
+		.rows = NULL,
+		.user_data = NULL};
 	ret = snmp_mib_register_table(&agent, &t_table);
 	ASSERT_EQ(ret, 0);
 	ret = snmp_mib_table_add_row(&agent, &t_table, &t_row);
@@ -1054,6 +1089,7 @@ void test_mib_no_such_object_vs_instance(void)
 	/* 1. Query valid scalar .0: returns value */
 	struct snmp_oid oid_scalar_0 = {.len = 9, .ids = {1, 3, 6, 1, 4, 1, 500, 1, 0}};
 	memset(&vb, 0, sizeof(vb));
+
 	ret = snmp_mib_get(&agent, &oid_scalar_0, &vb);
 	ASSERT_EQ(ret, 0);
 	ASSERT_EQ(vb.type, ASN1_TAG_INTEGER);
@@ -1062,6 +1098,7 @@ void test_mib_no_such_object_vs_instance(void)
 	/* 2. Query scalar .1: returns noSuchInstance */
 	struct snmp_oid oid_scalar_1 = {.len = 9, .ids = {1, 3, 6, 1, 4, 1, 500, 1, 1}};
 	memset(&vb, 0, sizeof(vb));
+
 	ret = snmp_mib_get(&agent, &oid_scalar_1, &vb);
 	ASSERT_EQ(ret, 0);
 	ASSERT_EQ(vb.type, SNMP_TAG_EXCEPT_NO_SUCH_INST);
@@ -1069,6 +1106,7 @@ void test_mib_no_such_object_vs_instance(void)
 	/* 3. Query completely foreign OID 1.3.6.1.2.1.99.1.0: returns noSuchObject */
 	struct snmp_oid oid_foreign = {.len = 9, .ids = {1, 3, 6, 1, 2, 1, 99, 1, 0}};
 	memset(&vb, 0, sizeof(vb));
+
 	ret = snmp_mib_get(&agent, &oid_foreign, &vb);
 	ASSERT_EQ(ret, 0);
 	ASSERT_EQ(vb.type, SNMP_TAG_EXCEPT_NO_SUCH_OBJ);
@@ -1077,6 +1115,7 @@ void test_mib_no_such_object_vs_instance(void)
 	 */
 	struct snmp_oid oid_tbl_no_row = {.len = 11, .ids = {1, 3, 6, 1, 4, 1, 500, 2, 1, 1, 99}};
 	memset(&vb, 0, sizeof(vb));
+
 	ret = snmp_mib_get(&agent, &oid_tbl_no_row, &vb);
 	ASSERT_EQ(ret, 0);
 	ASSERT_EQ(vb.type, SNMP_TAG_EXCEPT_NO_SUCH_INST);
@@ -1084,6 +1123,7 @@ void test_mib_no_such_object_vs_instance(void)
 	/* 5. Query table with non-existing column (5) and row 1: returns noSuchObject */
 	struct snmp_oid oid_tbl_no_col = {.len = 11, .ids = {1, 3, 6, 1, 4, 1, 500, 2, 1, 5, 1}};
 	memset(&vb, 0, sizeof(vb));
+
 	ret = snmp_mib_get(&agent, &oid_tbl_no_col, &vb);
 	ASSERT_EQ(ret, 0);
 	ASSERT_EQ(vb.type, SNMP_TAG_EXCEPT_NO_SUCH_OBJ);
@@ -1091,6 +1131,7 @@ void test_mib_no_such_object_vs_instance(void)
 	/* 6. Verify SNMPv1 converts both noSuchInstance and noSuchObject to noSuchName */
 	struct snmp_pdu v1_pdu;
 	memset(&v1_pdu, 0, sizeof(v1_pdu));
+
 	v1_pdu.version = 0; /* SNMPv1 */
 	v1_pdu.type = SNMP_PDU_GET_REQ;
 	v1_pdu.varbind_cnt = 1;
@@ -1116,6 +1157,7 @@ void test_getbulk_response_pruning_on_buffer_limit(void)
 	static struct snmp_agent agent;
 	int ret = snmp_agent_init(&agent, NULL);
 	ASSERT_EQ(ret, 0);
+
 	ret = snmp_agent_set_read_community(&agent, "public");
 	ASSERT_EQ(ret, 0);
 
@@ -1123,6 +1165,7 @@ void test_getbulk_response_pruning_on_buffer_limit(void)
 	for (uint32_t i = 1; i <= 10; i++) {
 		struct snmp_mib_node node = {0};
 		node.oid.len = 9;
+
 		node.oid.ids[0] = 1;
 		node.oid.ids[1] = 3;
 		node.oid.ids[2] = 6;
@@ -1141,6 +1184,7 @@ void test_getbulk_response_pruning_on_buffer_limit(void)
 	/* Build GETBULK request: non_repeaters = 0, max_repetitions = 10 */
 	struct snmp_pdu req_pdu;
 	memset(&req_pdu, 0, sizeof(req_pdu));
+
 	req_pdu.version = 1; /* SNMPv2c */
 	req_pdu.type = SNMP_PDU_GET_BULK_REQ;
 	req_pdu.request_id = 999;
@@ -1163,17 +1207,20 @@ void test_getbulk_response_pruning_on_buffer_limit(void)
 	uint8_t req_buf[256];
 	size_t req_len = 0;
 	ret = snmp_ber_encode_pdu(req_buf, sizeof(req_buf), &req_len, &req_pdu);
+
 	ASSERT_EQ(ret, 0);
 
 	/* 1. Large buffer test: full 10 repetitions fit */
 	uint8_t resp_buf[1024];
 	size_t resp_len = 0;
-	ret =
-	    snmp_agent_process_pdu(&agent, req_buf, req_len, resp_buf, sizeof(resp_buf), &resp_len);
+	ret = snmp_agent_process_pdu(&agent, req_buf, req_len, resp_buf, sizeof(resp_buf),
+
+				     &resp_len);
 	ASSERT_EQ(ret, 0);
 
 	struct snmp_pdu resp_pdu;
 	memset(&resp_pdu, 0, sizeof(resp_pdu));
+
 	ret = snmp_ber_decode_pdu(resp_buf, resp_len, &resp_pdu);
 	ASSERT_EQ(ret, 0);
 	ASSERT_EQ(resp_pdu.error_status, SNMP_ERR_NO_ERROR);
@@ -1183,6 +1230,7 @@ void test_getbulk_response_pruning_on_buffer_limit(void)
 	/* 2. Constrained buffer test: small buffer size that can hold some but not all varbinds */
 	size_t small_buf_sz = full_resp_len / 2;
 	memset(resp_buf, 0, sizeof(resp_buf));
+
 	resp_len = 0;
 	ret = snmp_agent_process_pdu(&agent, req_buf, req_len, resp_buf, small_buf_sz, &resp_len);
 	ASSERT_EQ(ret, 0);
@@ -1202,6 +1250,7 @@ void test_getbulk_response_pruning_on_buffer_limit(void)
 	 */
 	struct snmp_pdu req_pdu2;
 	memset(&req_pdu2, 0, sizeof(req_pdu2));
+
 	req_pdu2.version = 1; /* SNMPv2c */
 	req_pdu2.type = SNMP_PDU_GET_BULK_REQ;
 	req_pdu2.request_id = 1000;
@@ -1227,6 +1276,7 @@ void test_getbulk_response_pruning_on_buffer_limit(void)
 	uint32_t too_bigs_before = agent.counters.snmpOutTooBigs;
 	size_t tiny_buf_sz = 35;
 	memset(resp_buf, 0, sizeof(resp_buf));
+
 	resp_len = 0;
 	ret = snmp_agent_process_pdu(&agent, req_buf, req_len, resp_buf, tiny_buf_sz, &resp_len);
 	ASSERT_EQ(ret, 0);
@@ -1243,8 +1293,8 @@ void test_getbulk_response_pruning_on_buffer_limit(void)
 }
 
 static int32_t g_ip_table_data[2][3] = {
-    {0, 10, 100}, /* row 0: col 1 = 10, col 2 = 100 */
-    {0, 20, 200}  /* row 1: col 1 = 20, col 2 = 200 */
+	{0, 10, 100}, /* row 0: col 1 = 10, col 2 = 100 */
+	{0, 20, 200}  /* row 1: col 1 = 20, col 2 = 200 */
 };
 
 static int test_ip_col1_get(struct snmp_agent *agent, const struct snmp_table_row *row,
@@ -1254,6 +1304,7 @@ static int test_ip_col1_get(struct snmp_agent *agent, const struct snmp_table_ro
 	(void)column;
 	int32_t *data = (int32_t *)row->user_data;
 	vb->type = ASN1_TAG_INTEGER;
+
 	vb->val.int_val = data[1];
 	return 0;
 }
@@ -1265,6 +1316,7 @@ static int test_ip_col2_get(struct snmp_agent *agent, const struct snmp_table_ro
 	(void)column;
 	int32_t *data = (int32_t *)row->user_data;
 	vb->type = ASN1_TAG_INTEGER;
+
 	vb->val.int_val = data[2];
 	return 0;
 }
@@ -1279,6 +1331,7 @@ static int test_ip_col2_set(struct snmp_agent *agent, struct snmp_table_row *row
 	}
 	int32_t *data = (int32_t *)row->user_data;
 	data[2] = vb->val.int_val;
+
 	return 0;
 }
 
@@ -1297,14 +1350,14 @@ void test_table_compound_index(void)
 	g_ip_table_data[1][2] = 200;
 
 	struct snmp_mib_table ip_tbl = {
-	    .table_oid = {.len = 9, .ids = {1, 3, 6, 1, 4, 1, 99, 20, 1}},
-	    .column_cnt = 2,
-	    .column_subids = g_ip_cols,
-	    .column_types = g_ip_types,
-	    .get_cbs = g_ip_get_cbs,
-	    .set_cbs = g_ip_set_cbs,
-	    .rows = NULL,
-	    .user_data = NULL};
+		.table_oid = {.len = 9, .ids = {1, 3, 6, 1, 4, 1, 99, 20, 1}},
+		.column_cnt = 2,
+		.column_subids = g_ip_cols,
+		.column_types = g_ip_types,
+		.get_cbs = g_ip_get_cbs,
+		.set_cbs = g_ip_set_cbs,
+		.rows = NULL,
+		.user_data = NULL};
 
 	struct snmp_table_row row1 = {.index = 0,
 				      .index_oid = {.len = 4, .subids = {192, 168, 1, 10}},
@@ -1329,6 +1382,7 @@ void test_table_compound_index(void)
 				     .ids = {1, 3, 6, 1, 4, 1, 99, 20, 1, 1, 192, 168, 1, 10}};
 	struct snmp_varbind vb = {0};
 	ret = snmp_mib_get(&s_mib_agent, &oid_c1_r1, &vb);
+
 	ASSERT_EQ(ret, 0);
 	ASSERT_EQ(vb.type, ASN1_TAG_INTEGER);
 	ASSERT_EQ(vb.val.int_val, 10);
@@ -1344,7 +1398,7 @@ void test_table_compound_index(void)
 
 	/* 2. GET on non-existent IP returns SNMP_TAG_EXCEPT_NO_SUCH_INST */
 	struct snmp_oid oid_no_such_inst = {
-	    .len = 14, .ids = {1, 3, 6, 1, 4, 1, 99, 20, 1, 1, 192, 168, 1, 99}};
+		.len = 14, .ids = {1, 3, 6, 1, 4, 1, 99, 20, 1, 1, 192, 168, 1, 99}};
 	memset(&vb, 0, sizeof(vb));
 	ret = snmp_mib_get(&s_mib_agent, &oid_no_such_inst, &vb);
 	ASSERT_EQ(ret, 0);
@@ -1352,7 +1406,7 @@ void test_table_compound_index(void)
 
 	/* GET on non-existent column returns SNMP_TAG_EXCEPT_NO_SUCH_OBJ */
 	struct snmp_oid oid_no_such_col = {
-	    .len = 14, .ids = {1, 3, 6, 1, 4, 1, 99, 20, 1, 3, 192, 168, 1, 10}};
+		.len = 14, .ids = {1, 3, 6, 1, 4, 1, 99, 20, 1, 3, 192, 168, 1, 10}};
 	memset(&vb, 0, sizeof(vb));
 	ret = snmp_mib_get(&s_mib_agent, &oid_no_such_col, &vb);
 	ASSERT_EQ(ret, 0);
@@ -1362,6 +1416,7 @@ void test_table_compound_index(void)
 	/* Query before table: 1.3.6.1.4.1.99.20.0 */
 	struct snmp_oid query = {.len = 9, .ids = {1, 3, 6, 1, 4, 1, 99, 20, 0}};
 	memset(&vb, 0, sizeof(vb));
+
 	ret = snmp_mib_get_next(&s_mib_agent, &query, &vb);
 	ASSERT_EQ(ret, 0);
 	ASSERT_EQ(vb.oid.len, 14);
@@ -1408,9 +1463,9 @@ void test_table_compound_index(void)
 
 	/* 4. SET on compound indexed row */
 	struct snmp_varbind vb_set = {
-	    .oid = {.len = 14, .ids = {1, 3, 6, 1, 4, 1, 99, 20, 1, 2, 192, 168, 1, 10}},
-	    .type = ASN1_TAG_INTEGER,
-	    .val = {.int_val = 555}};
+		.oid = {.len = 14, .ids = {1, 3, 6, 1, 4, 1, 99, 20, 1, 2, 192, 168, 1, 10}},
+		.type = ASN1_TAG_INTEGER,
+		.val = {.int_val = 555}};
 	ret = snmp_mib_set(&s_mib_agent, &vb_set.oid, &vb_set);
 	ASSERT_EQ(ret, 0);
 	ASSERT_EQ(g_ip_table_data[0][2], 555);
@@ -1424,6 +1479,7 @@ void test_table_compound_index(void)
 	/* 5. 2PC SET dispatch on compound indexed row */
 	struct snmp_pdu set_pdu;
 	memset(&set_pdu, 0, sizeof(set_pdu));
+
 	set_pdu.version = 1; /* SNMPv2c */
 	set_pdu.type = SNMP_PDU_SET_REQ;
 	set_pdu.varbind_cnt = 1;
@@ -1439,6 +1495,7 @@ void test_table_compound_index(void)
 	/* 6. Remove row by compound index */
 	struct snmp_table_index del_idx = {.len = 4, .subids = {192, 168, 1, 10}};
 	ret = snmp_mib_table_remove_row_by_index(&s_mib_agent, &ip_tbl, &del_idx);
+
 	ASSERT_EQ(ret, 0);
 
 	/* GET on removed row returns noSuchInstance */

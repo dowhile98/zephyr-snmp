@@ -128,6 +128,7 @@ static int cmd_app_led(const struct shell *sh, size_t argc, char **argv)
 	}
 	int val = atoi(argv[1]);
 	if (val != 0 && val != 1) {
+
 		shell_error(sh, "Invalid value %d. Must be 0 (OFF) or 1 (ON).", val);
 		return -EINVAL;
 	}
@@ -150,11 +151,11 @@ static int cmd_app_sensor(const struct shell *sh, size_t argc, char **argv)
 }
 
 SHELL_STATIC_SUBCMD_SET_CREATE(
-    sub_app,
-    SHELL_CMD(button, NULL, "Simulate User Button press and send SNMP Trap", cmd_app_button),
-    SHELL_CMD_ARG(led, NULL, "Get or set User LED [0|1]", cmd_app_led, 1, 1),
-    SHELL_CMD(sensor, NULL, "Display current sensor and device values", cmd_app_sensor),
-    SHELL_SUBCMD_SET_END);
+	sub_app,
+	SHELL_CMD(button, NULL, "Simulate User Button press and send SNMP Trap", cmd_app_button),
+	SHELL_CMD_ARG(led, NULL, "Get or set User LED [0|1]", cmd_app_led, 1, 1),
+	SHELL_CMD(sensor, NULL, "Display current sensor and device values", cmd_app_sensor),
+	SHELL_SUBCMD_SET_END);
 
 SHELL_CMD_REGISTER(app, &sub_app, "SNMP validation sample commands", NULL);
 #endif
@@ -183,18 +184,19 @@ int main(void)
 	 *    communities); the UDP listener is opened later by snmp_agent_start().
 	 */
 	const struct snmp_agent_cfg cfg_lan = {
-	    .port = CONFIG_SNMP_AGENT_PORT,
-	    .iface = s_snmp_iface,
-	    .read_community = CONFIG_SNMP_COMMUNITY_READ,
-	    .write_community = CONFIG_SNMP_COMMUNITY_WRITE,
-	    .sys_descr = "Zephyr RTOS SNMP Validation Node (STM32H743ZI)",
-	    .sys_contact = "admin@example.com",
-	    .sys_name = "NUCLEO-H743ZI-SNMP",
-	    .sys_location = "Lab Bench 1",
-	    .settings_prefix = "snmp/lan",
+		.port = CONFIG_SNMP_AGENT_PORT,
+		.iface = s_snmp_iface,
+		.read_community = CONFIG_SNMP_COMMUNITY_READ,
+		.write_community = CONFIG_SNMP_COMMUNITY_WRITE,
+		.sys_descr = "Zephyr RTOS SNMP Validation Node (STM32H743ZI)",
+		.sys_contact = "admin@example.com",
+		.sys_name = "NUCLEO-H743ZI-SNMP",
+		.sys_location = "Lab Bench 1",
+		.settings_prefix = "snmp/lan",
 	};
 	int ret = snmp_agent_init(&g_agent_lan, &cfg_lan);
 	if (ret < 0) {
+
 		LOG_ERR("Failed to initialize LAN SNMP agent: %d", ret);
 		return ret;
 	}
@@ -223,15 +225,15 @@ int main(void)
 	 * independent of g_agent_lan.
 	 */
 	const struct snmp_agent_cfg cfg_wan = {
-	    .port = CONFIG_SNMP_SAMPLE_WAN_PORT,
-	    .iface = s_snmp_iface,
-	    .read_community = CONFIG_SNMP_COMMUNITY_READ,
-	    .write_community = CONFIG_SNMP_COMMUNITY_WRITE,
-	    .sys_descr = "Zephyr RTOS SNMP Validation Node (WAN instance)",
-	    .sys_contact = "admin@example.com",
-	    .sys_name = "NUCLEO-H743ZI-WAN",
-	    .sys_location = "Lab Bench 1",
-	    .settings_prefix = "snmp/wan",
+		.port = CONFIG_SNMP_SAMPLE_WAN_PORT,
+		.iface = s_snmp_iface,
+		.read_community = CONFIG_SNMP_COMMUNITY_READ,
+		.write_community = CONFIG_SNMP_COMMUNITY_WRITE,
+		.sys_descr = "Zephyr RTOS SNMP Validation Node (WAN instance)",
+		.sys_contact = "admin@example.com",
+		.sys_name = "NUCLEO-H743ZI-WAN",
+		.sys_location = "Lab Bench 1",
+		.settings_prefix = "snmp/wan",
 	};
 	ret = snmp_agent_init(&g_agent_wan, &cfg_wan);
 	if (ret < 0) {
@@ -255,9 +257,9 @@ int main(void)
 			if (iface->config.ip.ipv4->unicast[i].ipv4.is_used &&
 			    iface->config.ip.ipv4->unicast[i].ipv4.address.in_addr.s_addr != 0) {
 				net_addr_ntop(
-				    AF_INET,
-				    &iface->config.ip.ipv4->unicast[i].ipv4.address.in_addr, ip_buf,
-				    sizeof(ip_buf));
+					AF_INET,
+					&iface->config.ip.ipv4->unicast[i].ipv4.address.in_addr,
+					ip_buf, sizeof(ip_buf));
 				has_ip = true;
 				break;
 			}
@@ -270,10 +272,10 @@ int main(void)
 		if (iface && iface->config.ip.ipv4) {
 			for (int i = 0; i < NET_IF_MAX_IPV4_ADDR; i++) {
 				if (iface->config.ip.ipv4->unicast[i].ipv4.is_used) {
-					net_addr_ntop(
-					    AF_INET,
-					    &iface->config.ip.ipv4->unicast[i].ipv4.address.in_addr,
-					    ip_buf, sizeof(ip_buf));
+					net_addr_ntop(AF_INET,
+						      &iface->config.ip.ipv4->unicast[i]
+							       .ipv4.address.in_addr,
+						      ip_buf, sizeof(ip_buf));
 					break;
 				}
 			}
