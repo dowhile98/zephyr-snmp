@@ -66,4 +66,3 @@ target_compile_definitions(vacm_unit_tests PRIVATE
 
 target_compile_options(vacm_unit_tests PRIVATE -Wall -Wextra -Werror)
 target_link_libraries(vacm_unit_tests PRIVATE rt)
-

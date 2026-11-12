@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 StructCore Embedded
+#
 # Configuration file for the Sphinx documentation builder.
 #
 # For the full list of built-in configuration values, see the documentation:
@@ -33,4 +36,3 @@ intersphinx_mapping = {
     'zephyr': ('https://docs.zephyrproject.org/latest/', None)
 }
 intersphinx_timeout = 2
-

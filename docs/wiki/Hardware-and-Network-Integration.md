@@ -90,7 +90,7 @@ int led_set_tx_cb(struct snmp_agent *agent, struct snmp_mib_node *node,
 ## 3. Safe Interrupt Handling and Trap Dispatch
 
 > [!CAUTION]
-> **Critical Real-Time Rule**: **NEVER** invoke `snmp_trap_send()`, `snmp_agent_start()`, or UDP socket functions from an Interrupt Service Routine (ISR). 
+> **Critical Real-Time Rule**: **NEVER** invoke `snmp_trap_send()`, `snmp_agent_start()`, or UDP socket functions from an Interrupt Service Routine (ISR).
 > Network operations require buffer allocation (`net_buf`), socket descriptor locking, and potential context switching—all strictly prohibited within interrupt context (`k_is_in_isr()`).
 
 ### Recommended Pattern: ISR -> Software Debounce -> Workqueue -> Trap Dispatch

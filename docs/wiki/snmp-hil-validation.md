@@ -1,10 +1,10 @@
 # Comprehensive SNMP Hardware-in-the-Loop (HIL) Validation Report
 
-**Recipient:** Lead Engineer / Technical Steering  
-**Author:** StructCore Embedded QA  
-**Date:** 2026-10-27  
-**Firmware Version:** `v2.0.0` (commit `f3cda2e`)  
-**Reference:** `docs/wiki/snmp-hil-validation.md`  
+**Recipient:** Lead Engineer / Technical Steering
+**Author:** StructCore Embedded QA
+**Date:** 2026-10-27
+**Firmware Version:** `v2.0.0` (commit `f3cda2e`)
+**Reference:** `docs/wiki/snmp-hil-validation.md`
 **Final Verdict:** **PASS** (100% of functional tests, security models, tree walks, bulk transfers, notifications, and negative cases validated on physical STM32H7 hardware across SNMPv1, SNMPv2c, and SNMPv3 authNoPriv / authPriv)
 
 ---
@@ -111,7 +111,7 @@ Target console:
 ```text
 uart:~$ app led
 User LED state: ON (1)
-uart:~$ 
+uart:~$
 ```
 Host executes:
 ```bash
@@ -125,7 +125,7 @@ Target console:
 [00:02:06.539,000] <inf> app_led: Physical User LED changed to: OFF (0)
 uart:~$ app led
 User LED state: OFF (0)
-uart:~$ 
+uart:~$
 ```
 
 ### C. Trap Notification Dispatch (Stack-Hardened)
@@ -136,7 +136,7 @@ Simulating User Button press...
 [00:00:23.201,000] <inf> app_button: >>> Simulated Button Press! Total Count: 1 <<<
 [00:00:23.209,000] <inf> app_button: SNMP Notification dispatched successfully (buttonCounter=1, ledState=0)
 Button count now: 1
-uart:~$ 
+uart:~$
 ```
 Verified: 0 MPU faults, 0 memory corruption, clean trap dispatch.
 

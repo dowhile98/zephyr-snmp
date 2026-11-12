@@ -68,7 +68,7 @@ security vulnerability, please follow these steps:
 7. **Disable unused SNMP versions** via Kconfig
 
 ## Security Audit History
- 
+
 | Date | Auditor | Scope | Result |
 |------|---------|-------|--------|
 | 2026-09 | Senior Open-Source Review | Full codebase | All critical vulnerabilities resolved (buffer overflows, stack exhaustion, thread safety, rate limiting) |
