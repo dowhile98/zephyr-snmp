@@ -1,5 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 #
+# Copyright (c) 2026 StructCore Embedded
+#
 # SNMP Agent — Kconfig options.
 # See snmp.h for the public API and quick-start guide.
 # Referenced RFCs: 3412, 3414, 3415, 3416, 3418, 1213.
@@ -26,8 +28,9 @@ config SNMP_MAX_INSTANCES
 	default 1
 	help
 	  Compile-time bound on simultaneously RUNNING struct snmp_agent instances.
-	  Each instance costs ~30 KiB RAM at the default sizing (~21 KiB once v3 is
-	  disabled), so size this against your budget, not against the port count.
+	  Measured sizeof(struct snmp_agent) is approximately 30 KiB for v1/v2c-only
+	  builds and 40 KiB with SNMPv3 enabled on 32-bit targets. Size this against
+	  your RAM budget, not against the port count.
 
 	  Transport side effects, all enforced by BUILD_ASSERT in
 	  src/snmp_service.c:
@@ -99,7 +102,8 @@ config SNMP_VERSION_3
 	help
 	  SNMPv3 (RFC 3412/3414/3415) — User-based Security Model (USM)
 	  with HMAC-SHA1/SHA256 authentication and AES-128-CFB privacy.
-	  Requires PSA Crypto / mbedtls. Adds ~8 KB FLASH, ~3 KB RAM.
+	  Requires PSA Crypto / mbedtls. Adds approximately 10 KiB of RAM per
+	  instance compared to a v1/v2c-only build.
 	  Supports engine discovery (Report-PDU), timeliness check (150 s
 	  window), and View-based Access Control (VACM) with admin/readonly
 	  groups. Key localization per RFC 3414 §A.2.
@@ -241,7 +245,6 @@ config SNMP_VACM_MAX_VIEW_TREES
 
 endif # SNMP_VERSION_3
 
-
 config SNMP_MAX_PDU_SIZE
 	int "Maximum SNMP PDU size in bytes"
 	range 484 65535
@@ -272,6 +275,7 @@ config SNMP_MAX_VARBINDS
 
 config SNMP_MAX_MIB_NODES
 	int "Maximum registered MIB nodes"
+	range 1 512
 	default 128
 	help
 	  Maximum number of MIB nodes that can be registered in the tree.
@@ -281,6 +285,7 @@ config SNMP_MAX_MIB_NODES
 
 config SNMP_MAX_TABLES
 	int "Maximum registered MIB tables"
+	range 1 64
 	default 8
 	help
 	  Maximum number of MIB tables that can be registered. Each table
