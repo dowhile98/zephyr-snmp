@@ -2326,7 +2326,24 @@ INCLUDE_FILE_PATTERNS  =
 # recursively expanded use the := operator instead of the = operator.
 # This tag requires that the tag ENABLE_PREPROCESSING is set to YES.
 
-PREDEFINED             = __syscall=
+PREDEFINED             = __syscall= \
+                         __ZEPHYR__=1 \
+                         CONFIG_SNMP_AGENT=1 \
+                         CONFIG_SNMP_VERSION_3=1 \
+                         CONFIG_SNMP_TRAP_ENABLED=1 \
+                         CONFIG_SNMP_MAX_INSTANCES=1 \
+                         CONFIG_SNMP_MAX_MIB_NODES=128 \
+                         CONFIG_SNMP_MAX_TABLES=8 \
+                         CONFIG_SNMP_MAX_IFACES=8 \
+                         CONFIG_SNMP_TRAP_DEST_COUNT=3 \
+                         CONFIG_SNMP_V3_MAX_USERS=4 \
+                         CONFIG_SNMP_MAX_OID_LEN=16 \
+                         CONFIG_SNMP_MAX_VARBINDS=32 \
+                         CONFIG_SNMP_MAX_PDU_SIZE=1024 \
+                         CONFIG_SNMP_VACM_MAX_CONTEXTS=8 \
+                         CONFIG_SNMP_VACM_MAX_GROUPS=16 \
+                         CONFIG_SNMP_VACM_MAX_ACCESS_RULES=16 \
+                         CONFIG_SNMP_VACM_MAX_VIEW_TREES=32
 
 # If the MACRO_EXPANSION and EXPAND_ONLY_PREDEF tags are set to YES then this
 # tag can be used to specify a list of macro names that should be expanded. The
