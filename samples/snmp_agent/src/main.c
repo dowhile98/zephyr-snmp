@@ -9,6 +9,7 @@
 #include <zephyr/net/net_mgmt.h>
 #include <zephyr/net/net_event.h>
 #include <zephyr/net/net_ip.h>
+#include <errno.h>
 #include <snmp/snmp.h>
 #include <snmp/snmp_mib.h>
 #include <snmp/snmp_trap.h>
@@ -41,6 +42,7 @@ LOG_MODULE_REGISTER(main, LOG_LEVEL_INF);
 
 static struct net_mgmt_event_callback s_mgmt_cb;
 static K_SEM_DEFINE(s_ip_ready_sem, 0, 1);
+static struct net_if *s_snmp_iface;
 
 /*
  * Caller-owned agent storage (decision #1 of the design contract): one instance is
@@ -98,9 +100,7 @@ static void net_event_handler(struct net_mgmt_event_callback *cb, uint64_t mgmt_
 			      struct net_if *iface)
 {
 	ARG_UNUSED(cb);
-	ARG_UNUSED(iface);
-
-	if (mgmt_event == NET_EVENT_IPV4_ADDR_ADD) {
+	if (mgmt_event == NET_EVENT_IPV4_ADDR_ADD && iface == s_snmp_iface) {
 		k_sem_give(&s_ip_ready_sem);
 	}
 }
@@ -163,6 +163,12 @@ int main(void)
 {
 	LOG_INF("Booting SNMP Validation Sample...");
 
+	s_snmp_iface = net_if_get_first_ethernet();
+	if (!s_snmp_iface) {
+		LOG_ERR("No Ethernet network interface found");
+		return -ENODEV;
+	}
+
 	/* 1. Initialize hardware drivers that do not need the agent */
 	app_led_init();
 	app_sensor_init();
@@ -178,6 +184,7 @@ int main(void)
 	 */
 	const struct snmp_agent_cfg cfg_lan = {
 	    .port = CONFIG_SNMP_AGENT_PORT,
+	    .iface = s_snmp_iface,
 	    .read_community = CONFIG_SNMP_COMMUNITY_READ,
 	    .write_community = CONFIG_SNMP_COMMUNITY_WRITE,
 	    .sys_descr = "Zephyr RTOS SNMP Validation Node (STM32H743ZI)",
@@ -217,6 +224,7 @@ int main(void)
 	 */
 	const struct snmp_agent_cfg cfg_wan = {
 	    .port = CONFIG_SNMP_SAMPLE_WAN_PORT,
+	    .iface = s_snmp_iface,
 	    .read_community = CONFIG_SNMP_COMMUNITY_READ,
 	    .write_community = CONFIG_SNMP_COMMUNITY_WRITE,
 	    .sys_descr = "Zephyr RTOS SNMP Validation Node (WAN instance)",
@@ -238,7 +246,7 @@ int main(void)
 #endif
 
 	/* Check if interface already has IP assigned; if not, wait for DHCP */
-	struct net_if *iface = net_if_get_default();
+	struct net_if *iface = s_snmp_iface;
 	bool has_ip = false;
 	char ip_buf[NET_IPV4_ADDR_LEN] = "192.0.2.1";
 

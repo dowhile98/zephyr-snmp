@@ -225,9 +225,15 @@ static int snmp_open_bind_v4(struct snmp_agent *agent)
 		return -errno;
 	}
 
-	if (agent->bound_iface != NULL && snmp_sock_bind_to_iface(sock, agent->bound_iface) < 0) {
-		/* Not fatal: binding to the interface's own address below is the fallback. */
-		LOG_DBG("IPv4 SO_BINDTODEVICE failed (%d), falling back to addr bind", -errno);
+	if (agent->bound_iface != NULL) {
+		int bind_ret = snmp_sock_bind_to_iface(sock, agent->bound_iface);
+
+		/* A requested interface is an isolation requirement, not a hint. */
+		if (bind_ret < 0) {
+			LOG_ERR("IPv4 interface binding failed (%d)", bind_ret);
+			zsock_close(sock);
+			return bind_ret;
+		}
 	}
 
 	memset(&bind_addr, 0, sizeof(bind_addr));
@@ -237,6 +243,8 @@ static int snmp_open_bind_v4(struct snmp_agent *agent)
 	if (!agent->bound_iface) {
 		bind_addr.sin_addr.s_addr = INADDR_ANY;
 	} else if (!snmp_bind_addr_from_iface(agent, &bind_addr)) {
+		/* SO_BINDTODEVICE already constrains this socket. This is safe while
+		 * waiting for DHCP to assign the selected interface an address. */
 		bind_addr.sin_addr.s_addr = INADDR_ANY;
 	}
 
@@ -263,9 +271,14 @@ static int snmp_open_bind_v6(struct snmp_agent *agent)
 		return -errno;
 	}
 
-	if (agent->bound_iface != NULL && snmp_sock_bind_to_iface(sock, agent->bound_iface) < 0) {
-		err = -errno;
-		LOG_DBG("IPv6 SO_BINDTODEVICE failed (%d)", err);
+	if (agent->bound_iface != NULL) {
+		int bind_ret = snmp_sock_bind_to_iface(sock, agent->bound_iface);
+
+		if (bind_ret < 0) {
+			LOG_ERR("IPv6 interface binding failed (%d)", bind_ret);
+			zsock_close(sock);
+			return bind_ret;
+		}
 	}
 
 	memset(&bind_addr, 0, sizeof(bind_addr));

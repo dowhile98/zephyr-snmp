@@ -334,11 +334,14 @@ Measured with this tree (Zephyr v4.4.0, `arm-zephyr-eabi` + `native_sim`):
 
 | Configuration | FLASH | RAM (incl. thread stacks) |
 |---------------|-------|---------------------------|
-| `samples/snmp_agent` on NUCLEO-H743ZI (v1/v2c) | 218,184 B | 84,444 B |
-| `samples/snmp_agent_v3` on NUCLEO-H743ZI (v3 + v2c, PSA/mbedTLS, 2 USM users) | 243,788 B | 119,964 B |
+| `samples/snmp_agent` on NUCLEO-H743ZI (v1/v2c) | 218,536 B | 84,444 B |
+| `samples/snmp_agent_v3` on NUCLEO-H743ZI (v3 + v2c, PSA/mbedTLS, 2 USM users) | 245,040 B | 144,540 B |
+
+The v3 sample's RAM includes its own thread stacks (`CONFIG_MAIN_STACK_SIZE=8192`,
+`CONFIG_SHELL_STACK_SIZE=16384`), not just agent state.
 
 - **Zero Dynamic Allocation / Zero Heap**: All agent state is statically allocated inside caller-owned `struct snmp_agent`. Never calls `malloc` or `k_malloc`.
-- **Per-instance cost**: `sizeof(struct snmp_agent)` measured on 32-bit `qemu_x86` with the default Kconfig is **30,220 B** for v1/v2c and **39,432 B** with `CONFIG_SNMP_VERSION_3=y`. Size `CONFIG_SNMP_MAX_INSTANCES` (range 1..8) against ~30 KiB per v1/v2c instance; the dominant members are `mib_nodes[128]` (11.0 KiB), the `scratch` union (8.5 KiB), `current_pdu` (6.5 KiB) and `rx_buf`+`tx_buf` (2 KiB).
+- **Per-instance cost**: `sizeof(struct snmp_agent)` measured on 32-bit `qemu_x86` with the default Kconfig is **30,220 B** for v1/v2c and **39,480 B** with `CONFIG_SNMP_VERSION_3=y`. Size `CONFIG_SNMP_MAX_INSTANCES` (range 1..8) against ~30 KiB per v1/v2c instance; the dominant members are `mib_nodes[128]` (11.0 KiB), the `scratch` union (8.5 KiB), `current_pdu` (6.5 KiB) and `rx_buf`+`tx_buf` (2 KiB).
 - **Thread stack**: the dispatcher itself keeps only a small frame, but both the v1/v2c and the v3 receive paths run in the socket-service thread. v3 additionally holds one `struct snmp_v3_msg` (~8.8 KiB at the default `CONFIG_SNMP_MAX_PDU_SIZE=1024`) plus AES plaintext/ciphertext scratch on that stack, which is why the Kconfig help asks for at least 12 KiB there when v3 (or GetBulk) is enabled. The v3 sample sets `CONFIG_NET_SOCKETS_SERVICE_STACK_SIZE=16384`.
 
 ## Testing

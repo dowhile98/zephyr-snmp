@@ -59,7 +59,7 @@ and has its own `main()`.
 ```bash
 cd tests/unit
 cmake -S . -B build && cmake --build build
-./build/snmp_unit_tests && ./build/vacm_unit_tests   # both: 48 + 10 = 58 tests
+./build/snmp_unit_tests && ./build/vacm_unit_tests   # both: 49 + 10 = 59 tests
 ```
 
 - The custom `ASSERT*` macros call `exit(1)`: the **first** failure aborts the whole
@@ -73,7 +73,7 @@ cmake -S . -B build && cmake --build build
 ### Ztest / Twister — `tests/`
 
 ```bash
-west twister -T tests/ -p native_sim/native/64 -v --inline-logs --integration  # CI, 58/58
+west twister -T tests/ -p native_sim/native/64 -v --inline-logs --integration  # CI, 62/62
 west twister -T tests/ -p native_sim -v --inline-logs                          # no --integration
 ```
 
@@ -109,7 +109,7 @@ find src include samples tests/src tests/unit \( -name '*.c' -o -name '*.h' \) \
 ## Memory, globals, layout
 
 - Measured `sizeof(struct snmp_agent)` on 32-bit `qemu_x86` with default Kconfig:
-  **30,220 B** for v1/v2c and **39,432 B** with `CONFIG_SNMP_VERSION_3=y`. The
+  **30,220 B** for v1/v2c and **39,480 B** with `CONFIG_SNMP_VERSION_3=y`. The
   README/Kconfig per-instance figures (~23.8/33.3 KiB, ~21 KiB v3-off) are stale;
   size `CONFIG_SNMP_MAX_INSTANCES` (range 1..8) against ~30 KiB per v1/v2c instance.
   Dominant members: `mib_nodes[128]` 11.0 KiB, `scratch` union 8.5 KiB,

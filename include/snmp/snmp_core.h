@@ -258,10 +258,12 @@ int snmp_agent_deinit(struct snmp_agent *agent);
  *
  * The instance must be #SNMP_AGENT_INITIALIZED or #SNMP_AGENT_STOPPED. Each started
  * agent owns one compile-time socket-service slot (CONFIG_SNMP_MAX_INSTANCES) and binds
- * to @c agent->port / @c agent->bound_iface. Two RUNNING agents with the same port and
- * no interface binding make the second one fail with -EADDRINUSE (normal socket
- * semantics). On non-Zephyr (host) builds this returns -ENOTSUP: inject frames with
- * snmp_agent_process_pdu() instead.
+ * to @c agent->port / @c agent->bound_iface. A non-NULL @c bound_iface is a strict
+ * transport binding: if Zephyr cannot bind the sockets to that interface, startup
+ * fails instead of falling back to all interfaces. Two RUNNING agents with the same
+ * port and no interface binding make the second one fail with -EADDRINUSE (normal
+ * socket semantics). On non-Zephyr (host) builds this returns -ENOTSUP: inject frames
+ * with snmp_agent_process_pdu() instead.
  *
  * @param agent Target agent instance.
  * @return 0 on success, -EINVAL if @p agent is NULL, -EPERM in the wrong state,

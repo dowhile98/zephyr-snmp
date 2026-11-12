@@ -22,6 +22,27 @@
 #define CONFIG_SNMP_TRAP_PORT 162
 #endif
 
+#if defined(CONFIG_NET_IPV4)
+static bool snmp_trap_iface_ipv4(struct net_if *iface, struct net_in_addr *addr)
+{
+	if (!iface || !net_if_is_up(iface) || !iface->config.ip.ipv4) {
+		return false;
+	}
+
+	for (int i = 0; i < NET_IF_MAX_IPV4_ADDR; i++) {
+		if (iface->config.ip.ipv4->unicast[i].ipv4.is_used &&
+		    iface->config.ip.ipv4->unicast[i].ipv4.address.in_addr.s_addr != 0) {
+			if (addr) {
+				*addr = iface->config.ip.ipv4->unicast[i].ipv4.address.in_addr;
+			}
+			return true;
+		}
+	}
+
+	return false;
+}
+#endif
+
 /*
  * Is the v3 notification builder reachable from snmp_trap_send()?
  *
@@ -101,8 +122,7 @@ static int snmp_trap_send_v3(struct snmp_agent *inst, const struct snmp_oid *tra
 
 #if defined(CONFIG_NET_IPV4)
 	struct net_if *iface = inst->bound_iface ? inst->bound_iface : net_if_get_default();
-	if (!iface || !net_if_is_up(iface) || !iface->config.ip.ipv4 ||
-	    iface->config.ip.ipv4->unicast[0].ipv4.address.in_addr.s_addr == 0) {
+	if (!snmp_trap_iface_ipv4(iface, NULL)) {
 		return -ENETDOWN;
 	}
 #endif
@@ -224,7 +244,12 @@ static int snmp_trap_send_v3(struct snmp_agent *inst, const struct snmp_oid *tra
 	}
 
 	/* Multi-homed egress: leave through the interface this agent is bound to. */
-	(void)snmp_sock_bind_to_iface(sock, inst->bound_iface);
+	ret = snmp_sock_bind_to_iface(sock, inst->bound_iface);
+	if (ret < 0) {
+		zsock_close(sock);
+		k_mutex_unlock(&inst->lock);
+		return ret;
+	}
 
 	for (uint8_t d = 0; d < inst->trap_dest_cnt; d++) {
 		(void)zsock_sendto(sock, inst->tx_buf, tx_len, 0,
@@ -288,8 +313,7 @@ int snmp_trap_send(struct snmp_agent *inst, const struct snmp_oid *trap_oid,
 
 #if defined(CONFIG_NET_IPV4)
 	struct net_if *iface = inst->bound_iface ? inst->bound_iface : net_if_get_default();
-	if (!iface || !net_if_is_up(iface) || !iface->config.ip.ipv4 ||
-	    iface->config.ip.ipv4->unicast[0].ipv4.address.in_addr.s_addr == 0) {
+	if (!snmp_trap_iface_ipv4(iface, NULL)) {
 		return -ENETDOWN;
 	}
 #endif
@@ -303,7 +327,12 @@ int snmp_trap_send(struct snmp_agent *inst, const struct snmp_oid *trap_oid,
 	}
 
 	/* Multi-homed egress: leave through the interface this agent is bound to. */
-	(void)snmp_sock_bind_to_iface(sock, inst->bound_iface);
+	int bind_ret = snmp_sock_bind_to_iface(sock, inst->bound_iface);
+	if (bind_ret < 0) {
+		zsock_close(sock);
+		k_mutex_unlock(&inst->lock);
+		return bind_ret;
+	}
 
 	memset(&inst->current_pdu, 0, sizeof(inst->current_pdu));
 
@@ -317,15 +346,15 @@ int snmp_trap_send(struct snmp_agent *inst, const struct snmp_oid *trap_oid,
 #if SNMP_TRAP_IS_V1
 	inst->current_pdu.version = 0;
 	inst->current_pdu.type = SNMP_PDU_TRAP_V1;
-	/* generic-trap / enterprise / specific-trap from snmpTrapOID (RFC 2576 §3.2). */
+	/* generic-trap / enterprise / specific-trap from snmpTrapOID (RFC 3584 §3.2). */
 	snmp_v1_trap_parameters(&inst->current_pdu, trap_oid);
 	inst->current_pdu.timestamp = (uint32_t)(k_uptime_get() / 10);
 
 #if defined(CONFIG_NET_IPV4)
 	struct net_if *iface_v1 = inst->bound_iface ? inst->bound_iface : net_if_get_default();
-	if (iface_v1 && iface_v1->config.ip.ipv4) {
-		memcpy(inst->current_pdu.agent_addr,
-		       &iface_v1->config.ip.ipv4->unicast[0].ipv4.address.in_addr, 4);
+	struct net_in_addr agent_addr;
+	if (snmp_trap_iface_ipv4(iface_v1, &agent_addr)) {
+		memcpy(inst->current_pdu.agent_addr, &agent_addr, sizeof(agent_addr));
 	}
 #endif
 	strncpy((char *)inst->current_pdu.community, comm, sizeof(inst->current_pdu.community) - 1);
