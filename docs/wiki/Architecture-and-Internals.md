@@ -178,6 +178,6 @@ The largest members are `mib_nodes[128]` (11.0 KiB), the `scratch` union (8.5 Ki
 | `CONFIG_SNMP_MAX_MIB_NODES` | `128` | Pre-allocated scalar node storage per agent instance (~13.3 KiB). |
 | `CONFIG_SNMP_MAX_TABLES` | `8` | Pre-allocated tabular MIB descriptors per agent instance. |
 | `CONFIG_SNMP_MAX_IFACES` | `8` | Maximum interfaces tracked in MIB-II `ifTable`. |
-| `CONFIG_SNMP_TRAP_DEST_COUNT` | `3` | Remote NMS trap target slots. |
+| `CONFIG_SNMP_TRAP_DEST_COUNT` | `4` | Remote NMS trap target slots. |
 | `CONFIG_ZVFS_POLL_MAX` | `4` | Zephyr VFS poll budget; must be $\ge \text{INSTANCES} \times \text{FDS} + 1$. |
 

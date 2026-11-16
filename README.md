@@ -149,7 +149,7 @@ snmptrapd -f -Lo
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `CONFIG_SNMP_TRAP_ENABLED` | bool | y | Enable trap and inform engine |
-| `CONFIG_SNMP_TRAP_DEST_COUNT` | int | 3 | Maximum trap destinations |
+| `CONFIG_SNMP_TRAP_DEST_COUNT` | int | 4 | Maximum trap destinations |
 
 ### Rate Limiting
 
@@ -218,6 +218,8 @@ int snmp_mib_table_remove_row(struct snmp_agent *agent,
 
 ```c
 int snmp_trap_add_destination(struct snmp_agent *agent, const char *ipv4);
+int snmp_trap_add_destination_port(struct snmp_agent *agent, const char *ipv4, uint16_t port);
+int snmp_trap_clear_destinations(struct snmp_agent *agent);
 int snmp_trap_send_coldstart(struct snmp_agent *agent);
 int snmp_trap_send_auth_failure(struct snmp_agent *agent);
 int snmp_trap_send(struct snmp_agent *agent,

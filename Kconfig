@@ -347,13 +347,13 @@ endchoice
 
 config SNMP_TRAP_DEST_COUNT
 	int "Maximum concurrent trap destinations"
-	range 1 16
-	default 3
+	range 1 32
+	default 4
 	help
 	  Maximum number of trap destination hosts.
 	  Destinations are configured at runtime via
-	  snmp_trap_add_destination(). Increase this if you need
-	  to send traps to more than 3 NMS servers.
+	  snmp_trap_add_destination() or snmp_trap_add_destination_port().
+	  Increase this if you need to send traps to more than 4 NMS servers.
 
 config SNMP_TRAP_V3_USER
 	string "SNMPv3 notification user name"

@@ -2335,7 +2335,7 @@ PREDEFINED             = __syscall= \
                          CONFIG_SNMP_MAX_MIB_NODES=128 \
                          CONFIG_SNMP_MAX_TABLES=8 \
                          CONFIG_SNMP_MAX_IFACES=8 \
-                         CONFIG_SNMP_TRAP_DEST_COUNT=3 \
+                         CONFIG_SNMP_TRAP_DEST_COUNT=4 \
                          CONFIG_SNMP_V3_MAX_USERS=4 \
                          CONFIG_SNMP_MAX_OID_LEN=16 \
                          CONFIG_SNMP_MAX_VARBINDS=32 \

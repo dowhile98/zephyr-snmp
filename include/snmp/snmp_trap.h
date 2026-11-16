@@ -21,7 +21,7 @@ extern "C" {
  */
 
 #ifndef CONFIG_SNMP_TRAP_DEST_COUNT
-#define CONFIG_SNMP_TRAP_DEST_COUNT 3
+#define CONFIG_SNMP_TRAP_DEST_COUNT 4
 #endif
 
 /* Forward declaration of agent instance */
@@ -30,13 +30,38 @@ struct snmp_agent;
 /* ---- Instance-based APIs ---- */
 
 /**
- * @brief Add a destination IPv4 address for trap notifications on one agent.
+ * @brief Add a destination IPv4 address and custom port for trap notifications on one agent.
+ *
  * @param inst Target agent instance.
- * @param addr Dotted-quad destination; port is CONFIG_SNMP_TRAP_PORT.
+ * @param addr Dotted-quad destination IPv4 address (supports optional ":port" or "[ip]:port"
+ * syntax).
+ * @param port Destination UDP port (1..65535). If 0 and no port in @p addr, CONFIG_SNMP_TRAP_PORT
+ * is used.
+ * @return 0 on success, -EINVAL on bad arguments/port format, -ENOMEM if the destination table
+ *         (CONFIG_SNMP_TRAP_DEST_COUNT) is full.
+ */
+int snmp_trap_add_destination_port(struct snmp_agent *inst, const char *addr, uint16_t port);
+
+/**
+ * @brief Add a destination IPv4 address for trap notifications on one agent.
+ *
+ * Destination port defaults to CONFIG_SNMP_TRAP_PORT, or can be specified inline
+ * in @p addr (e.g. "192.168.1.100:1162").
+ *
+ * @param inst Target agent instance.
+ * @param addr Dotted-quad destination (e.g. "192.168.1.100" or "192.168.1.100:1162").
  * @return 0 on success, -EINVAL on bad arguments, -ENOMEM if the destination table
  *         (CONFIG_SNMP_TRAP_DEST_COUNT) is full.
  */
 int snmp_trap_add_destination(struct snmp_agent *inst, const char *addr);
+
+/**
+ * @brief Clear all configured trap destinations on one agent.
+ *
+ * @param inst Target agent instance.
+ * @return 0 on success, -EINVAL on bad arguments.
+ */
+int snmp_trap_clear_destinations(struct snmp_agent *inst);
 
 /**
  * @brief Send an SNMP Trap or Inform notification from one agent.

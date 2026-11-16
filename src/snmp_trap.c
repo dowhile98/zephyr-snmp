@@ -9,6 +9,7 @@
 #include "snmp_internal.h"
 #include <zephyr/net/net_if.h>
 #include <zephyr/net/socket.h>
+#include <stdlib.h>
 #include <string.h>
 #include <errno.h>
 
@@ -63,28 +64,114 @@ static bool snmp_trap_iface_ipv4(struct net_if *iface, struct net_in_addr *addr)
 #endif
 #endif
 
-int snmp_trap_add_destination(struct snmp_agent *inst, const char *addr)
+int snmp_trap_add_destination_port(struct snmp_agent *inst, const char *addr, uint16_t port)
 {
 	if (!inst || !addr) {
 		return -EINVAL;
 	}
-	if (inst->trap_dest_cnt >= CONFIG_SNMP_TRAP_DEST_COUNT) {
-		return -ENOMEM;
+
+	char ip_buf[INET_ADDRSTRLEN + 8];
+	const char *ip_start = addr;
+	size_t ip_len = 0;
+	const char *port_str = NULL;
+	uint16_t target_port = port;
+
+	if (*addr == '[') {
+		const char *close_bracket = strchr(addr, ']');
+
+		if (!close_bracket) {
+			return -EINVAL;
+		}
+		ip_start = addr + 1;
+		ip_len = (size_t)(close_bracket - ip_start);
+		if (close_bracket[1] == ':') {
+			port_str = close_bracket + 2;
+		} else if (close_bracket[1] != '\0') {
+			return -EINVAL;
+		}
+	} else {
+		const char *colon = strchr(addr, ':');
+
+		if (colon) {
+			if (strchr(colon + 1, ':') != NULL) {
+				return -EINVAL;
+			}
+			ip_start = addr;
+			ip_len = (size_t)(colon - ip_start);
+			port_str = colon + 1;
+		} else {
+			ip_start = addr;
+			ip_len = strlen(addr);
+		}
 	}
 
-	struct sockaddr_in *dest = &inst->trap_dests[inst->trap_dest_cnt];
-	memset(dest, 0, sizeof(*dest));
-
-	dest->sin_family = AF_INET;
-	dest->sin_port = htons(CONFIG_SNMP_TRAP_PORT);
-
-	int ret = zsock_inet_pton(AF_INET, addr, &dest->sin_addr);
-	if (ret <= 0) {
-
+	if (ip_len == 0 || ip_len >= sizeof(ip_buf)) {
 		return -EINVAL;
 	}
 
+	memcpy(ip_buf, ip_start, ip_len);
+	ip_buf[ip_len] = '\0';
+
+	if (port_str) {
+		char *endptr = NULL;
+		unsigned long parsed_p = strtoul(port_str, &endptr, 10);
+
+		if (endptr == port_str || *endptr != '\0' || parsed_p == 0 || parsed_p > 65535) {
+			return -EINVAL;
+		}
+		if (port != 0 && port != (uint16_t)parsed_p) {
+			return -EINVAL;
+		}
+		target_port = (uint16_t)parsed_p;
+	} else if (target_port == 0) {
+		target_port = CONFIG_SNMP_TRAP_PORT;
+	}
+
+	if (target_port == 0) {
+		return -EINVAL;
+	}
+
+	struct sockaddr_in dest;
+
+	memset(&dest, 0, sizeof(dest));
+	dest.sin_family = AF_INET;
+	dest.sin_port = htons(target_port);
+
+	int ret = zsock_inet_pton(AF_INET, ip_buf, &dest.sin_addr);
+
+	if (ret <= 0) {
+		return -EINVAL;
+	}
+
+	k_mutex_lock(&inst->lock, K_FOREVER);
+	if (inst->trap_dest_cnt >= CONFIG_SNMP_TRAP_DEST_COUNT) {
+		k_mutex_unlock(&inst->lock);
+		return -ENOMEM;
+	}
+
+	inst->trap_dests[inst->trap_dest_cnt] = dest;
 	inst->trap_dest_cnt++;
+	k_mutex_unlock(&inst->lock);
+
+	return 0;
+}
+
+int snmp_trap_add_destination(struct snmp_agent *inst, const char *addr)
+{
+	return snmp_trap_add_destination_port(inst, addr, 0);
+}
+
+int snmp_trap_clear_destinations(struct snmp_agent *inst)
+{
+	if (!inst) {
+		return -EINVAL;
+	}
+
+	k_mutex_lock(&inst->lock, K_FOREVER);
+	inst->trap_dest_cnt = 0;
+	memset(inst->trap_dests, 0, sizeof(inst->trap_dests));
+	k_mutex_unlock(&inst->lock);
+
 	return 0;
 }
 
