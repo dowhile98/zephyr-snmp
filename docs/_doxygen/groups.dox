@@ -1,4 +1,10 @@
 /**
+ * @defgroup networking Networking Subsystem
+ * @{
+ * @}
+ */
+
+/**
  * @defgroup snmp_api Public Agent API & Management
  * @{
  * @brief Public agent initialization, lifecycle management, and MIB registration.
