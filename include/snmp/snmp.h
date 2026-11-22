@@ -1,7 +1,9 @@
 /*
  * Copyright (c) 2026 StructCore Embedded
  * SPDX-License-Identifier: Apache-2.0
- *
+ */
+
+/**
  * @file snmp.h
  * @brief Public API for the SNMP agent module (v1 / v2c / v3).
  *
