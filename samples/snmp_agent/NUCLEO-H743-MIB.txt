@@ -1,3 +1,6 @@
+-- SPDX-FileCopyrightText: Copyright (c) 2026 StructCore Embedded
+-- SPDX-License-Identifier: Apache-2.0
+
 NUCLEO-H743-MIB DEFINITIONS ::= BEGIN
 
 IMPORTS

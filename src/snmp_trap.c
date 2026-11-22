@@ -196,15 +196,8 @@ static int snmp_trap_send_v3(struct snmp_agent *inst, const struct snmp_oid *tra
 	int err;
 	int ret;
 
-	if (!inst || !trap_oid) {
+	if (inst == NULL || trap_oid == NULL) {
 		return -EINVAL;
-	}
-
-	/* A notification without a destination is a configuration error, not a broadcast:
-	 * blasting traps to 255.255.255.255 leaks device identity to the whole segment.
-	 */
-	if (inst->trap_dest_cnt == 0) {
-		return -EDESTADDRREQ;
 	}
 
 	/* Two mandatory varbinds (sysUpTime.0, snmpTrapOID.0) plus the caller's. */
@@ -230,6 +223,14 @@ static int snmp_trap_send_v3(struct snmp_agent *inst, const struct snmp_oid *tra
 	 * already calls under this same lock - cannot self-deadlock.
 	 */
 	k_mutex_lock(&inst->lock, K_FOREVER);
+
+	/* A notification without a destination is a configuration error, not a broadcast:
+	 * blasting traps to 255.255.255.255 leaks device identity to the whole segment.
+	 */
+	if (inst->trap_dest_cnt == 0) {
+		k_mutex_unlock(&inst->lock);
+		return -EDESTADDRREQ;
+	}
 
 	memset(&msg, 0, sizeof(msg));
 
@@ -381,13 +382,8 @@ static int snmp_trap_send_v3(struct snmp_agent *inst, const struct snmp_oid *tra
 int snmp_trap_send(struct snmp_agent *inst, const struct snmp_oid *trap_oid,
 		   const struct snmp_varbind *varbinds, uint8_t varbind_cnt, bool is_inform)
 {
-	if (!inst || !trap_oid) {
+	if (inst == NULL || trap_oid == NULL) {
 		return -EINVAL;
-	}
-
-	/* Never fall back to a broadcast: an unconfigured destination is an error. */
-	if (inst->trap_dest_cnt == 0) {
-		return -EDESTADDRREQ;
 	}
 
 	if (varbind_cnt > CONFIG_SNMP_MAX_VARBINDS - 2) {
@@ -419,6 +415,12 @@ int snmp_trap_send(struct snmp_agent *inst, const struct snmp_oid *trap_oid,
 #endif
 
 	k_mutex_lock(&inst->lock, K_FOREVER);
+
+	/* Never fall back to a broadcast: an unconfigured destination is an error. */
+	if (inst->trap_dest_cnt == 0) {
+		k_mutex_unlock(&inst->lock);
+		return -EDESTADDRREQ;
+	}
 
 	int sock = zsock_socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
 	if (sock < 0) {

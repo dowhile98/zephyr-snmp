@@ -23,8 +23,6 @@
 extern "C" {
 #endif
 
-#ifdef CONFIG_SNMP_AGENT
-
 /**
  * @addtogroup snmp_core
  * @{
@@ -352,8 +350,6 @@ int snmp_agent_load_engine_boots(struct snmp_agent *agent);
 #endif /* CONFIG_SNMP_VERSION_3 */
 
 /** @} */
-
-#endif /* CONFIG_SNMP_AGENT */
 
 #ifdef __cplusplus
 }

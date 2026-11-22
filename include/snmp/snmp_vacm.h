@@ -13,8 +13,6 @@
 extern "C" {
 #endif
 
-#ifdef CONFIG_SNMP_AGENT
-
 /**
  * @addtogroup snmp_vacm
  * @{
@@ -182,8 +180,6 @@ int snmp_vacm_check_access_ex(struct snmp_agent *inst, const char *context_name,
 int snmp_vacm_check_access(struct snmp_agent *inst, const struct snmp_v3_msg *msg, bool is_write);
 
 /** @} */
-
-#endif /* CONFIG_SNMP_AGENT */
 
 #ifdef __cplusplus
 }

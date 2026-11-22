@@ -9,7 +9,7 @@
 menu "SNMP Agent Configuration"
 
 config SNMP_AGENT
-	bool "Enable SNMP Agent Subsystem"
+	bool "SNMP agent subsystem"
 	depends on NETWORKING
 	depends on NET_UDP
 	depends on NET_SOCKETS
@@ -69,7 +69,7 @@ config SNMP_COMMUNITY_WRITE
 	  Community string required for SET requests.
 
 config SNMP_VERSION_1
-	bool "Enable SNMPv1 protocol support"
+	bool "SNMPv1 protocol support"
 	default y
 	help
 	  SNMPv1 (RFC 1157) — community-based authentication.
@@ -78,7 +78,7 @@ config SNMP_VERSION_1
 	  For modern NMS compatibility, prefer v2c traps (VERSION_2C).
 
 config SNMP_VERSION_2C
-	bool "Enable SNMPv2c protocol support"
+	bool "SNMPv2c protocol support"
 	default y
 	help
 	  SNMPv2c (RFC 3416) — community-based authentication.
@@ -88,10 +88,9 @@ config SNMP_VERSION_2C
 	  varbinds. This is the recommended version for modern NMS tools.
 
 config SNMP_VERSION_3
-	bool "Enable SNMPv3 protocol support"
+	bool "SNMPv3 protocol support"
 	default n
 	select PSA_CRYPTO
-	select MBEDTLS
 	select PSA_WANT_KEY_TYPE_AES
 	select PSA_WANT_ALG_CFB
 	select PSA_WANT_ALG_HMAC
@@ -147,7 +146,7 @@ config SNMP_V3_PRIV_PASS
 	  Change this from the default before deploying.
 
 config SNMP_USM_AUTH_SHA
-	bool "Enable HMAC-SHA-1 authentication"
+	bool "HMAC-SHA-1 authentication"
 	default y
 	select PSA_WANT_ALG_SHA_1
 	help
@@ -155,15 +154,15 @@ config SNMP_USM_AUTH_SHA
 	  Produces a 12-byte authentication tag. Recommended over MD5.
 
 config SNMP_USM_AUTH_SHA256
-	bool "Enable HMAC-SHA-256 authentication (RFC 7860)"
+	bool "HMAC-SHA-256 authentication (RFC 7860)"
 	default y
 	select PSA_WANT_ALG_SHA_256
 	help
 	  Enable SHA-256 based HMAC authentication for SNMPv3 (RFC 7860).
-	  Produces a 16-byte authentication tag.
+	  Produces a 24-byte authentication tag.
 
 config SNMP_USM_AUTH_MD5
-	bool "Enable HMAC-MD5 authentication (Insecure)"
+	bool "HMAC-MD5 authentication (Insecure)"
 	default n
 	select PSA_WANT_ALG_MD5
 	help
@@ -172,7 +171,7 @@ config SNMP_USM_AUTH_MD5
 	  cryptographically broken; use SHA-1 or disable v3 instead.
 
 config SNMP_USM_PRIV_AES
-	bool "Enable AES-128 privacy encryption"
+	bool "AES-128 privacy encryption"
 	default y
 	help
 	  Enable AES-128 in CFB mode for SNMPv3 scopedPDU encryption
@@ -247,13 +246,14 @@ endif # SNMP_VERSION_3
 
 config SNMP_MAX_PDU_SIZE
 	int "Maximum SNMP PDU size in bytes"
-	range 484 65535
+	range 484 4096
 	default 1024
 	help
 	  Maximum size of a single SNMP packet (request or response).
 	  Larger GetBulk responses are truncated. Most SNMP implementations
 	  use 1500-2048; 1024 is conservative for embedded use.
 	  The lower bound is RFC 3412 §8.1's 484-octet minimum msgMaxSize.
+	  Values above 2048 require increasing CONFIG_NET_SOCKETS_SERVICE_STACK_SIZE.
 
 config SNMP_MAX_OID_LEN
 	int "Maximum OID depth"
@@ -300,7 +300,7 @@ config SNMP_MAX_IFACES
 	  (RFC 2863 / RFC 1213).
 
 config SNMP_TRAP_ENABLED
-	bool "Enable SNMP Trap & Inform notification engine"
+	bool "SNMP Trap & Inform notification engine"
 	default y
 	help
 	  Enable generation and transmission of SNMP Traps v1/v2c/v3
@@ -368,7 +368,7 @@ config SNMP_TRAP_V3_USER
 endif # SNMP_TRAP_ENABLED
 
 config SNMP_RATE_LIMIT
-	bool "Enable SNMP request rate limiting"
+	bool "SNMP request rate limiting"
 	default n
 	help
 	  Enable a simple token-bucket rate limiter for incoming SNMP

@@ -124,8 +124,13 @@ static void set_defaults(struct snmp_agent *agent)
 
 int snmp_agent_init(struct snmp_agent *agent, const struct snmp_agent_cfg *cfg)
 {
-	if (!agent) {
+	int ret;
+
+	if (agent == NULL) {
 		return -EINVAL;
+	}
+	if (agent->state == SNMP_AGENT_RUNNING || agent->state == SNMP_AGENT_STOPPING) {
+		return -EBUSY;
 	}
 
 	memset(agent, 0, sizeof(*agent));
@@ -138,7 +143,7 @@ int snmp_agent_init(struct snmp_agent *agent, const struct snmp_agent_cfg *cfg)
 	agent->rate_last_refill = k_uptime_get();
 #endif
 
-	if (cfg) {
+	if (cfg != NULL) {
 		if (cfg->port != 0) {
 			agent->port = cfg->port;
 		}
@@ -173,10 +178,13 @@ int snmp_agent_init(struct snmp_agent *agent, const struct snmp_agent_cfg *cfg)
 
 	/* MIB tree: always fresh on init (defaults are instance-scoped). */
 	snmp_mib_init(agent);
-	snmp_mib_register_defaults(agent);
+	ret = snmp_mib_register_defaults(agent);
+	if (ret != 0) {
+		return ret;
+	}
 
 #if defined(CONFIG_SNMP_VERSION_3)
-	if (cfg) {
+	if (cfg != NULL) {
 		if (cfg->engine_id != NULL && cfg->engine_id_len > 0 &&
 		    cfg->engine_id_len <= sizeof(agent->engine_id)) {
 			memcpy(agent->engine_id, cfg->engine_id, cfg->engine_id_len);
@@ -187,9 +195,18 @@ int snmp_agent_init(struct snmp_agent *agent, const struct snmp_agent_cfg *cfg)
 		}
 		agent->settings_prefix = cfg->settings_prefix;
 	}
-	snmp_usm_init(agent);
-	snmp_vacm_init(agent);
-	snmp_usm_register_mibs(agent);
+	ret = snmp_usm_init(agent);
+	if (ret != 0) {
+		return ret;
+	}
+	ret = snmp_vacm_init(agent);
+	if (ret != 0) {
+		return ret;
+	}
+	ret = snmp_usm_register_mibs(agent);
+	if (ret != 0) {
+		return ret;
+	}
 
 	/* Contract 3.7 call order: defaults -> cfg.engine_boots -> persisted override. */
 	if (agent->settings_prefix != NULL) {
@@ -203,7 +220,7 @@ int snmp_agent_init(struct snmp_agent *agent, const struct snmp_agent_cfg *cfg)
 
 int snmp_agent_start(struct snmp_agent *agent)
 {
-	if (!agent) {
+	if (agent == NULL) {
 		return -EINVAL;
 	}
 	if (agent->state == SNMP_AGENT_UNINIT) {
@@ -246,7 +263,7 @@ int snmp_agent_start(struct snmp_agent *agent)
 
 int snmp_agent_stop(struct snmp_agent *agent)
 {
-	if (!agent) {
+	if (agent == NULL) {
 		return -EINVAL;
 	}
 
@@ -280,7 +297,9 @@ int snmp_agent_stop(struct snmp_agent *agent)
 
 int snmp_agent_deinit(struct snmp_agent *agent)
 {
-	if (!agent) {
+	int ret;
+
+	if (agent == NULL) {
 		return -EINVAL;
 	}
 	if (agent->state == SNMP_AGENT_UNINIT) {
@@ -291,8 +310,7 @@ int snmp_agent_deinit(struct snmp_agent *agent)
 	 * would let an in-flight request observe a half-cleared instance.
 	 */
 	if (agent->state == SNMP_AGENT_RUNNING || agent->state == SNMP_AGENT_STOPPING) {
-		int ret = snmp_agent_stop(agent);
-
+		ret = snmp_agent_stop(agent);
 		if (ret < 0) {
 			return ret;
 		}
@@ -307,7 +325,11 @@ int snmp_agent_deinit(struct snmp_agent *agent)
 	agent->counters.snmpEnableAuthenTraps = 1;
 
 	snmp_mib_init(agent);
-	snmp_mib_register_defaults(agent);
+	ret = snmp_mib_register_defaults(agent);
+	if (ret != 0) {
+		k_mutex_unlock(&agent->lock);
+		return ret;
+	}
 
 #if defined(CONFIG_SNMP_VERSION_3)
 	/* Drop credentials/access tables, keep this engine's identity. */
@@ -321,9 +343,21 @@ int snmp_agent_deinit(struct snmp_agent *agent)
 	agent->access_rule_cnt = 0;
 	memset(agent->views, 0, sizeof(agent->views));
 	agent->view_cnt = 0;
-	snmp_usm_init(agent);
-	snmp_vacm_init(agent);
-	snmp_usm_register_mibs(agent);
+	ret = snmp_usm_init(agent);
+	if (ret != 0) {
+		k_mutex_unlock(&agent->lock);
+		return ret;
+	}
+	ret = snmp_vacm_init(agent);
+	if (ret != 0) {
+		k_mutex_unlock(&agent->lock);
+		return ret;
+	}
+	ret = snmp_usm_register_mibs(agent);
+	if (ret != 0) {
+		k_mutex_unlock(&agent->lock);
+		return ret;
+	}
 #endif
 
 	agent->state = SNMP_AGENT_INITIALIZED;
@@ -334,7 +368,8 @@ int snmp_agent_deinit(struct snmp_agent *agent)
 
 int snmp_agent_set_read_community(struct snmp_agent *agent, const char *community)
 {
-	if (!agent || !community || strlen(community) >= sizeof(agent->read_community)) {
+	if (agent == NULL || community == NULL ||
+	    strlen(community) >= sizeof(agent->read_community)) {
 		return -EINVAL;
 	}
 	if (agent->state == SNMP_AGENT_UNINIT) {
@@ -348,7 +383,8 @@ int snmp_agent_set_read_community(struct snmp_agent *agent, const char *communit
 
 int snmp_agent_set_write_community(struct snmp_agent *agent, const char *community)
 {
-	if (!agent || !community || strlen(community) >= sizeof(agent->write_community)) {
+	if (agent == NULL || community == NULL ||
+	    strlen(community) >= sizeof(agent->write_community)) {
 		return -EINVAL;
 	}
 	if (agent->state == SNMP_AGENT_UNINIT) {
@@ -699,7 +735,7 @@ int snmp_agent_process_pdu(struct snmp_agent *agent, const uint8_t *req_buf, siz
 {
 	int ret;
 
-	if (!agent || !req_buf || !resp_buf || !out_resp_len) {
+	if (agent == NULL || req_buf == NULL || resp_buf == NULL || out_resp_len == NULL) {
 		return -EINVAL;
 	}
 

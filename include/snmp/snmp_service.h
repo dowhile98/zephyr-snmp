@@ -12,8 +12,6 @@
 extern "C" {
 #endif
 
-#ifdef CONFIG_SNMP_AGENT
-
 /*
  * There is no process-wide transport entry point any more. The socket-service adapter is
  * per instance and is driven exclusively by the lifecycle API:
@@ -31,8 +29,6 @@ extern "C" {
  *             this header once documented were removed in sub-phase 8c. Delete the file
  *             in sub-phase 8d after auditing that nothing includes it.
  */
-
-#endif /* CONFIG_SNMP_AGENT */
 
 #ifdef __cplusplus
 }

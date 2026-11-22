@@ -13,8 +13,6 @@
 extern "C" {
 #endif
 
-#ifdef CONFIG_SNMP_AGENT
-
 /**
  * @addtogroup snmp_trap
  * @{
@@ -99,8 +97,6 @@ int snmp_trap_send_coldstart(struct snmp_agent *inst);
 int snmp_trap_send_auth_failure(struct snmp_agent *inst);
 
 /** @} */
-
-#endif /* CONFIG_SNMP_AGENT */
 
 #ifdef __cplusplus
 }

@@ -219,7 +219,7 @@ int app_mib_init(struct snmp_agent *agent)
 				   .ids = {1, 3, 6, 1, 4, 1, CONFIG_SNMP_SAMPLE_ENTERPRISE_ID}};
 	snmp_set_device_enterprise_oid(agent, &ent_oid);
 
-#if defined(CONFIG_SNMP_SAMPLE_SENSOR_OBJECT) || !defined(CONFIG_SNMP_SAMPLE_SENSOR_OBJECT)
+#if defined(CONFIG_SNMP_SAMPLE_SENSOR_OBJECT)
 	/* 1. Register sensorValue (1.3.6.1.4.1.<enterprise>.1.1.1.0) */
 	static const struct snmp_mib_node node_sensor_val = {
 		.oid = {.len = 11,
@@ -277,7 +277,7 @@ int app_mib_init(struct snmp_agent *agent)
 	}
 #endif
 
-#if defined(CONFIG_SNMP_SAMPLE_LED_OBJECT) || !defined(CONFIG_SNMP_SAMPLE_LED_OBJECT)
+#if defined(CONFIG_SNMP_SAMPLE_LED_OBJECT)
 	/* 2. Register ledState (1.3.6.1.4.1.<enterprise>.1.1.2.0) */
 	static const struct snmp_mib_node node_led = {
 		.oid = {.len = 11,
@@ -293,7 +293,7 @@ int app_mib_init(struct snmp_agent *agent)
 	}
 #endif
 
-#if defined(CONFIG_SNMP_SAMPLE_BUTTON_TRAP) || !defined(CONFIG_SNMP_SAMPLE_BUTTON_TRAP)
+#if defined(CONFIG_SNMP_SAMPLE_BUTTON_TRAP)
 	/* 3. Register buttonCounter (1.3.6.1.4.1.<enterprise>.1.1.3.0) */
 	static const struct snmp_mib_node node_btn = {
 		.oid = {.len = 11,

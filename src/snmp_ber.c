@@ -938,11 +938,11 @@ static int ber_push_null(uint8_t *buf, size_t *pos, uint8_t tag)
 
 static int ber_push_oid(uint8_t *buf, size_t *pos, const struct snmp_oid *oid)
 {
-	if (!oid || oid->len < 2) {
+	if (oid == NULL || oid->len < 2U) {
 		return -EINVAL;
 	}
 
-	uint8_t tmp[128];
+	uint8_t tmp[CONFIG_SNMP_MAX_OID_LEN * 5];
 	size_t off = 0;
 	int ret = snmp_ber_encode_oid(tmp, sizeof(tmp), &off, oid);
 	if (ret < 0) {
@@ -1315,7 +1315,7 @@ int snmp_ber_decode_v3_msg(const uint8_t *buf, size_t buf_len, struct snmp_v3_ms
 
 	/* When priv flag is set, scopedPDU is a single OCTET STRING
 	 * (encrypted data). Store offset/length for later decryption. */
-	if (msg->global.msg_flags & 0x02) {
+	if ((msg->global.msg_flags & 0x02U) != 0U) {
 		if (tag != ASN1_TAG_OCTET_STRING) {
 			return -EBADMSG;
 		}
@@ -1364,7 +1364,7 @@ int snmp_ber_encode_v3_msg(uint8_t *buf, size_t buf_len, size_t *out_len,
 	int ret;
 
 	/* 1. ScopedPduData CHOICE { plaintext ScopedPDU, encryptedPDU OCTET STRING } */
-	if (msg->global.msg_flags & 0x02) {
+	if ((msg->global.msg_flags & 0x02U) != 0U) {
 		ret = ber_push_octet_string(buf, &pos, ASN1_TAG_OCTET_STRING,
 					    msg->scoped.priv_ciphertext,
 					    msg->scoped.priv_ciphertext_len);

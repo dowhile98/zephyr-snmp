@@ -13,8 +13,6 @@
 extern "C" {
 #endif
 
-#ifdef CONFIG_SNMP_AGENT
-
 /**
  * @addtogroup snmp_usm
  * @{
@@ -131,8 +129,6 @@ int snmp_usm_register_mibs(struct snmp_agent *inst);
  * they are called across translation units (snmp_core.c, snmp_trap.c) and are
  * declared in src/snmp_internal.h, not here.
  */
-
-#endif /* CONFIG_SNMP_AGENT */
 
 #ifdef __cplusplus
 }

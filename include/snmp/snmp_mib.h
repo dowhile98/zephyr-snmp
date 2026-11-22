@@ -13,8 +13,6 @@
 extern "C" {
 #endif
 
-#ifdef CONFIG_SNMP_AGENT
-
 /**
  * @addtogroup snmp_mib
  * @{
@@ -382,8 +380,6 @@ int snmp_mib2_set_sysname(struct snmp_agent *inst, const char *name);
 int snmp_mib2_set_syslocation(struct snmp_agent *inst, const char *location);
 
 /** @} */
-
-#endif /* CONFIG_SNMP_AGENT */
 
 #ifdef __cplusplus
 }

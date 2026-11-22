@@ -15,8 +15,6 @@
 extern "C" {
 #endif
 
-#ifdef CONFIG_SNMP_AGENT
-
 /**
  * @addtogroup snmp_ber
  * @{
@@ -215,8 +213,6 @@ bool snmp_oid_equal(const struct snmp_oid *o1, const struct snmp_oid *o2);
 int snmp_oid_compare(const struct snmp_oid *o1, const struct snmp_oid *o2);
 
 /** @} */
-
-#endif /* CONFIG_SNMP_AGENT */
 
 #ifdef __cplusplus
 }

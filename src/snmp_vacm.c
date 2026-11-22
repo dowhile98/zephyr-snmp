@@ -523,16 +523,20 @@ int snmp_vacm_check_access_ex(struct snmp_agent *inst, const char *context_name,
 
 int snmp_vacm_check_access(struct snmp_agent *inst, const struct snmp_v3_msg *msg, bool is_write)
 {
-	if (!inst || !msg) {
+	if (inst == NULL || msg == NULL) {
 		return -EINVAL;
 	}
 
-	int sec_level = SNMP_SEC_LEVEL_NOAUTH_NOPRIV;
-	if (msg->global.msg_flags & 0x02) {
-
-		sec_level = SNMP_SEC_LEVEL_AUTH_PRIV;
-	} else if (msg->global.msg_flags & 0x01) {
-		sec_level = SNMP_SEC_LEVEL_AUTH_NOPRIV;
+	int sec_level = (int)msg->sec_level;
+	if (sec_level == 0) {
+		/* Fallback if sec_level was not filled by USM verification (e.g. mock caller) */
+		if ((msg->global.msg_flags & 0x02U) != 0U) {
+			sec_level = SNMP_SEC_LEVEL_AUTH_PRIV;
+		} else if ((msg->global.msg_flags & 0x01U) != 0U) {
+			sec_level = SNMP_SEC_LEVEL_AUTH_NOPRIV;
+		} else {
+			sec_level = SNMP_SEC_LEVEL_NOAUTH_NOPRIV;
+		}
 	}
 
 	int access_type = is_write ? SNMP_VACM_ACCESS_WRITE : SNMP_VACM_ACCESS_READ;

@@ -358,8 +358,12 @@ static void snmp_service_cb(struct net_socket_service_event *pev)
 			/* Lock held across recv/process/send: required to protect this
 			 * instance's rx_buf/tx_buf, and the service thread is serial anyway.
 			 */
-			zsock_sendto(pev->event.fd, agent->tx_buf, resp_len, 0,
-				     (const struct sockaddr *)&client_addr, addr_len);
+			ssize_t sent =
+				zsock_sendto(pev->event.fd, agent->tx_buf, resp_len, 0,
+					     (const struct sockaddr *)&client_addr, addr_len);
+			if (sent < 0) {
+				LOG_WRN("sendto failed (%d)", -errno);
+			}
 		}
 	}
 

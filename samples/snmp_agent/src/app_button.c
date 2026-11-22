@@ -115,7 +115,7 @@ int app_button_trigger_notification(void)
 #if defined(CONFIG_SNMP_TRAP_ENABLED)
 	/* Notification OID: 1.3.6.1.4.1.<enterprise>.1.2.1 (buttonPressed) */
 	struct snmp_oid trap_oid = {
-		.len = 9, .ids = {1, 3, 6, 1, 4, 1, CONFIG_SNMP_SAMPLE_ENTERPRISE_ID, 1, 2, 1}};
+		.len = 10, .ids = {1, 3, 6, 1, 4, 1, CONFIG_SNMP_SAMPLE_ENTERPRISE_ID, 1, 2, 1}};
 
 	struct snmp_varbind varbinds[2];
 

@@ -436,3 +436,47 @@ ZTEST(snmp_multi_instance, test_multi_instance_counter_isolation)
 	ASSERT_EQ(cb.snmpInPkts, 0);
 	ASSERT_EQ(cb.snmpEnableAuthenTraps, 1);
 }
+
+ZTEST(snmp_multi_instance, test_agent_lifecycle)
+{
+	static struct snmp_agent agent;
+	struct snmp_agent_cfg cfg = {
+		.port = 1161,
+		.sys_name = "LifecycleTest",
+	};
+
+	/* 1. NULL checks and uninitialized operations return -EINVAL or -EPERM */
+	ASSERT_EQ(snmp_agent_init(NULL, &cfg), -EINVAL);
+
+	/* 2. Initialize agent */
+	ASSERT_EQ(snmp_agent_init(&agent, &cfg), 0);
+	ASSERT_EQ(agent.state, SNMP_AGENT_INITIALIZED);
+
+#if defined(__ZEPHYR__)
+	/* 3. Start agent */
+	ASSERT_EQ(snmp_agent_start(&agent), 0);
+	ASSERT_EQ(agent.state, SNMP_AGENT_RUNNING);
+
+	/* 4. Double-start is rejected with -EPERM */
+	ASSERT_EQ(snmp_agent_start(&agent), -EPERM);
+
+	/* 5. Re-init while running is rejected with -EBUSY */
+	ASSERT_EQ(snmp_agent_init(&agent, &cfg), -EBUSY);
+
+	/* 6. Stop agent */
+	ASSERT_EQ(snmp_agent_stop(&agent), 0);
+	ASSERT_EQ(agent.state, SNMP_AGENT_STOPPED);
+
+	/* 7. Stop is idempotent */
+	ASSERT_EQ(snmp_agent_stop(&agent), 0);
+
+	/* 8. Restart after stop */
+	ASSERT_EQ(snmp_agent_start(&agent), 0);
+	ASSERT_EQ(agent.state, SNMP_AGENT_RUNNING);
+	ASSERT_EQ(snmp_agent_stop(&agent), 0);
+#endif
+
+	/* 9. Deinit agent resets to INITIALIZED */
+	ASSERT_EQ(snmp_agent_deinit(&agent), 0);
+	ASSERT_EQ(agent.state, SNMP_AGENT_INITIALIZED);
+}

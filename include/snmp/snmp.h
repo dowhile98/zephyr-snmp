@@ -4,25 +4,29 @@
  *
  * @file snmp.h
  * @brief Public API for the SNMP agent module (v1 / v2c / v3).
- * @ingroup snmp_api
+ *
+ * @defgroup snmp SNMP Agent API
+ * @ingroup networking
+ * @{
+ * @brief Simple Network Management Protocol (SNMP) agent API.
  *
  * ## Architecture
  *
  * The SNMP agent is a layered, self-contained module within the application:
  *
- *   ┌─────────────────────────────────────────────────┐
- *   │ snmp.h            Public API (this file)        │
- *   ├─────────────────────────────────────────────────┤
- *   │ snmp_service.c    UDP :161, Socket Service      │
- *   │ snmp_core.c       Version dispatch, auth        │
- *   │ snmp_mib.c        MIB tree, Get/GetNext/Set/    │
- *   │                   GetBulk, system+snmp MIB-II   │
- *   │ snmp_ber.c        ASN.1 BER encode/decode       │
- *   ├─────────────────────────────────────────────────┤
- *   │ snmp_usm.c        HMAC-SHA1/MD5, AES-CFB  (v3) │
- *   │ snmp_vacm.c       View-based access control(v3) │
- *   │ snmp_trap.c       Trap/Inform UDP :162          │
- *   └─────────────────────────────────────────────────┘
+ *   +-------------------------------------------------+
+ *   | snmp.h            Public API (this file)        |
+ *   +-------------------------------------------------+
+ *   | snmp_service.c    UDP :161, Socket Service      |
+ *   | snmp_core.c       Version dispatch, auth        |
+ *   | snmp_mib.c        MIB tree, Get/GetNext/Set/    |
+ *   |                   GetBulk, system+snmp MIB-II   |
+ *   | snmp_ber.c        ASN.1 BER encode/decode       |
+ *   +-------------------------------------------------+
+ *   | snmp_usm.c        HMAC-SHA1/MD5, AES-CFB  (v3)  |
+ *   | snmp_vacm.c       View-based access control(v3) |
+ *   | snmp_trap.c       Trap/Inform UDP :162          |
+ *   +-------------------------------------------------+
  *
  * Build-time configuration via Kconfig (prj.conf):
  *   CONFIG_SNMP_AGENT=y          enable the agent
@@ -113,14 +117,16 @@
 extern "C" {
 #endif
 
-#ifdef CONFIG_SNMP_AGENT
 /*
  * All public entry points are declared in the component headers included above:
  * lifecycle and communities in snmp_core.h, MIB and identity setters in snmp_mib.h,
  * traps in snmp_trap.h, v3 security in snmp_usm.h / snmp_vacm.h. There is no
  * default instance to facade any more: every call names the agent it acts on.
  */
-#endif /* CONFIG_SNMP_AGENT */
+
+/**
+ * @}
+ */
 
 #ifdef __cplusplus
 }

@@ -881,10 +881,18 @@ int snmp_usm_init(struct snmp_agent *inst)
 		default_user.user_name[len] = '\0';
 
 		len = snmp_strnlen(CONFIG_SNMP_V3_AUTH_PASS, sizeof(default_user.auth_pass));
+		if (len >= sizeof(default_user.auth_pass)) {
+			ret = -EINVAL;
+			goto unlock;
+		}
 		memcpy(default_user.auth_pass, CONFIG_SNMP_V3_AUTH_PASS, len);
 		default_user.auth_pass[len] = '\0';
 
 		len = snmp_strnlen(CONFIG_SNMP_V3_PRIV_PASS, sizeof(default_user.priv_pass));
+		if (len >= sizeof(default_user.priv_pass)) {
+			ret = -EINVAL;
+			goto unlock;
+		}
 		memcpy(default_user.priv_pass, CONFIG_SNMP_V3_PRIV_PASS, len);
 		default_user.priv_pass[len] = '\0';
 
@@ -1085,8 +1093,8 @@ int snmp_usm_verify_incoming(struct snmp_agent *inst, struct snmp_v3_msg *msg,
 	 * so checking it would prove nothing and only block legitimate noAuthNoPriv use.
 	 */
 	if (req_auth) {
-		int32_t local_time = (int32_t)snmp_usm_get_engine_time(inst);
-		int32_t diff = (int32_t)msg->usm.engine_time - local_time;
+		int64_t diff =
+			(int64_t)msg->usm.engine_time - (int64_t)snmp_usm_get_engine_time(inst);
 
 		if (diff < -150 || diff > 150 || msg->usm.engine_boots != inst->engine_boots) {
 			snmp_counter_inc(&inst->usm_stats.not_in_time_windows);
@@ -1221,26 +1229,21 @@ int snmp_usm_build_outgoing(struct snmp_agent *inst, struct snmp_v3_msg *msg)
 			return ret;
 		}
 
-		uint8_t ciphertext[CONFIG_SNMP_MAX_PDU_SIZE];
 		size_t ct_len = 0;
 
-		ret = aes128_cfb_encrypt(user->priv_key, iv, plaintext, pt_len, ciphertext,
-					 sizeof(ciphertext), &ct_len);
+		ret = aes128_cfb_encrypt(user->priv_key, iv, plaintext, pt_len,
+					 msg->scoped.priv_ciphertext,
+					 sizeof(msg->scoped.priv_ciphertext), &ct_len);
 		if (ret < 0) {
 			return ret;
 		}
 
-		if (ct_len > sizeof(msg->scoped.priv_ciphertext)) {
-			return -ENOBUFS;
-		}
-		memcpy(msg->scoped.priv_ciphertext, ciphertext, ct_len);
 		msg->scoped.priv_ciphertext_len = ct_len;
-		memset(&msg->scoped.pdu, 0, sizeof(msg->scoped.pdu));
 	}
 
 	memset(msg->usm.auth_params, 0, sizeof(msg->usm.auth_params));
 
-	if (user != NULL && (msg->global.msg_flags & 0x01)) {
+	if (user != NULL && ((msg->global.msg_flags & 0x01U) != 0U)) {
 		uint8_t hash_target[CONFIG_SNMP_MAX_PDU_SIZE];
 		size_t hash_len = 0;
 		int ret = snmp_ber_encode_v3_msg(hash_target, sizeof(hash_target), &hash_len, msg);
@@ -1272,7 +1275,7 @@ int snmp_usm_build_outgoing(struct snmp_agent *inst, struct snmp_v3_msg *msg)
 
 int snmp_usm_get_engine_id(struct snmp_agent *inst, uint8_t *engine_id, uint8_t *len)
 {
-	if (!inst || !engine_id || !len) {
+	if (inst == NULL || engine_id == NULL || len == NULL) {
 		return -EINVAL;
 	}
 	if (*len < inst->engine_id_len) {
@@ -1285,9 +1288,10 @@ int snmp_usm_get_engine_id(struct snmp_agent *inst, uint8_t *engine_id, uint8_t 
 
 int snmp_usm_set_engine_boots(struct snmp_agent *inst, uint32_t boots)
 {
-	if (!inst || boots > SNMP_ENGINE_BOOTS_MAX) {
+	if (inst == NULL || boots > SNMP_ENGINE_BOOTS_MAX) {
 		return -EINVAL;
 	}
+	k_mutex_lock(&inst->lock, K_FOREVER);
 	inst->engine_boots = boots;
 #if defined(CONFIG_SETTINGS)
 	/* Persist for whichever engine is configured to persist: the default-instance
@@ -1301,6 +1305,7 @@ int snmp_usm_set_engine_boots(struct snmp_agent *inst, uint32_t boots)
 		}
 	}
 #endif
+	k_mutex_unlock(&inst->lock);
 	return 0;
 }
 
