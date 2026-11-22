@@ -8,8 +8,8 @@
 
 menu "SNMP Agent Configuration"
 
-config SNMP_AGENT
-	bool "SNMP agent subsystem"
+menuconfig SNMP
+	bool "SNMP (Simple Network Management Protocol) support"
 	depends on NETWORKING
 	depends on NET_UDP
 	depends on NET_SOCKETS
@@ -20,7 +20,7 @@ config SNMP_AGENT
 	  Enables the ASN.1 BER codec, MIB tree engine, and UDP :161 listener.
 	  Disable to remove all SNMP code from the binary (~0 bytes).
 
-if SNMP_AGENT
+if SNMP
 
 config SNMP_MAX_INSTANCES
 	int "Maximum number of concurrently RUNNING SNMP agent instances"
@@ -91,8 +91,8 @@ config SNMP_VERSION_3
 	bool "SNMPv3 protocol support"
 	default n
 	select PSA_CRYPTO
-	select PSA_WANT_KEY_TYPE_AES
-	select PSA_WANT_ALG_CFB
+	select PSA_WANT_KEY_TYPE_AES if SNMP_USM_PRIV_AES
+	select PSA_WANT_ALG_CFB if SNMP_USM_PRIV_AES
 	select PSA_WANT_ALG_HMAC
 	select PSA_WANT_KEY_TYPE_HMAC
 	# The hash algorithms are selected by SNMP_USM_AUTH_SHA / _SHA256 / _MD5 below,
@@ -173,6 +173,8 @@ config SNMP_USM_AUTH_MD5
 config SNMP_USM_PRIV_AES
 	bool "AES-128 privacy encryption"
 	default y
+	select PSA_WANT_KEY_TYPE_AES
+	select PSA_WANT_ALG_CFB
 	help
 	  Enable AES-128 in CFB mode for SNMPv3 scopedPDU encryption
 	  (RFC 3414). Uses a 16-byte initialization vector.
@@ -185,15 +187,37 @@ config SNMP_USM_PRIV_DES
 	  only documents intent; snmp_usm_add_user() rejects users whose
 	  priv_protocol is SNMP_USM_PRIV_DES with -ENOTSUP. Use AES-128-CFB.
 
-config SNMP_V3_AUTH_PROTOCOL
-	int "Default SNMPv3 authentication protocol"
-	range 0 3
-	default 1
+choice SNMP_V3_AUTH_PROTOCOL_CHOICE
+	prompt "Default SNMPv3 authentication protocol"
+	default SNMP_V3_AUTH_PROTOCOL_SHA1 if SNMP_USM_AUTH_SHA
+	default SNMP_V3_AUTH_PROTOCOL_SHA256 if SNMP_USM_AUTH_SHA256
+	default SNMP_V3_AUTH_PROTOCOL_NONE
 	help
-	  Authentication protocol for the compile-time default user:
-	    0 = none, 1 = HMAC-SHA-1, 2 = HMAC-MD5, 3 = HMAC-SHA-256.
-	  A value of 0 makes the default user noAuthNoPriv. MD5 is usable
-	  only when SNMP_USM_AUTH_MD5 is enabled.
+	  Authentication protocol for the compile-time default user.
+
+config SNMP_V3_AUTH_PROTOCOL_NONE
+	bool "None (noAuthNoPriv)"
+
+config SNMP_V3_AUTH_PROTOCOL_SHA1
+	bool "HMAC-SHA-1"
+	depends on SNMP_USM_AUTH_SHA
+
+config SNMP_V3_AUTH_PROTOCOL_MD5
+	bool "HMAC-MD5"
+	depends on SNMP_USM_AUTH_MD5
+
+config SNMP_V3_AUTH_PROTOCOL_SHA256
+	bool "HMAC-SHA-256"
+	depends on SNMP_USM_AUTH_SHA256
+
+endchoice
+
+config SNMP_V3_AUTH_PROTOCOL
+	int
+	default 0 if SNMP_V3_AUTH_PROTOCOL_NONE
+	default 1 if SNMP_V3_AUTH_PROTOCOL_SHA1
+	default 2 if SNMP_V3_AUTH_PROTOCOL_MD5
+	default 3 if SNMP_V3_AUTH_PROTOCOL_SHA256
 
 config SNMP_V3_PRIV_PROTOCOL
 	int "Default SNMPv3 privacy protocol"
@@ -402,6 +426,6 @@ module = SNMP
 module-str = snmp
 source "subsys/logging/Kconfig.template.log_config"
 
-endif # SNMP_AGENT
+endif # SNMP
 
 endmenu

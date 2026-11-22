@@ -17,7 +17,15 @@
 #include <string.h>
 #include <errno.h>
 
-#ifdef CONFIG_SNMP_AGENT
+#if defined(CONFIG_SNMP) || defined(CONFIG_SNMP_AGENT)
+
+#if defined(__ZEPHYR__)
+#include <zephyr/logging/log.h>
+LOG_MODULE_REGISTER(snmp, CONFIG_SNMP_LOG_LEVEL);
+#else
+#define LOG_WRN(...)
+#define LOG_ERR(...)
+#endif
 
 #if defined(CONFIG_SNMP_VERSION_3)
 #include <snmp/snmp_usm.h>
@@ -210,7 +218,11 @@ int snmp_agent_init(struct snmp_agent *agent, const struct snmp_agent_cfg *cfg)
 
 	/* Contract 3.7 call order: defaults -> cfg.engine_boots -> persisted override. */
 	if (agent->settings_prefix != NULL) {
-		(void)snmp_agent_load_engine_boots(agent);
+		int b_ret = snmp_agent_load_engine_boots(agent);
+
+		if (b_ret < 0 && b_ret != -ENOENT) {
+			LOG_WRN("Failed to load engineBoots (%d)", b_ret);
+		}
 	}
 #endif
 

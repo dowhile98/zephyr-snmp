@@ -16,8 +16,10 @@ extern "C" {
 #endif
 
 /**
- * @addtogroup snmp_ber
+ * @defgroup snmp_ber ASN.1 BER Codec
+ * @ingroup snmp
  * @{
+ * @brief Basic Encoding Rules (BER) tag/length/value encoders and decoders.
  */
 
 /* --- ASN.1 Primitive & Application Tags --- */

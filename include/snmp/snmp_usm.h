@@ -14,8 +14,10 @@ extern "C" {
 #endif
 
 /**
- * @addtogroup snmp_usm
+ * @defgroup snmp_usm User-Based Security Model (USM)
+ * @ingroup snmp
  * @{
+ * @brief RFC 3414 / RFC 7860 authentication, encryption, and key localization.
  */
 
 /*

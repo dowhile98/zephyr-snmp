@@ -14,8 +14,10 @@ extern "C" {
 #endif
 
 /**
- * @addtogroup snmp_vacm
+ * @defgroup snmp_vacm View-Based Access Control Model (VACM)
+ * @ingroup snmp
  * @{
+ * @brief RFC 3415 access control tables and MIB view filtering.
  */
 
 /* ---- VACM Access Types ---- */

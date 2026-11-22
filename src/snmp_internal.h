@@ -15,7 +15,7 @@
 #include <snmp/snmp_core.h>
 #include <string.h>
 
-#ifdef CONFIG_SNMP_AGENT
+#if defined(CONFIG_SNMP) || defined(CONFIG_SNMP_AGENT)
 
 /*
  * Bounded string length. C11 strnlen() is not declared by every libc configuration

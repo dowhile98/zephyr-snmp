@@ -25,7 +25,7 @@
 #include <string.h>
 #include <errno.h>
 
-#ifdef CONFIG_SNMP_AGENT
+#if defined(CONFIG_SNMP) || defined(CONFIG_SNMP_AGENT)
 
 LOG_MODULE_REGISTER(snmp_service, CONFIG_SNMP_LOG_LEVEL);
 

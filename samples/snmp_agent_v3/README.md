@@ -63,7 +63,7 @@ required in `prj.conf`.
 | Symbol | Value |
 | --- | --- |
 | `CONFIG_SNMP_V3_USER_NAME` | `v3test` |
-| `CONFIG_SNMP_V3_AUTH_PROTOCOL` | `3` (HMAC-SHA-256) |
+| `CONFIG_SNMP_V3_AUTH_PROTOCOL_SHA256` | `y` (HMAC-SHA-256) |
 | `CONFIG_SNMP_V3_AUTH_PASS` | `v3-auth-passphrase-test-only` |
 | `CONFIG_SNMP_V3_PRIV_PROTOCOL` | `1` (AES-128-CFB) |
 | `CONFIG_SNMP_V3_PRIV_PASS` | `v3-priv-passphrase-test-only` |

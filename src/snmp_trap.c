@@ -13,7 +13,7 @@
 #include <string.h>
 #include <errno.h>
 
-#if defined(CONFIG_SNMP_AGENT) && defined(CONFIG_SNMP_TRAP_ENABLED)
+#if (defined(CONFIG_SNMP) || defined(CONFIG_SNMP_AGENT)) && defined(CONFIG_SNMP_TRAP_ENABLED)
 
 #ifdef CONFIG_SNMP_VERSION_3
 #include <snmp/snmp_usm.h>

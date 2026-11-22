@@ -21,7 +21,15 @@
 #include <psa/crypto.h>
 #endif
 
-#if defined(CONFIG_SNMP_AGENT) && defined(CONFIG_SNMP_VERSION_3)
+#if (defined(CONFIG_SNMP) || defined(CONFIG_SNMP_AGENT)) && defined(CONFIG_SNMP_VERSION_3)
+
+#if defined(__ZEPHYR__)
+#include <zephyr/logging/log.h>
+LOG_MODULE_DECLARE(snmp, CONFIG_SNMP_LOG_LEVEL);
+#else
+#define LOG_WRN(...)
+#define LOG_ERR(...)
+#endif
 
 #ifndef CONFIG_SNMP_V3_AUTH_PROTOCOL
 #define CONFIG_SNMP_V3_AUTH_PROTOCOL SNMP_USM_AUTH_SHA1
@@ -266,6 +274,16 @@ static int usm_key_localize(uint8_t *out_key, uint16_t *out_len, const char *pas
 static int aes128_cfb_encrypt(const uint8_t *key, const uint8_t *iv, const uint8_t *plaintext,
 			      size_t pt_len, uint8_t *ciphertext, size_t ct_sz, size_t *ct_len)
 {
+#if !defined(CONFIG_SNMP_USM_PRIV_AES)
+	(void)key;
+	(void)iv;
+	(void)plaintext;
+	(void)pt_len;
+	(void)ciphertext;
+	(void)ct_sz;
+	(void)ct_len;
+	return -ENOTSUP;
+#else
 	psa_key_attributes_t attrs = PSA_KEY_ATTRIBUTES_INIT;
 	psa_set_key_usage_flags(&attrs, PSA_KEY_USAGE_ENCRYPT);
 
@@ -317,6 +335,7 @@ static int aes128_cfb_encrypt(const uint8_t *key, const uint8_t *iv, const uint8
 
 	*ct_len = out_len + final_len;
 	return 0;
+#endif
 }
 
 /* ---- AES-128-CFB Decrypt ---- */
@@ -324,6 +343,16 @@ static int aes128_cfb_encrypt(const uint8_t *key, const uint8_t *iv, const uint8
 static int aes128_cfb_decrypt(const uint8_t *key, const uint8_t *iv, const uint8_t *ciphertext,
 			      size_t ct_len, uint8_t *plaintext, size_t pt_sz, size_t *pt_len)
 {
+#if !defined(CONFIG_SNMP_USM_PRIV_AES)
+	(void)key;
+	(void)iv;
+	(void)ciphertext;
+	(void)ct_len;
+	(void)plaintext;
+	(void)pt_sz;
+	(void)pt_len;
+	return -ENOTSUP;
+#else
 	psa_key_attributes_t attrs = PSA_KEY_ATTRIBUTES_INIT;
 	psa_set_key_usage_flags(&attrs, PSA_KEY_USAGE_DECRYPT);
 
@@ -375,6 +404,7 @@ static int aes128_cfb_decrypt(const uint8_t *key, const uint8_t *iv, const uint8
 
 	*pt_len = out_len + final_len;
 	return 0;
+#endif
 }
 
 /* ---- Find encrypted scopedPDU OCTET STRING in raw buffer ---- */
@@ -698,6 +728,9 @@ static int usm_user_validate(const struct snmp_usm_user *user)
 	if (user->priv_protocol != SNMP_USM_PRIV_NONE && priv_len < 8) {
 		return -EINVAL;
 	}
+	if (user->priv_protocol == SNMP_USM_PRIV_AES && !IS_ENABLED(CONFIG_SNMP_USM_PRIV_AES)) {
+		return -ENOTSUP;
+	}
 
 	return 0;
 }
@@ -832,7 +865,12 @@ int snmp_usm_init(struct snmp_agent *inst)
 		return -EINVAL;
 	}
 
-	psa_crypto_init();
+	psa_status_t status = psa_crypto_init();
+
+	if (status != PSA_SUCCESS) {
+		LOG_ERR("psa_crypto_init failed: %d", (int)status);
+		return -EIO;
+	}
 
 	k_mutex_lock(&inst->lock, K_FOREVER);
 
@@ -1300,8 +1338,12 @@ int snmp_usm_set_engine_boots(struct snmp_agent *inst, uint32_t boots)
 		char key[SNMP_USM_SETTINGS_KEY_MAX];
 
 		if (usm_boots_key(inst, key, sizeof(key)) > 0) {
-			(void)settings_save_one(key, &inst->engine_boots,
-						sizeof(inst->engine_boots));
+			int rc = settings_save_one(key, &inst->engine_boots,
+						   sizeof(inst->engine_boots));
+
+			if (rc < 0) {
+				LOG_WRN("Failed to persist engineBoots (%d)", rc);
+			}
 		}
 	}
 #endif
@@ -1346,7 +1388,12 @@ int snmp_agent_load_engine_boots(struct snmp_agent *agent)
 	if (agent->engine_boots < SNMP_ENGINE_BOOTS_MAX) {
 		agent->engine_boots++;
 	}
-	(void)settings_save_one(key, &agent->engine_boots, sizeof(agent->engine_boots));
+	int rc = settings_save_one(key, &agent->engine_boots, sizeof(agent->engine_boots));
+
+	if (rc < 0) {
+		LOG_WRN("Failed to persist engineBoots (%d)", rc);
+		return rc;
+	}
 	return 0;
 #else
 	(void)agent;
@@ -1376,8 +1423,12 @@ uint32_t snmp_usm_get_engine_time(struct snmp_agent *inst)
 				char key[SNMP_USM_SETTINGS_KEY_MAX];
 
 				if (usm_boots_key(inst, key, sizeof(key)) > 0) {
-					(void)settings_save_one(key, &inst->engine_boots,
-								sizeof(inst->engine_boots));
+					int rc = settings_save_one(key, &inst->engine_boots,
+								   sizeof(inst->engine_boots));
+
+					if (rc < 0) {
+						LOG_WRN("Failed to persist engineBoots (%d)", rc);
+					}
 				}
 			}
 #endif

@@ -7,7 +7,7 @@
 #include <string.h>
 #include <errno.h>
 
-#ifdef CONFIG_SNMP_AGENT
+#if defined(CONFIG_SNMP) || defined(CONFIG_SNMP_AGENT)
 
 bool snmp_oid_equal(const struct snmp_oid *o1, const struct snmp_oid *o2)
 {

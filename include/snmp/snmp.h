@@ -31,7 +31,7 @@
  *   +-------------------------------------------------+
  *
  * Build-time configuration via Kconfig (prj.conf):
- *   CONFIG_SNMP_AGENT=y          enable the agent
+ *   CONFIG_SNMP=y                enable the agent
  *   CONFIG_SNMP_VERSION_1=y      SNMPv1
  *   CONFIG_SNMP_VERSION_2C=y     SNMPv2c
  *   CONFIG_SNMP_VERSION_3=y      SNMPv3 (+mbedtls/PSA Crypto)
@@ -80,10 +80,12 @@
  *
  * A second agent on the same interface only needs its own storage, another port
  * (@c cfg.port) and its own @c cfg.sys_name — every API takes the instance to act
- * on. Lifecycle: init -> start -> stop -> deinit; calling an API in the wrong state
- * returns @c -EPERM. Every entry point except @ref snmp_agent_get_counters and
- * @ref snmp_usm_get_engine_boots takes @c agent->lock: call them from thread
- * context, never from an ISR, and never from inside a MIB callback.
+ * on. Note that CONFIG_SNMP_MAX_INSTANCES (which defaults to 1) must be increased
+ * to accommodate multiple concurrent instances.
+ * Lifecycle: init -> start -> stop -> deinit; calling an API in the wrong state
+ * returns @c -EPERM. Every entry point except @ref snmp_usm_get_engine_boots takes
+ * @c agent->lock: call them from thread context, never from an ISR, and never from
+ * inside a MIB callback.
  *
  * ## Testing (Linux host)
  *

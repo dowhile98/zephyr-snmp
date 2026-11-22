@@ -14,7 +14,7 @@
 #include <string.h>
 #include <errno.h>
 
-#if defined(CONFIG_SNMP_AGENT) && defined(CONFIG_SNMP_VERSION_3)
+#if (defined(CONFIG_SNMP) || defined(CONFIG_SNMP_AGENT)) && defined(CONFIG_SNMP_VERSION_3)
 
 /* ---- Internal Helpers ---- */
 

@@ -14,7 +14,7 @@
 #include <stddef.h>
 #include <errno.h>
 
-#ifdef CONFIG_SNMP_AGENT
+#if defined(CONFIG_SNMP) || defined(CONFIG_SNMP_AGENT)
 
 /* MIB-II system group base OID: 1.3.6.1.2.1.1 */
 static const uint32_t s_sys_base[7] = {1, 3, 6, 1, 2, 1, 1};

@@ -28,6 +28,7 @@ target_include_directories(snmp_unit_tests PRIVATE
 )
 
 target_compile_definitions(snmp_unit_tests PRIVATE
+    CONFIG_SNMP=1
     CONFIG_SNMP_AGENT=1
     CONFIG_SNMP_VERSION_1=1
     CONFIG_SNMP_VERSION_2C=1
@@ -54,6 +55,7 @@ target_include_directories(vacm_unit_tests PRIVATE
 )
 
 target_compile_definitions(vacm_unit_tests PRIVATE
+    CONFIG_SNMP=1
     CONFIG_SNMP_AGENT=1
     CONFIG_SNMP_VERSION_3=1
     CONFIG_SNMP_V3_USER_NAME="admin"

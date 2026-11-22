@@ -12,6 +12,13 @@
 extern "C" {
 #endif
 
+/**
+ * @defgroup snmp_service Transport & Socket Service Adapter
+ * @ingroup snmp
+ * @{
+ * @brief Zephyr net_socket_service integration and UDP transport layer.
+ */
+
 /*
  * There is no process-wide transport entry point any more. The socket-service adapter is
  * per instance and is driven exclusively by the lifecycle API:
@@ -29,6 +36,8 @@ extern "C" {
  *             this header once documented were removed in sub-phase 8c. Delete the file
  *             in sub-phase 8d after auditing that nothing includes it.
  */
+
+/** @} */
 
 #ifdef __cplusplus
 }

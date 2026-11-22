@@ -14,8 +14,10 @@ extern "C" {
 #endif
 
 /**
- * @addtogroup snmp_trap
+ * @defgroup snmp_trap Trap & Inform Notification Engine
+ * @ingroup snmp
  * @{
+ * @brief SNMPv1 trap and SNMPv2c/v3 notification generation and delivery.
  */
 
 #ifndef CONFIG_SNMP_TRAP_DEST_COUNT

@@ -24,8 +24,10 @@ extern "C" {
 #endif
 
 /**
- * @addtogroup snmp_core
+ * @defgroup snmp_core Core Engine & Protocol Operations
+ * @ingroup snmp
  * @{
+ * @brief SNMP packet dispatcher, PDU parsing, and request processing.
  */
 
 struct net_if; /* forward declaration: host (non-Zephyr) builds keep it incomplete */
@@ -231,8 +233,10 @@ struct snmp_agent {
 /** @} */
 
 /**
- * @addtogroup snmp_api
+ * @defgroup snmp_api Public Agent API & Management
+ * @ingroup snmp
  * @{
+ * @brief Public agent initialization, lifecycle management, and MIB registration.
  */
 
 /**

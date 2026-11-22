@@ -14,8 +14,10 @@ extern "C" {
 #endif
 
 /**
- * @addtogroup snmp_mib
+ * @defgroup snmp_mib MIB Tree Engine & Two-Phase Commit (2PC)
+ * @ingroup snmp
  * @{
+ * @brief MIB tree storage, O(log N) lookup, table walk, and transactional SET engine.
  */
 
 #ifndef CONFIG_SNMP_MAX_MIB_NODES

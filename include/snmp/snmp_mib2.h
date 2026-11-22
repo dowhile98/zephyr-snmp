@@ -14,8 +14,10 @@ extern "C" {
 #endif
 
 /**
- * @addtogroup snmp_mib2
+ * @defgroup snmp_mib2 MIB-II Standard Network Subsystem
+ * @ingroup snmp
  * @{
+ * @brief RFC 1213 / RFC 2863 MIB-II network groups and Zephyr stack integration.
  */
 
 /**
