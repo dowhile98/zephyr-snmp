@@ -209,12 +209,17 @@ struct snmp_agent {
 	struct net_if *bound_iface;
 
 	/* Processing */
-	struct snmp_pdu current_pdu;
+	union {
+		struct snmp_pdu current_pdu;
+#if defined(CONFIG_SNMP_VERSION_3)
+		struct snmp_v3_msg current_v3_msg;
+#endif
+	};
 	uint8_t rx_buf[CONFIG_SNMP_MAX_PDU_SIZE];
 	uint8_t tx_buf[CONFIG_SNMP_MAX_PDU_SIZE];
 	/**
-	 * @brief Mutual-exclusion scratch buffer shared between SET transactions and GETBULK
-	 * sweeps.
+	 * @brief Mutual-exclusion scratch buffer shared between SET transactions, GETBULK
+	 * sweeps, and USM message encryption/signing.
 	 *
 	 * Resides directly in the agent instance to maintain zero dynamic memory allocation while
 	 * avoiding large frame allocations on the RTOS thread stack (<100 B stack frame).
@@ -228,6 +233,13 @@ struct snmp_agent {
 			/** Working OIDs during GETBULK repetition cycles. */
 			struct snmp_oid current_oids[CONFIG_SNMP_MAX_VARBINDS];
 		} bulk;
+#if defined(CONFIG_SNMP_VERSION_3)
+		/** Scratch buffers for USM decryption/plaintext build/signing. */
+		struct {
+			uint8_t buf_a[CONFIG_SNMP_MAX_PDU_SIZE];
+			uint8_t buf_b[CONFIG_SNMP_MAX_PDU_SIZE];
+		} usm;
+#endif
 	} scratch;
 	struct snmp_mib2_counters counters;
 

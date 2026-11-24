@@ -612,3 +612,76 @@ ZTEST(snmp_usm, test_v3_mpd_stats_mib_queries)
 	zassert_equal(resp.scoped.pdu.error_status, SNMP_ERR_NO_ERROR);
 	zassert_equal(resp.scoped.pdu.varbinds[0].type, SNMP_TAG_COUNTER32);
 }
+
+ZTEST(snmp_usm, test_usm_passphrases_zeroized_after_localization)
+{
+	static const uint8_t zeros[64] = {0};
+	struct snmp_usm_user user = {
+		.auth_protocol = SNMP_USM_AUTH_SHA256,
+		.priv_protocol = SNMP_USM_PRIV_AES,
+	};
+
+	usm_setup();
+
+	strcpy(user.user_name, "wipe-test");
+	strcpy(user.auth_pass, "secret-auth-phrase");
+	strcpy(user.priv_pass, "secret-priv-phrase");
+	zassert_ok(snmp_usm_add_user(&s_agent, &user));
+
+	const struct snmp_usm_user *stored = NULL;
+
+	for (size_t i = 0; i < CONFIG_SNMP_V3_MAX_USERS; i++) {
+		if (s_agent.users[i].in_use &&
+		    strcmp(s_agent.users[i].user_name, "wipe-test") == 0) {
+			stored = &s_agent.users[i];
+			break;
+		}
+	}
+
+	zassert_not_null(stored);
+	zassert_true(stored->auth_key_len > 0);
+	zassert_true(stored->priv_key_len > 0);
+	zassert_mem_equal(stored->auth_pass, zeros, sizeof(stored->auth_pass));
+	zassert_mem_equal(stored->priv_pass, zeros, sizeof(stored->priv_pass));
+}
+
+ZTEST(snmp_usm, test_v3_respects_peer_msg_max_size)
+{
+	struct snmp_v3_msg req;
+	struct snmp_v3_msg resp;
+	uint8_t raw[CONFIG_SNMP_MAX_PDU_SIZE];
+	uint8_t out[CONFIG_SNMP_MAX_PDU_SIZE];
+	size_t out_len = 0;
+	static const uint32_t mib2_sys[] = {1, 3, 6, 1, 2, 1, 1};
+
+	usm_setup();
+
+	memset(&req, 0, sizeof(req));
+	req.global.msg_id = 0x4242;
+	req.global.msg_max_size = 484; /* RFC 3412 minimum floor, smaller than 1024 tx_buf */
+	req.global.msg_security_model = SNMP_SEC_MODEL_USM;
+	req.global.msg_flags = 0x05; /* authNoPriv + reportable */
+	req.sec_level = SNMP_SEC_LEVEL_AUTH_NOPRIV;
+	set_user(&req, CONFIG_SNMP_V3_USER_NAME);
+
+	req.scoped.pdu.version = 3;
+	req.scoped.pdu.type = SNMP_PDU_GET_BULK_REQ;
+	req.scoped.pdu.request_id = 0x4242;
+	req.scoped.pdu.non_repeaters = 0;
+	req.scoped.pdu.max_repetitions = 20;
+	req.scoped.pdu.varbind_cnt = 1;
+	oid_set(&req.scoped.pdu.varbinds[0].oid, mib2_sys, ARRAY_SIZE(mib2_sys));
+	req.scoped.pdu.varbinds[0].type = ASN1_TAG_NULL;
+
+	zassert_ok(snmp_usm_build_outgoing(&s_agent, &req));
+	size_t req_len = encode(&req, raw, sizeof(raw));
+
+	zassert_ok(process(raw, req_len, out, &out_len));
+	zassert_true(out_len > 0 && out_len <= 484, "response size %zu exceeded msgMaxSize 484",
+		     out_len);
+	zassert_ok(snmp_ber_decode_v3_msg(out, out_len, &resp));
+	zassert_ok(snmp_usm_verify_incoming(&s_agent, &resp, out, out_len));
+	zassert_equal(resp.scoped.pdu.type, SNMP_PDU_GET_RESP);
+	zassert_equal(resp.scoped.pdu.error_status, SNMP_ERR_NO_ERROR);
+	zassert_true(resp.scoped.pdu.varbind_cnt > 0);
+}

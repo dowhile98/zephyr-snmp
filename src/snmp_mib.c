@@ -17,6 +17,12 @@
 
 #if defined(CONFIG_SNMP) || defined(CONFIG_SNMP_AGENT)
 
+#if defined(CONFIG_SNMP_SET_ENABLE)
+#define SNMP_SET_ENABLED 1
+#else
+#define SNMP_SET_ENABLED 0
+#endif
+
 /* MIB-II system group base OID: 1.3.6.1.2.1.1 */
 static const uint32_t s_sys_base[7] = {1, 3, 6, 1, 2, 1, 1};
 
@@ -1200,6 +1206,16 @@ int snmp_mib_dispatch(struct snmp_agent *inst, struct snmp_pdu *pdu)
 		}
 	} else if (pdu->type == SNMP_PDU_SET_REQ) {
 		MIB_COUNTER_INC(inst, snmpInSetRequests);
+
+		if (!SNMP_SET_ENABLED) {
+			pdu->type = SNMP_PDU_GET_RESP;
+			pdu->error_status =
+				(pdu->version == 0) ? SNMP_ERR_NO_SUCH_NAME : SNMP_ERR_NOT_WRITABLE;
+			pdu->error_index = 0;
+			MIB_COUNTER_INC(inst, snmpInReadOnlys);
+			MIB_COUNTER_INC(inst, snmpOutGetResponses);
+			return 0;
+		}
 
 		snmp_mib_lock(inst);
 

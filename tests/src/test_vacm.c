@@ -29,6 +29,7 @@ static struct snmp_agent s_vacm_test_agent;
  */
 static int vacm_init_with_test_users(void)
 {
+	k_mutex_init(&s_vacm_test_agent.lock);
 	int ret = snmp_vacm_init(&s_vacm_test_agent);
 
 	if (ret < 0) {

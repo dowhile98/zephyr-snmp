@@ -601,8 +601,8 @@ static int process_v3(struct snmp_agent *agent, const uint8_t *req_buf, size_t r
 {
 	*out_resp_len = 0;
 
-	struct snmp_v3_msg msg;
-	int ret = snmp_ber_decode_v3_msg(req_buf, req_len, &msg);
+	struct snmp_v3_msg *msg = &agent->current_v3_msg;
+	int ret = snmp_ber_decode_v3_msg(req_buf, req_len, msg);
 	if (ret < 0) {
 
 		INST_COUNTER_INC(agent, snmpInASNParseErrs);
@@ -614,8 +614,15 @@ static int process_v3(struct snmp_agent *agent, const uint8_t *req_buf, size_t r
 		return ret;
 	}
 
+	/* Respect the sender's msgMaxSize (RFC 3412 §7.2) in addition to our own tx capacity. */
+	size_t eff_max_resp = max_resp_len;
+
+	if (msg->global.msg_max_size > 0 && (size_t)msg->global.msg_max_size < eff_max_resp) {
+		eff_max_resp = (size_t)msg->global.msg_max_size;
+	}
+
 	/* USM verify */
-	ret = snmp_usm_verify_incoming(agent, &msg, req_buf, req_len);
+	ret = snmp_usm_verify_incoming(agent, msg, req_buf, req_len);
 	if (ret < 0) {
 		if (ret == -EACCES) {
 			INST_COUNTER_INC(agent, snmpSilentDrops);
@@ -624,20 +631,20 @@ static int process_v3(struct snmp_agent *agent, const uint8_t *req_buf, size_t r
 	}
 
 	/* Engine discovery / USM reports: USM already filled a complete Report PDU. */
-	if (msg.scoped.pdu.type == SNMP_PDU_REPORT) {
+	if (msg->scoped.pdu.type == SNMP_PDU_REPORT) {
 		/* Echo incoming msg_id as the Report-PDU request_id */
-		msg.scoped.pdu.request_id = msg.global.msg_id;
+		msg->scoped.pdu.request_id = msg->global.msg_id;
 
-		msg.global.msg_max_size = CONFIG_SNMP_MAX_PDU_SIZE;
-		msg.global.msg_security_model = SNMP_SEC_MODEL_USM;
+		msg->global.msg_max_size = CONFIG_SNMP_MAX_PDU_SIZE;
+		msg->global.msg_security_model = SNMP_SEC_MODEL_USM;
 
-		ret = snmp_usm_build_outgoing(agent, &msg);
+		ret = snmp_usm_build_outgoing(agent, msg);
 		if (ret < 0) {
 			return ret;
 		}
 
 		size_t encoded_len = 0;
-		ret = snmp_ber_encode_v3_msg(resp_buf, max_resp_len, &encoded_len, &msg);
+		ret = snmp_ber_encode_v3_msg(resp_buf, eff_max_resp, &encoded_len, msg);
 
 		if (ret < 0) {
 			return ret;
@@ -649,27 +656,27 @@ static int process_v3(struct snmp_agent *agent, const uint8_t *req_buf, size_t r
 	}
 
 	/* Only request PDUs are processed; a Response/Trap/Report is dropped. */
-	if (!pdu_is_request(msg.scoped.pdu.type)) {
+	if (!pdu_is_request(msg->scoped.pdu.type)) {
 		INST_COUNTER_INC(agent, snmpSilentDrops);
 		agent->mpd_stats.unknown_pdu_handlers++;
 		return -EACCES;
 	}
 
 	/* VACM access check per RFC 3415, using the *verified* level. */
-	int sec_level = msg.sec_level;
-	int access_type = (msg.scoped.pdu.type == SNMP_PDU_SET_REQ) ? SNMP_VACM_ACCESS_WRITE
-								    : SNMP_VACM_ACCESS_READ;
+	int sec_level = msg->sec_level;
+	int access_type = (msg->scoped.pdu.type == SNMP_PDU_SET_REQ) ? SNMP_VACM_ACCESS_WRITE
+								     : SNMP_VACM_ACCESS_READ;
 
-	char user_name[sizeof(msg.usm.user_name) + 1];
-	size_t name_len = msg.usm.user_name_len < sizeof(msg.usm.user_name)
-				  ? msg.usm.user_name_len
-				  : sizeof(msg.usm.user_name);
-	memcpy(user_name, msg.usm.user_name, name_len);
+	char user_name[sizeof(msg->usm.user_name) + 1];
+	size_t name_len = msg->usm.user_name_len < sizeof(msg->usm.user_name)
+				  ? msg->usm.user_name_len
+				  : sizeof(msg->usm.user_name);
+	memcpy(user_name, msg->usm.user_name, name_len);
 	user_name[name_len] = '\0';
 
 	bool authorized = true;
-	bool is_walk = (msg.scoped.pdu.type == SNMP_PDU_GET_NEXT_REQ ||
-			msg.scoped.pdu.type == SNMP_PDU_GET_BULK_REQ);
+	bool is_walk = (msg->scoped.pdu.type == SNMP_PDU_GET_NEXT_REQ ||
+			msg->scoped.pdu.type == SNMP_PDU_GET_BULK_REQ);
 
 	if (is_walk) {
 		/*
@@ -679,41 +686,43 @@ static int process_v3(struct snmp_agent *agent, const uint8_t *req_buf, size_t r
 		 * the request OID here is what made a walk from 1.3.6.1.2.1 fail even
 		 * when the whole subtree was in the view.
 		 */
-		authorized = snmp_vacm_check_access_ex(agent, (const char *)msg.scoped.context_name,
-						       msg.global.msg_security_model, user_name,
-						       sec_level, access_type, NULL) == 0;
+		authorized =
+			snmp_vacm_check_access_ex(agent, (const char *)msg->scoped.context_name,
+						  msg->global.msg_security_model, user_name,
+						  sec_level, access_type, NULL) == 0;
 		if (authorized) {
 			memset(&agent->view_filter, 0, sizeof(agent->view_filter));
 			agent->view_filter.active = true;
-			agent->view_filter.security_model = (uint8_t)msg.global.msg_security_model;
+			agent->view_filter.security_model = (uint8_t)msg->global.msg_security_model;
 			agent->view_filter.sec_level = (uint8_t)sec_level;
 			agent->view_filter.access_type = SNMP_VACM_ACCESS_READ;
 			copy_str(agent->view_filter.context, sizeof(agent->view_filter.context),
-				 (const char *)msg.scoped.context_name);
+				 (const char *)msg->scoped.context_name);
 			copy_str(agent->view_filter.security_name,
 				 sizeof(agent->view_filter.security_name), user_name);
 		}
-	} else if (msg.scoped.pdu.varbind_cnt == 0) {
-		authorized = snmp_vacm_check_access_ex(agent, (const char *)msg.scoped.context_name,
-						       msg.global.msg_security_model, user_name,
-						       sec_level, access_type, NULL) == 0;
+	} else if (msg->scoped.pdu.varbind_cnt == 0) {
+		authorized =
+			snmp_vacm_check_access_ex(agent, (const char *)msg->scoped.context_name,
+						  msg->global.msg_security_model, user_name,
+						  sec_level, access_type, NULL) == 0;
 	} else {
-		for (size_t i = 0; i < msg.scoped.pdu.varbind_cnt; i++) {
-			if (snmp_vacm_check_access_ex(agent, (const char *)msg.scoped.context_name,
-						      msg.global.msg_security_model, user_name,
+		for (size_t i = 0; i < msg->scoped.pdu.varbind_cnt; i++) {
+			if (snmp_vacm_check_access_ex(agent, (const char *)msg->scoped.context_name,
+						      msg->global.msg_security_model, user_name,
 						      sec_level, access_type,
-						      &msg.scoped.pdu.varbinds[i].oid) < 0) {
+						      &msg->scoped.pdu.varbinds[i].oid) < 0) {
 				authorized = false;
 				break;
 			}
 		}
 	}
 
-	uint8_t req_type = msg.scoped.pdu.type;
-	int32_t non_rep = msg.scoped.pdu.non_repeaters < 0 ? 0 : msg.scoped.pdu.non_repeaters;
-	if (non_rep > (int32_t)msg.scoped.pdu.varbind_cnt) {
+	uint8_t req_type = msg->scoped.pdu.type;
+	int32_t non_rep = msg->scoped.pdu.non_repeaters < 0 ? 0 : msg->scoped.pdu.non_repeaters;
+	if (non_rep > (int32_t)msg->scoped.pdu.varbind_cnt) {
 
-		non_rep = msg.scoped.pdu.varbind_cnt;
+		non_rep = msg->scoped.pdu.varbind_cnt;
 	}
 
 	if (!authorized) {
@@ -723,17 +732,24 @@ static int process_v3(struct snmp_agent *agent, const uint8_t *req_buf, size_t r
 		 * instead (the previous behaviour) makes a misconfigured view
 		 * indistinguishable from packet loss on the manager side.
 		 */
-		msg.scoped.pdu.type = SNMP_PDU_GET_RESP;
-		msg.scoped.pdu.error_status = SNMP_ERR_AUTHORIZATION_ERR;
-		msg.scoped.pdu.error_index = 0;
+		msg->scoped.pdu.type = SNMP_PDU_GET_RESP;
+		msg->scoped.pdu.error_status = SNMP_ERR_AUTHORIZATION_ERR;
+		msg->scoped.pdu.error_index = 0;
+	} else if (req_type == SNMP_PDU_SET_REQ && !SNMP_SET_ENABLED) {
+		msg->scoped.pdu.type = SNMP_PDU_GET_RESP;
+		msg->scoped.pdu.error_status = SNMP_ERR_NOT_WRITABLE;
+		msg->scoped.pdu.error_index = 0;
+		INST_COUNTER_INC(agent, snmpInSetRequests);
+		INST_COUNTER_INC(agent, snmpInReadOnlys);
+		INST_COUNTER_INC(agent, snmpOutGetResponses);
 	} else if (req_type == SNMP_PDU_INFORM_REQ) {
 		/* Acknowledge the notification; no MIB lookup (RFC 3416 §4.2.7). */
-		msg.scoped.pdu.type = SNMP_PDU_GET_RESP;
-		msg.scoped.pdu.error_status = SNMP_ERR_NO_ERROR;
-		msg.scoped.pdu.error_index = 0;
+		msg->scoped.pdu.type = SNMP_PDU_GET_RESP;
+		msg->scoped.pdu.error_status = SNMP_ERR_NO_ERROR;
+		msg->scoped.pdu.error_index = 0;
 		INST_COUNTER_INC(agent, snmpInTraps);
 	} else {
-		ret = snmp_mib_dispatch(agent, &msg.scoped.pdu);
+		ret = snmp_mib_dispatch(agent, &msg->scoped.pdu);
 		agent->view_filter.active = false;
 		if (ret < 0) {
 			return ret;
@@ -743,29 +759,29 @@ static int process_v3(struct snmp_agent *agent, const uint8_t *req_buf, size_t r
 	agent->view_filter.active = false;
 
 	/* Set response metadata (RFC 3412 §7.1: echo request's contextEngineID and contextName) */
-	msg.global.msg_max_size = CONFIG_SNMP_MAX_PDU_SIZE;
-	msg.global.msg_security_model = SNMP_SEC_MODEL_USM;
+	msg->global.msg_max_size = CONFIG_SNMP_MAX_PDU_SIZE;
+	msg->global.msg_security_model = SNMP_SEC_MODEL_USM;
 	/* Response must use the same verified security level as the request. */
-	msg.sec_level = (uint8_t)sec_level;
+	msg->sec_level = (uint8_t)sec_level;
 
 	/* Build outgoing USM */
-	ret = snmp_usm_build_outgoing(agent, &msg);
+	ret = snmp_usm_build_outgoing(agent, msg);
 	if (ret < 0) {
 		return ret;
 	}
 
 	/* Encode */
 	size_t encoded_len = 0;
-	ret = snmp_ber_encode_v3_msg(resp_buf, max_resp_len, &encoded_len, &msg);
+	ret = snmp_ber_encode_v3_msg(resp_buf, eff_max_resp, &encoded_len, msg);
 
 	if (ret == -ENOBUFS && req_type == SNMP_PDU_GET_BULK_REQ) {
-		while (ret == -ENOBUFS && msg.scoped.pdu.varbind_cnt > (uint8_t)non_rep) {
-			msg.scoped.pdu.varbind_cnt--;
-			ret = snmp_usm_build_outgoing(agent, &msg);
+		while (ret == -ENOBUFS && msg->scoped.pdu.varbind_cnt > (uint8_t)non_rep) {
+			msg->scoped.pdu.varbind_cnt--;
+			ret = snmp_usm_build_outgoing(agent, msg);
 			if (ret < 0) {
 				break;
 			}
-			ret = snmp_ber_encode_v3_msg(resp_buf, max_resp_len, &encoded_len, &msg);
+			ret = snmp_ber_encode_v3_msg(resp_buf, eff_max_resp, &encoded_len, msg);
 		}
 	}
 
@@ -777,13 +793,13 @@ static int process_v3(struct snmp_agent *agent, const uint8_t *req_buf, size_t r
 
 	if (ret == -ENOBUFS) {
 		INST_COUNTER_INC(agent, snmpOutTooBigs);
-		msg.scoped.pdu.error_status = SNMP_ERR_TOO_BIG;
-		msg.scoped.pdu.error_index = 0;
-		msg.scoped.pdu.varbind_cnt = 0;
-		msg.scoped.pdu.type = SNMP_PDU_GET_RESP;
-		if (snmp_usm_build_outgoing(agent, &msg) == 0) {
+		msg->scoped.pdu.error_status = SNMP_ERR_TOO_BIG;
+		msg->scoped.pdu.error_index = 0;
+		msg->scoped.pdu.varbind_cnt = 0;
+		msg->scoped.pdu.type = SNMP_PDU_GET_RESP;
+		if (snmp_usm_build_outgoing(agent, msg) == 0) {
 			int enc_ret =
-				snmp_ber_encode_v3_msg(resp_buf, max_resp_len, &encoded_len, &msg);
+				snmp_ber_encode_v3_msg(resp_buf, eff_max_resp, &encoded_len, msg);
 			if (enc_ret == 0) {
 				*out_resp_len = encoded_len;
 				INST_COUNTER_INC(agent, snmpOutPkts);

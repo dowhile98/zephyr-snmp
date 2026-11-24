@@ -217,6 +217,11 @@ int snmp_vacm_init(struct snmp_agent *inst)
 		return -EINVAL;
 	}
 
+	if (inst->state == SNMP_AGENT_UNINIT) {
+		k_mutex_init(&inst->lock);
+	}
+
+	k_mutex_lock(&inst->lock, K_FOREVER);
 	memset(inst->contexts, 0, sizeof(inst->contexts));
 	inst->context_cnt = 0;
 	memset(inst->groups, 0, sizeof(inst->groups));
@@ -225,6 +230,7 @@ int snmp_vacm_init(struct snmp_agent *inst)
 	inst->access_rule_cnt = 0;
 	memset(inst->views, 0, sizeof(inst->views));
 	inst->view_cnt = 0;
+	k_mutex_unlock(&inst->lock);
 
 	/* Default context: empty string ("") */
 	int ret = snmp_vacm_add_context(inst, "");
@@ -301,6 +307,8 @@ int snmp_vacm_init(struct snmp_agent *inst)
 
 int snmp_vacm_add_context(struct snmp_agent *inst, const char *context_name)
 {
+	int ret = -ENOMEM;
+
 	if (!inst) {
 		return -EINVAL;
 	}
@@ -310,9 +318,12 @@ int snmp_vacm_add_context(struct snmp_agent *inst, const char *context_name)
 		return -EINVAL;
 	}
 
+	k_mutex_lock(&inst->lock, K_FOREVER);
+
 	for (size_t i = 0; i < CONFIG_SNMP_VACM_MAX_CONTEXTS; i++) {
 		if (inst->contexts[i].in_use && strcmp(inst->contexts[i].name, name) == 0) {
-			return 0; /* Already registered */
+			ret = 0; /* Already registered */
+			goto unlock;
 		}
 	}
 
@@ -321,16 +332,21 @@ int snmp_vacm_add_context(struct snmp_agent *inst, const char *context_name)
 			safe_strncpy(inst->contexts[i].name, name, sizeof(inst->contexts[i].name));
 			inst->contexts[i].in_use = true;
 			inst->context_cnt++;
-			return 0;
+			ret = 0;
+			goto unlock;
 		}
 	}
 
-	return -ENOMEM;
+unlock:
+	k_mutex_unlock(&inst->lock);
+	return ret;
 }
 
 int snmp_vacm_add_group_mapping(struct snmp_agent *inst, int security_model,
 				const char *security_name, const char *group_name)
 {
+	int ret = -ENOMEM;
+
 	if (!inst || !security_name || !group_name) {
 		return -EINVAL;
 	}
@@ -339,13 +355,16 @@ int snmp_vacm_add_group_mapping(struct snmp_agent *inst, int security_model,
 		return -EINVAL;
 	}
 
+	k_mutex_lock(&inst->lock, K_FOREVER);
+
 	/* Update existing mapping if already present */
 	for (size_t i = 0; i < CONFIG_SNMP_VACM_MAX_GROUPS; i++) {
 		if (inst->groups[i].in_use && inst->groups[i].security_model == security_model &&
 		    strcmp(inst->groups[i].security_name, security_name) == 0) {
 			safe_strncpy(inst->groups[i].group_name, group_name,
 				     sizeof(inst->groups[i].group_name));
-			return 0;
+			ret = 0;
+			goto unlock;
 		}
 	}
 
@@ -359,11 +378,14 @@ int snmp_vacm_add_group_mapping(struct snmp_agent *inst, int security_model,
 				     sizeof(inst->groups[i].group_name));
 			inst->groups[i].in_use = true;
 			inst->group_cnt++;
-			return 0;
+			ret = 0;
+			goto unlock;
 		}
 	}
 
-	return -ENOMEM;
+unlock:
+	k_mutex_unlock(&inst->lock);
+	return ret;
 }
 
 int snmp_vacm_add_access_rule(struct snmp_agent *inst, const char *group_name,
@@ -371,6 +393,8 @@ int snmp_vacm_add_access_rule(struct snmp_agent *inst, const char *group_name,
 			      const char *read_view, const char *write_view,
 			      const char *notify_view)
 {
+	int ret = -ENOMEM;
+
 	if (!inst || !group_name) {
 		return -EINVAL;
 	}
@@ -381,10 +405,11 @@ int snmp_vacm_add_access_rule(struct snmp_agent *inst, const char *group_name,
 
 	const char *prefix = context_prefix ? context_prefix : "";
 	if (strlen(group_name) >= SNMP_VACM_NAME_MAX_LEN ||
-
 	    strlen(prefix) >= SNMP_VACM_NAME_MAX_LEN) {
 		return -EINVAL;
 	}
+
+	k_mutex_lock(&inst->lock, K_FOREVER);
 
 	/* Check for existing rule to update */
 	for (size_t i = 0; i < CONFIG_SNMP_VACM_MAX_ACCESS_RULES; i++) {
@@ -397,7 +422,8 @@ int snmp_vacm_add_access_rule(struct snmp_agent *inst, const char *group_name,
 			safe_strncpy(rule->read_view, read_view, sizeof(rule->read_view));
 			safe_strncpy(rule->write_view, write_view, sizeof(rule->write_view));
 			safe_strncpy(rule->notify_view, notify_view, sizeof(rule->notify_view));
-			return 0;
+			ret = 0;
+			goto unlock;
 		}
 	}
 
@@ -415,17 +441,22 @@ int snmp_vacm_add_access_rule(struct snmp_agent *inst, const char *group_name,
 			safe_strncpy(rule->notify_view, notify_view, sizeof(rule->notify_view));
 			rule->in_use = true;
 			inst->access_rule_cnt++;
-			return 0;
+			ret = 0;
+			goto unlock;
 		}
 	}
 
-	return -ENOMEM;
+unlock:
+	k_mutex_unlock(&inst->lock);
+	return ret;
 }
 
 int snmp_vacm_add_view_tree(struct snmp_agent *inst, const char *view_name,
 			    const struct snmp_oid *subtree, const uint8_t *mask, size_t mask_len,
 			    int type_included)
 {
+	int ret = -ENOMEM;
+
 	if (!inst || !view_name || !subtree) {
 		return -EINVAL;
 	}
@@ -438,6 +469,8 @@ int snmp_vacm_add_view_tree(struct snmp_agent *inst, const char *view_name,
 	if (type_included != SNMP_VACM_VIEW_INCLUDED && type_included != SNMP_VACM_VIEW_EXCLUDED) {
 		return -EINVAL;
 	}
+
+	k_mutex_lock(&inst->lock, K_FOREVER);
 
 	/* Check for existing entry to update */
 	for (size_t i = 0; i < CONFIG_SNMP_VACM_MAX_VIEW_TREES; i++) {
@@ -452,7 +485,8 @@ int snmp_vacm_add_view_tree(struct snmp_agent *inst, const char *view_name,
 			} else {
 				memset(entry->mask, 0, sizeof(entry->mask));
 			}
-			return 0;
+			ret = 0;
+			goto unlock;
 		}
 	}
 
@@ -472,11 +506,14 @@ int snmp_vacm_add_view_tree(struct snmp_agent *inst, const char *view_name,
 			}
 			entry->in_use = true;
 			inst->view_cnt++;
-			return 0;
+			ret = 0;
+			goto unlock;
 		}
 	}
 
-	return -ENOMEM;
+unlock:
+	k_mutex_unlock(&inst->lock);
+	return ret;
 }
 
 int snmp_vacm_check_access_ex(struct snmp_agent *inst, const char *context_name, int security_model,

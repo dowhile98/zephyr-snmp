@@ -190,7 +190,6 @@ static int snmp_trap_send_v3(struct snmp_agent *inst, const struct snmp_oid *tra
 			     const struct snmp_varbind *varbinds, uint8_t varbind_cnt,
 			     bool is_inform)
 {
-	struct snmp_v3_msg msg;
 	size_t tx_len = 0;
 	int sock;
 	int err;
@@ -216,11 +215,11 @@ static int snmp_trap_send_v3(struct snmp_agent *inst, const struct snmp_oid *tra
 	/*
 	 * Uniform locking (contract 9.1): the whole notification build reads shared
 	 * instance state (the security name of the first USM user, the engine ID, the
-	 * destination list) and then uses the instance tx_buf, so it runs with
-	 * inst->lock held, exactly like the v1/v2c path below. Zephyr's k_mutex is
-	 * recursive for its owner (kernel/mutex.c, lock_count), so an authFailure trap
-	 * raised from inside snmp_agent_process_pdu() - which the service callback
-	 * already calls under this same lock - cannot self-deadlock.
+	 * destination list) and then uses the instance current_v3_msg and tx_buf, so
+	 * it runs with inst->lock held, exactly like the v1/v2c path below. Zephyr's
+	 * k_mutex is recursive for its owner (kernel/mutex.c, lock_count), so an
+	 * authFailure trap raised from inside snmp_agent_process_pdu() - which the
+	 * service callback already calls under this same lock - cannot self-deadlock.
 	 */
 	k_mutex_lock(&inst->lock, K_FOREVER);
 
@@ -232,11 +231,13 @@ static int snmp_trap_send_v3(struct snmp_agent *inst, const struct snmp_oid *tra
 		return -EDESTADDRREQ;
 	}
 
-	memset(&msg, 0, sizeof(msg));
+	struct snmp_v3_msg *msg = &inst->current_v3_msg;
 
-	msg.global.msg_id = (int32_t)k_uptime_get_32();
-	msg.global.msg_max_size = CONFIG_SNMP_MAX_PDU_SIZE;
-	msg.global.msg_security_model = 3;
+	memset(msg, 0, sizeof(*msg));
+
+	msg->global.msg_id = (int32_t)k_uptime_get_32();
+	msg->global.msg_max_size = CONFIG_SNMP_MAX_PDU_SIZE;
+	msg->global.msg_security_model = 3;
 
 	/*
 	 * Select the notification user explicitly. Using users[0] silently changed the
@@ -254,14 +255,14 @@ static int snmp_trap_send_v3(struct snmp_agent *inst, const struct snmp_oid *tra
 			inst->user_cnt > 0 ? inst->users[0].user_name : CONFIG_SNMP_V3_USER_NAME;
 	}
 
-	size_t u_len = snmp_strnlen(user_name, sizeof(msg.usm.user_name));
-	if (u_len == 0 || u_len >= sizeof(msg.usm.user_name)) {
+	size_t u_len = snmp_strnlen(user_name, sizeof(msg->usm.user_name));
+	if (u_len == 0 || u_len >= sizeof(msg->usm.user_name)) {
 
 		k_mutex_unlock(&inst->lock);
 		return -EACCES;
 	}
-	memcpy(msg.usm.user_name, user_name, u_len);
-	msg.usm.user_name_len = u_len;
+	memcpy(msg->usm.user_name, user_name, u_len);
+	msg->usm.user_name_len = u_len;
 
 	const struct snmp_usm_user *user = trap_find_user(inst, user_name);
 	if (user == NULL) {
@@ -272,62 +273,60 @@ static int snmp_trap_send_v3(struct snmp_agent *inst, const struct snmp_oid *tra
 
 	/* Traps and Informs use the strongest level this user supports (RFC 3414 §3.4). */
 	if (user->priv_protocol != SNMP_USM_PRIV_NONE) {
-		msg.sec_level = SNMP_SEC_LEVEL_AUTH_PRIV;
+		msg->sec_level = SNMP_SEC_LEVEL_AUTH_PRIV;
 	} else if (user->auth_protocol != SNMP_USM_AUTH_NONE) {
-		msg.sec_level = SNMP_SEC_LEVEL_AUTH_NOPRIV;
+		msg->sec_level = SNMP_SEC_LEVEL_AUTH_NOPRIV;
 	} else {
-		msg.sec_level = SNMP_SEC_LEVEL_NOAUTH_NOPRIV;
+		msg->sec_level = SNMP_SEC_LEVEL_NOAUTH_NOPRIV;
 	}
 
-	msg.scoped.pdu.version = 3;
-	msg.scoped.pdu.type = is_inform ? SNMP_PDU_INFORM_REQ : SNMP_PDU_TRAP_V2;
-	msg.scoped.pdu.request_id = (int32_t)k_uptime_get_32();
-	msg.scoped.pdu.error_status = 0;
-	msg.scoped.pdu.error_index = 0;
+	msg->scoped.pdu.version = 3;
+	msg->scoped.pdu.type = is_inform ? SNMP_PDU_INFORM_REQ : SNMP_PDU_TRAP_V2;
+	msg->scoped.pdu.request_id = (int32_t)k_uptime_get_32();
+	msg->scoped.pdu.error_status = 0;
+	msg->scoped.pdu.error_index = 0;
 
 	static const uint32_t uptime_oid[9] = {1, 3, 6, 1, 2, 1, 1, 3, 0};
 	static const uint32_t trap_oid_spec[11] = {1, 3, 6, 1, 6, 3, 1, 1, 4, 1, 0};
 
-	msg.scoped.pdu.varbinds[0].oid.len = 9;
-	memcpy(msg.scoped.pdu.varbinds[0].oid.ids, uptime_oid, sizeof(uptime_oid));
-	msg.scoped.pdu.varbinds[0].type = SNMP_TAG_TIMETICKS;
-	msg.scoped.pdu.varbinds[0].val.uint_val = (uint32_t)(k_uptime_get() / 10);
+	msg->scoped.pdu.varbinds[0].oid.len = 9;
+	memcpy(msg->scoped.pdu.varbinds[0].oid.ids, uptime_oid, sizeof(uptime_oid));
+	msg->scoped.pdu.varbinds[0].type = SNMP_TAG_TIMETICKS;
+	msg->scoped.pdu.varbinds[0].val.uint_val = (uint32_t)(k_uptime_get() / 10);
 
-	msg.scoped.pdu.varbinds[1].oid.len = 11;
-	memcpy(msg.scoped.pdu.varbinds[1].oid.ids, trap_oid_spec, sizeof(trap_oid_spec));
-	msg.scoped.pdu.varbinds[1].type = ASN1_TAG_OID;
-	msg.scoped.pdu.varbinds[1].val.oid = *trap_oid;
+	msg->scoped.pdu.varbinds[1].oid.len = 11;
+	memcpy(msg->scoped.pdu.varbinds[1].oid.ids, trap_oid_spec, sizeof(trap_oid_spec));
+	msg->scoped.pdu.varbinds[1].type = ASN1_TAG_OID;
+	msg->scoped.pdu.varbinds[1].val.oid = *trap_oid;
 
-	msg.scoped.pdu.varbind_cnt = 2;
+	msg->scoped.pdu.varbind_cnt = 2;
 
 	if (varbinds && varbind_cnt > 0) {
 		for (uint8_t i = 0;
-		     i < varbind_cnt && msg.scoped.pdu.varbind_cnt < CONFIG_SNMP_MAX_VARBINDS;
+		     i < varbind_cnt && msg->scoped.pdu.varbind_cnt < CONFIG_SNMP_MAX_VARBINDS;
 		     i++) {
-			msg.scoped.pdu.varbinds[msg.scoped.pdu.varbind_cnt++] = varbinds[i];
+			msg->scoped.pdu.varbinds[msg->scoped.pdu.varbind_cnt++] = varbinds[i];
 		}
 	}
 
-	uint8_t eng_len = sizeof(msg.scoped.context_engine_id);
-	if (snmp_usm_get_engine_id(inst, msg.scoped.context_engine_id, &eng_len) == 0) {
+	uint8_t eng_len = sizeof(msg->scoped.context_engine_id);
+	if (snmp_usm_get_engine_id(inst, msg->scoped.context_engine_id, &eng_len) == 0) {
 
-		msg.scoped.context_engine_id_len = eng_len;
+		msg->scoped.context_engine_id_len = eng_len;
 	}
-	msg.scoped.context_name_len = 0;
+	msg->scoped.context_name_len = 0;
 
-	ret = snmp_usm_build_outgoing(inst, &msg);
+	ret = snmp_usm_build_outgoing(inst, msg);
 	if (ret < 0) {
 		k_mutex_unlock(&inst->lock);
 		return ret;
 	}
 
 	/*
-	 * Encode into the instance's own tx_buf instead of the previous second
-	 * CONFIG_SNMP_MAX_PDU_SIZE stack buffer: this path already needs several KiB of
-	 * stack for struct snmp_v3_msg, so dropping the extra 1 KiB matters for
-	 * CONFIG_NET_SOCKETS_SERVICE_STACK_SIZE / main-stack sizing (contract 8.3).
+	 * Encode into the instance's own tx_buf instead of a stack buffer; current_v3_msg
+	 * also lives inside inst so this path keeps stack usage minimal.
 	 */
-	ret = snmp_ber_encode_v3_msg(inst->tx_buf, sizeof(inst->tx_buf), &tx_len, &msg);
+	ret = snmp_ber_encode_v3_msg(inst->tx_buf, sizeof(inst->tx_buf), &tx_len, msg);
 	if (ret < 0) {
 		k_mutex_unlock(&inst->lock);
 		return ret;
