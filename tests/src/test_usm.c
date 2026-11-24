@@ -10,6 +10,8 @@
  */
 
 #include <zephyr/ztest.h>
+#include <zephyr/device.h>
+#include <zephyr/devicetree.h>
 #include <errno.h>
 #include <string.h>
 
@@ -685,3 +687,125 @@ ZTEST(snmp_usm, test_v3_respects_peer_msg_max_size)
 	zassert_equal(resp.scoped.pdu.error_status, SNMP_ERR_NO_ERROR);
 	zassert_true(resp.scoped.pdu.varbind_cnt > 0);
 }
+
+/* ---- Two-slot CRC-32 EEPROM storage tests ---- */
+
+struct ram_eeprom {
+	uint8_t data[SNMP_STORAGE_EEPROM_TOTAL_SIZE];
+};
+
+static int ram_eeprom_read(void *raw_ctx, size_t offset, void *data, size_t len)
+{
+	struct ram_eeprom *mem = (struct ram_eeprom *)raw_ctx;
+
+	if (offset + len > sizeof(mem->data)) {
+		return -EINVAL;
+	}
+	memcpy(data, &mem->data[offset], len);
+	return 0;
+}
+
+static int ram_eeprom_write(void *raw_ctx, size_t offset, const void *data, size_t len)
+{
+	struct ram_eeprom *mem = (struct ram_eeprom *)raw_ctx;
+
+	if (offset + len > sizeof(mem->data)) {
+		return -EINVAL;
+	}
+	memcpy(&mem->data[offset], data, len);
+	return 0;
+}
+
+ZTEST(snmp_usm, test_engine_boots_storage_two_slot_ram_recovery)
+{
+	struct ram_eeprom backing;
+	struct snmp_storage_eeprom_ctx ectx = {
+		.offset = 0,
+		.raw_read = ram_eeprom_read,
+		.raw_write = ram_eeprom_write,
+		.raw_ctx = &backing,
+	};
+	const struct snmp_storage storage = {
+		.read = snmp_storage_eeprom_read,
+		.write = snmp_storage_eeprom_write,
+		.ctx = &ectx,
+	};
+	const struct snmp_agent_cfg cfg = {
+		.storage = &storage,
+	};
+	uint8_t raw_boots[sizeof(uint32_t)];
+
+	memset(&backing, 0xFF, sizeof(backing));
+	zassert_equal(snmp_storage_eeprom_read(&ectx, raw_boots, sizeof(raw_boots)), -ENOENT);
+
+	/* Boot 1 on blank media persists initial engineBoots (1). */
+	zassert_ok(snmp_agent_init(&s_agent, &cfg));
+	zassert_equal(snmp_usm_get_engine_boots(&s_agent), 1U);
+
+	/* Boot 2 reads slot 0 (1) and writes 2 to slot 1. */
+	zassert_ok(snmp_agent_deinit(&s_agent));
+	zassert_ok(snmp_agent_init(&s_agent, &cfg));
+	zassert_equal(snmp_usm_get_engine_boots(&s_agent), 2U);
+
+	/* Boot 3 overwrites slot 0 (lower value 1) with 3. */
+	zassert_ok(snmp_agent_deinit(&s_agent));
+	zassert_ok(snmp_agent_init(&s_agent, &cfg));
+	zassert_equal(snmp_usm_get_engine_boots(&s_agent), 3U);
+
+	/* Corrupt slot 0 CRC: loader falls back to slot 1 (value 2) and advances to 3. */
+	backing.data[12] ^= 0xFFU;
+	zassert_ok(snmp_agent_deinit(&s_agent));
+	zassert_ok(snmp_agent_init(&s_agent, &cfg));
+	zassert_equal(snmp_usm_get_engine_boots(&s_agent), 3U);
+
+	/* Corrupt both slots: raw read reports -ENOENT and re-init recovers cleanly. */
+	backing.data[12] ^= 0xFFU;
+	backing.data[0] = 0x00U;
+	backing.data[16] = 0x00U;
+	zassert_equal(snmp_storage_eeprom_read(&ectx, raw_boots, sizeof(raw_boots)), -ENOENT);
+	zassert_ok(snmp_agent_deinit(&s_agent));
+	zassert_ok(snmp_agent_init(&s_agent, &cfg));
+	zassert_equal(snmp_usm_get_engine_boots(&s_agent), 1U);
+
+	/* RFC 3414 ceiling: boots = 2147483647 stays clamped at 2147483647. */
+	uint32_t max_boots = 2147483647U;
+
+	memcpy(raw_boots, &max_boots, sizeof(raw_boots));
+	zassert_ok(snmp_storage_eeprom_write(&ectx, raw_boots, sizeof(raw_boots)));
+	zassert_ok(snmp_agent_deinit(&s_agent));
+	zassert_ok(snmp_agent_init(&s_agent, &cfg));
+	zassert_equal(snmp_usm_get_engine_boots(&s_agent), 2147483647U);
+}
+
+#if defined(CONFIG_SNMP_STORAGE_EEPROM) && DT_HAS_ALIAS(eeprom_0)
+ZTEST(snmp_usm, test_engine_boots_storage_sim_eeprom)
+{
+	struct snmp_storage_eeprom_ctx ectx = {
+		.dev = DEVICE_DT_GET(DT_ALIAS(eeprom_0)),
+		.offset = 0,
+	};
+	const struct snmp_storage storage = {
+		.read = snmp_storage_eeprom_read,
+		.write = snmp_storage_eeprom_write,
+		.ctx = &ectx,
+	};
+	const struct snmp_agent_cfg cfg = {
+		.storage = &storage,
+	};
+
+	zassert_ok(snmp_agent_init(&s_agent, &cfg));
+	uint32_t boots_first = snmp_usm_get_engine_boots(&s_agent);
+
+	zassert_true(boots_first >= 1U);
+
+	zassert_ok(snmp_agent_deinit(&s_agent));
+	zassert_ok(snmp_agent_init(&s_agent, &cfg));
+	uint32_t boots_second = snmp_usm_get_engine_boots(&s_agent);
+
+	if (boots_first < 2147483647U) {
+		zassert_equal(boots_second, boots_first + 1U);
+	} else {
+		zassert_equal(boots_second, 2147483647U);
+	}
+}
+#endif

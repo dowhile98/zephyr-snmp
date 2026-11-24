@@ -42,6 +42,11 @@ LOG_MODULE_DECLARE(snmp, CONFIG_SNMP_LOG_LEVEL);
 #include <zephyr/settings/settings.h>
 #endif
 
+#if defined(__ZEPHYR__) && defined(CONFIG_SNMP_STORAGE_EEPROM)
+#include <zephyr/device.h>
+#include <zephyr/drivers/eeprom.h>
+#endif
+
 #define HMAC_SHA1_LEN         12
 #define HMAC_MD5_LEN          12
 #define HMAC_SHA256_LEN       24
@@ -1393,6 +1398,230 @@ int snmp_usm_get_engine_id(struct snmp_agent *inst, uint8_t *engine_id, uint8_t 
 	return 0;
 }
 
+/* ---- Two-slot CRC-32 EEPROM storage backend and engineBoots persistence ---- */
+
+#define USM_EEPROM_MAGIC0  'S'
+#define USM_EEPROM_MAGIC1  'N'
+#define USM_EEPROM_MAGIC2  'M'
+#define USM_EEPROM_MAGIC3  'P'
+#define USM_EEPROM_VERSION 1U
+
+static uint32_t usm_crc32_ieee(const uint8_t *data, size_t len)
+{
+	uint32_t crc = 0xFFFFFFFFU;
+
+	for (size_t i = 0; i < len; i++) {
+		crc ^= data[i];
+		for (int bit = 0; bit < 8; bit++) {
+			if ((crc & 1U) != 0U) {
+				crc = (crc >> 1) ^ 0xEDB88320U;
+			} else {
+				crc >>= 1;
+			}
+		}
+	}
+	return crc ^ 0xFFFFFFFFU;
+}
+
+static uint32_t usm_get_le32(const uint8_t *p)
+{
+	return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) |
+	       ((uint32_t)p[3] << 24);
+}
+
+static void usm_put_le32(uint8_t *p, uint32_t v)
+{
+	p[0] = (uint8_t)(v & 0xFFU);
+	p[1] = (uint8_t)((v >> 8) & 0xFFU);
+	p[2] = (uint8_t)((v >> 16) & 0xFFU);
+	p[3] = (uint8_t)((v >> 24) & 0xFFU);
+}
+
+static int usm_eeprom_io_read(const struct snmp_storage_eeprom_ctx *ectx, size_t offset, void *data,
+			      size_t len)
+{
+	if (ectx->raw_read != NULL) {
+		return ectx->raw_read(ectx->raw_ctx, offset, data, len);
+	}
+#if defined(__ZEPHYR__) && defined(CONFIG_SNMP_STORAGE_EEPROM)
+	if (ectx->dev != NULL) {
+		const struct device *dev = (const struct device *)ectx->dev;
+
+		if (!device_is_ready(dev)) {
+			return -ENODEV;
+		}
+		return eeprom_read(dev, (off_t)offset, data, len);
+	}
+	return -EINVAL;
+#else
+	return (ectx->dev != NULL) ? -ENOTSUP : -EINVAL;
+#endif
+}
+
+static int usm_eeprom_io_write(const struct snmp_storage_eeprom_ctx *ectx, size_t offset,
+			       const void *data, size_t len)
+{
+	if (ectx->raw_write != NULL) {
+		return ectx->raw_write(ectx->raw_ctx, offset, data, len);
+	}
+#if defined(__ZEPHYR__) && defined(CONFIG_SNMP_STORAGE_EEPROM)
+	if (ectx->dev != NULL) {
+		const struct device *dev = (const struct device *)ectx->dev;
+
+		if (!device_is_ready(dev)) {
+			return -ENODEV;
+		}
+		return eeprom_write(dev, (off_t)offset, data, len);
+	}
+	return -EINVAL;
+#else
+	return (ectx->dev != NULL) ? -ENOTSUP : -EINVAL;
+#endif
+}
+
+static bool usm_eeprom_slot_valid(const uint8_t rec[SNMP_STORAGE_EEPROM_SLOT_SIZE],
+				  uint32_t *out_boots)
+{
+	if (rec[0] != USM_EEPROM_MAGIC0 || rec[1] != USM_EEPROM_MAGIC1 ||
+	    rec[2] != USM_EEPROM_MAGIC2 || rec[3] != USM_EEPROM_MAGIC3 ||
+	    rec[4] != USM_EEPROM_VERSION || rec[5] != 0 || rec[6] != 0 || rec[7] != 0) {
+		return false;
+	}
+
+	uint32_t expected_crc = usm_crc32_ieee(rec, 12);
+	uint32_t stored_crc = usm_get_le32(&rec[12]);
+
+	if (expected_crc != stored_crc) {
+		return false;
+	}
+
+	uint32_t boots = usm_get_le32(&rec[8]);
+
+	if (boots == 0U || boots > SNMP_ENGINE_BOOTS_MAX) {
+		return false;
+	}
+
+	*out_boots = boots;
+	return true;
+}
+
+int snmp_storage_eeprom_read(void *ctx, uint8_t *buf, size_t len)
+{
+	const struct snmp_storage_eeprom_ctx *ectx = (const struct snmp_storage_eeprom_ctx *)ctx;
+	uint8_t slots[2][SNMP_STORAGE_EEPROM_SLOT_SIZE];
+	uint32_t boots[2] = {0, 0};
+	bool valid[2];
+	int ret;
+
+	if (ectx == NULL || buf == NULL || len != sizeof(uint32_t)) {
+		return -EINVAL;
+	}
+
+	for (size_t s = 0; s < 2; s++) {
+		ret = usm_eeprom_io_read(ectx, ectx->offset + (s * SNMP_STORAGE_EEPROM_SLOT_SIZE),
+					 slots[s], SNMP_STORAGE_EEPROM_SLOT_SIZE);
+		if (ret < 0) {
+			return ret;
+		}
+		valid[s] = usm_eeprom_slot_valid(slots[s], &boots[s]);
+	}
+
+	if (!valid[0] && !valid[1]) {
+		return -ENOENT;
+	}
+
+	uint32_t best = 0;
+
+	if (valid[0] && valid[1]) {
+		best = boots[0] >= boots[1] ? boots[0] : boots[1];
+	} else {
+		best = valid[0] ? boots[0] : boots[1];
+	}
+
+	usm_put_le32(buf, best);
+	return 0;
+}
+
+int snmp_storage_eeprom_write(void *ctx, const uint8_t *buf, size_t len)
+{
+	const struct snmp_storage_eeprom_ctx *ectx = (const struct snmp_storage_eeprom_ctx *)ctx;
+	uint8_t slots[2][SNMP_STORAGE_EEPROM_SLOT_SIZE];
+	uint32_t existing[2] = {0, 0};
+	bool valid[2];
+	uint32_t boots;
+	int ret;
+
+	if (ectx == NULL || buf == NULL || len != sizeof(uint32_t)) {
+		return -EINVAL;
+	}
+
+	boots = usm_get_le32(buf);
+	if (boots == 0U || boots > SNMP_ENGINE_BOOTS_MAX) {
+		return -EINVAL;
+	}
+
+	for (size_t s = 0; s < 2; s++) {
+		ret = usm_eeprom_io_read(ectx, ectx->offset + (s * SNMP_STORAGE_EEPROM_SLOT_SIZE),
+					 slots[s], SNMP_STORAGE_EEPROM_SLOT_SIZE);
+		if (ret < 0) {
+			return ret;
+		}
+		valid[s] = usm_eeprom_slot_valid(slots[s], &existing[s]);
+	}
+
+	/* Overwrite any invalid slot first; otherwise overwrite the slot holding the lower value.
+	 */
+	size_t target_slot;
+
+	if (!valid[0]) {
+		target_slot = 0;
+	} else if (!valid[1]) {
+		target_slot = 1;
+	} else {
+		target_slot = (existing[0] <= existing[1]) ? 0 : 1;
+	}
+
+	uint8_t rec[SNMP_STORAGE_EEPROM_SLOT_SIZE];
+
+	rec[0] = USM_EEPROM_MAGIC0;
+	rec[1] = USM_EEPROM_MAGIC1;
+	rec[2] = USM_EEPROM_MAGIC2;
+	rec[3] = USM_EEPROM_MAGIC3;
+	rec[4] = USM_EEPROM_VERSION;
+	rec[5] = 0;
+	rec[6] = 0;
+	rec[7] = 0;
+	usm_put_le32(&rec[8], boots);
+	usm_put_le32(&rec[12], usm_crc32_ieee(rec, 12));
+
+	return usm_eeprom_io_write(ectx,
+				   ectx->offset + (target_slot * SNMP_STORAGE_EEPROM_SLOT_SIZE),
+				   rec, sizeof(rec));
+}
+
+static int usm_persist_engine_boots(const struct snmp_agent *inst)
+{
+	if (inst->storage != NULL && inst->storage->write != NULL) {
+		uint8_t raw[sizeof(uint32_t)];
+
+		usm_put_le32(raw, inst->engine_boots);
+		return inst->storage->write(inst->storage->ctx, raw, sizeof(raw));
+	}
+
+#if defined(CONFIG_SETTINGS)
+	if (inst->settings_prefix != NULL) {
+		char key[SNMP_USM_SETTINGS_KEY_MAX];
+
+		if (usm_boots_key(inst, key, sizeof(key)) > 0) {
+			return settings_save_one(key, &inst->engine_boots,
+						 sizeof(inst->engine_boots));
+		}
+		return -ENAMETOOLONG;
+	}
+#endif
+	return -EINVAL;
+}
+
 int snmp_usm_set_engine_boots(struct snmp_agent *inst, uint32_t boots)
 {
 	if (inst == NULL || boots > SNMP_ENGINE_BOOTS_MAX) {
@@ -1400,74 +1629,88 @@ int snmp_usm_set_engine_boots(struct snmp_agent *inst, uint32_t boots)
 	}
 	k_mutex_lock(&inst->lock, K_FOREVER);
 	inst->engine_boots = boots;
-#if defined(CONFIG_SETTINGS)
-	/* Persist for whichever engine is configured to persist: the default-instance
-	 * guard is gone (contract 3.7). */
-	if (inst->settings_prefix != NULL) {
-		char key[SNMP_USM_SETTINGS_KEY_MAX];
+	if (inst->storage != NULL ||
+	    (IS_ENABLED(CONFIG_SETTINGS) && inst->settings_prefix != NULL)) {
+		int rc = usm_persist_engine_boots(inst);
 
-		if (usm_boots_key(inst, key, sizeof(key)) > 0) {
-			int rc = settings_save_one(key, &inst->engine_boots,
-						   sizeof(inst->engine_boots));
-
-			if (rc < 0) {
-				LOG_WRN("Failed to persist engineBoots (%d)", rc);
-			}
+		if (rc < 0) {
+			LOG_WRN("Failed to persist engineBoots (%d)", rc);
 		}
 	}
-#endif
 	k_mutex_unlock(&inst->lock);
 	return 0;
 }
 
 int snmp_agent_load_engine_boots(struct snmp_agent *agent)
 {
+	uint32_t persisted = 0;
+	int rd;
+
 	if (!agent) {
 		return -EINVAL;
 	}
+
+	if (agent->storage != NULL && agent->storage->read != NULL &&
+	    agent->storage->write != NULL) {
+		uint8_t raw[sizeof(uint32_t)] = {0};
+
+		rd = agent->storage->read(agent->storage->ctx, raw, sizeof(raw));
+		if (rd == 0) {
+			persisted = usm_get_le32(raw);
+		}
+	} else if (agent->settings_prefix != NULL) {
 #if defined(CONFIG_SETTINGS)
-	if (!agent->settings_prefix) {
+		char key[SNMP_USM_SETTINGS_KEY_MAX];
+		int klen = usm_boots_key(agent, key, sizeof(key));
+
+		if (klen < 0) {
+			return klen;
+		}
+
+		(void)settings_subsys_init();
+
+		ssize_t srd = settings_load_one(key, &persisted, sizeof(persisted));
+
+		if (srd == (ssize_t)sizeof(persisted)) {
+			rd = 0;
+		} else {
+			rd = (srd < 0) ? (int)srd : -ENOENT;
+		}
+#else
+		return -ENOTSUP;
+#endif
+	} else {
 		return -EINVAL;
 	}
 
-	char key[SNMP_USM_SETTINGS_KEY_MAX];
-	int klen = usm_boots_key(agent, key, sizeof(key));
-
-	if (klen < 0) {
-		return klen;
+	if (rd == -ENOENT) {
+		/* First boot on blank storage: keep initial engine_boots and persist it. */
+		if (agent->engine_boots == 0U) {
+			agent->engine_boots = 1U;
+		}
+	} else if (rd < 0) {
+		return rd;
+	} else {
+		/*
+		 * RFC 3414 §3.1.1: a reboot advances the window. The stored value is the boot
+		 * count at the end of the previous life, so take the larger of the two,
+		 * increment below the reportable maximum, and write the new one back.
+		 */
+		if (agent->engine_boots < persisted) {
+			agent->engine_boots = persisted;
+		}
+		if (agent->engine_boots < SNMP_ENGINE_BOOTS_MAX) {
+			agent->engine_boots++;
+		}
 	}
 
-	(void)settings_subsys_init();
-
-	uint32_t persisted = 0;
-	ssize_t rd = settings_load_one(key, &persisted, sizeof(persisted));
-
-	if (rd != (ssize_t)sizeof(persisted)) {
-		return (rd < 0) ? (int)rd : -ENOENT;
-	}
-
-	/*
-	 * RFC 3414 3.1.1: a reboot advances the window. The stored value is the boot
-	 * count at the end of the previous life, so take the larger of the two,
-	 * increment below the reportable maximum, and write the new one back.
-	 */
-	if (agent->engine_boots < persisted) {
-		agent->engine_boots = persisted;
-	}
-	if (agent->engine_boots < SNMP_ENGINE_BOOTS_MAX) {
-		agent->engine_boots++;
-	}
-	int rc = settings_save_one(key, &agent->engine_boots, sizeof(agent->engine_boots));
+	int rc = usm_persist_engine_boots(agent);
 
 	if (rc < 0) {
 		LOG_WRN("Failed to persist engineBoots (%d)", rc);
 		return rc;
 	}
 	return 0;
-#else
-	(void)agent;
-	return -ENOTSUP;
-#endif
 }
 
 uint32_t snmp_usm_get_engine_boots(struct snmp_agent *inst)
@@ -1487,20 +1730,14 @@ uint32_t snmp_usm_get_engine_time(struct snmp_agent *inst)
 	while (elapsed >= (int64_t)SNMP_ENGINE_BOOTS_MAX) {
 		if (inst->engine_boots < SNMP_ENGINE_BOOTS_MAX) {
 			inst->engine_boots++;
-#if defined(CONFIG_SETTINGS)
-			if (inst->settings_prefix != NULL) {
-				char key[SNMP_USM_SETTINGS_KEY_MAX];
+			if (inst->storage != NULL ||
+			    (IS_ENABLED(CONFIG_SETTINGS) && inst->settings_prefix != NULL)) {
+				int rc = usm_persist_engine_boots(inst);
 
-				if (usm_boots_key(inst, key, sizeof(key)) > 0) {
-					int rc = settings_save_one(key, &inst->engine_boots,
-								   sizeof(inst->engine_boots));
-
-					if (rc < 0) {
-						LOG_WRN("Failed to persist engineBoots (%d)", rc);
-					}
+				if (rc < 0) {
+					LOG_WRN("Failed to persist engineBoots (%d)", rc);
 				}
 			}
-#endif
 		}
 		inst->engine_time_base += (int64_t)SNMP_ENGINE_BOOTS_MAX;
 		elapsed = uptime_sec - inst->engine_time_base;

@@ -58,6 +58,22 @@ enum snmp_agent_state {
 #define SNMP_SLOT_NONE 0xFF
 
 /**
+ * @brief Non-volatile storage hook for SNMP engine state (e.g. snmpEngineBoots).
+ *
+ * Compatible with the upstream Zephyr SNMP storage port. @c read returns 0 on
+ * success, @c -ENOENT on first boot when no valid record exists yet, or a
+ * negative errno on failure. @c write returns 0 on success or a negative errno.
+ */
+struct snmp_storage {
+	/** Read @p len bytes of persisted engine state into @p buf. */
+	int (*read)(void *ctx, uint8_t *buf, size_t len);
+	/** Write @p len bytes of engine state from @p buf to non-volatile storage. */
+	int (*write)(void *ctx, const uint8_t *buf, size_t len);
+	/** Caller-owned context passed to @c read and @c write, never the agent instance. */
+	void *ctx;
+};
+
+/**
  * @brief Optional creation-time configuration for snmp_agent_init().
  *
  * Every member is optional: a NULL string / NULL pointer / zero value selects the
@@ -78,6 +94,7 @@ struct snmp_agent_cfg {
 	const struct snmp_oid *sys_object_id; /**< NULL = keep default enterprise OID. */
 	uint32_t engine_boots;                /**< v3; 0 = CONFIG_SNMP_V3_ENGINE_BOOTS. */
 	const char *settings_prefix;          /**< e.g. "snmp/lan"; NULL = no persistence. */
+	const struct snmp_storage *storage;   /**< v3; NULL = fall back to settings_prefix. */
 	const void *user_data;                /**< Opaque pointer returned to the application. */
 };
 
@@ -178,6 +195,12 @@ struct snmp_agent {
 	 *        when the instance does not persist it. Set from struct snmp_agent_cfg.
 	 */
 	const char *settings_prefix;
+
+	/**
+	 * @brief Optional generic non-volatile storage hook for snmpEngineBoots.
+	 *        Takes precedence over @c settings_prefix when non-NULL.
+	 */
+	const struct snmp_storage *storage;
 #endif /* CONFIG_SNMP_VERSION_3 */
 
 	/* MIB engine */
@@ -360,22 +383,70 @@ int snmp_agent_set_read_community(struct snmp_agent *agent, const char *communit
 int snmp_agent_set_write_community(struct snmp_agent *agent, const char *community);
 
 #if defined(CONFIG_SNMP_VERSION_3)
+/** Size in bytes of one EEPROM engineBoots slot (two alternating slots = 32 bytes total). */
+#define SNMP_STORAGE_EEPROM_SLOT_SIZE  16U
+/** Total EEPROM span in bytes reserved per agent instance (two 16-byte slots). */
+#define SNMP_STORAGE_EEPROM_TOTAL_SIZE 32U
+
+/**
+ * @brief Context for the power-loss-safe two-slot CRC-32 EEPROM storage backend.
+ *
+ * On Zephyr builds with @c CONFIG_SNMP_STORAGE_EEPROM=y, set @c dev to the EEPROM
+ * device pointer (e.g. @c DEVICE_DT_GET(DT_ALIAS(eeprom_0))) and leave @c raw_read
+ * and @c raw_write NULL. Custom media or unit tests may provide @c raw_read and
+ * @c raw_write instead.
+ */
+struct snmp_storage_eeprom_ctx {
+	/** Zephyr EEPROM device pointer (`const struct device *`), or NULL when using raw ops. */
+	const void *dev;
+	/** Byte offset within the EEPROM where the 32-byte two-slot region begins. */
+	size_t offset;
+	/** Optional custom byte read callback (returns 0 on success, negative errno on error). */
+	int (*raw_read)(void *raw_ctx, size_t offset, void *data, size_t len);
+	/** Optional custom byte write callback (returns 0 on success, negative errno on error). */
+	int (*raw_write)(void *raw_ctx, size_t offset, const void *data, size_t len);
+	/** Caller-owned opaque context passed to @c raw_read and @c raw_write. */
+	void *raw_ctx;
+};
+
+/**
+ * @brief Read persisted @c snmpEngineBoots from the two-slot CRC-32 EEPROM backend.
+ *
+ * @param ctx Pointer to @ref snmp_storage_eeprom_ctx.
+ * @param buf Output buffer receiving the 4-byte little-endian boot counter.
+ * @param len Size of @p buf (must be @c sizeof(uint32_t)).
+ * @return 0 on success, -ENOENT when neither slot holds a valid record, -EINVAL on
+ *         bad arguments, or a negative errno from the underlying EEPROM driver.
+ */
+int snmp_storage_eeprom_read(void *ctx, uint8_t *buf, size_t len);
+
+/**
+ * @brief Persist @c snmpEngineBoots to the older/invalid slot of the two-slot EEPROM backend.
+ *
+ * @param ctx Pointer to @ref snmp_storage_eeprom_ctx.
+ * @param buf Input buffer containing the 4-byte little-endian boot counter.
+ * @param len Size of @p buf (must be @c sizeof(uint32_t)).
+ * @return 0 on success, -EINVAL on bad arguments or out-of-range value, or a negative
+ *         errno from the underlying EEPROM driver.
+ */
+int snmp_storage_eeprom_write(void *ctx, const uint8_t *buf, size_t len);
+
 /**
  * @brief Load this engine's persisted snmpEngineBoots and advance it for the new boot.
  *
- * Reads @c "<agent settings_prefix>/boots" (see struct snmp_agent_cfg::settings_prefix)
- * with a direct settings read: no global settings handler is registered, so several
- * engines can persist their own replay window under different prefixes. Called by
- * snmp_agent_init() after the configuration is applied, and safe to call again
- * before snmp_agent_start().
+ * Resolution order: @c cfg.storage first, then @c "<agent settings_prefix>/boots" via
+ * Zephyr Settings. Called by snmp_agent_init() after configuration is applied, and safe
+ * to call again before snmp_agent_start().
  *
  * RFC 3414 section 3.1.1 requires snmpEngineBoots to increase on every local
- * reinitialization, so a value found on storage is incremented and written back.
+ * reinitialization, so a value found on storage is incremented and written back; on a
+ * blank first boot (-ENOENT) the initial value is written immediately.
  *
  * @param agent Target agent instance.
- * @return 0 when a persisted value was loaded (and advanced), -EINVAL if @p agent is
- *         NULL or has no settings prefix, -ENOENT when nothing is persisted yet,
- *         -ENOTSUP when CONFIG_SETTINGS is disabled, negative errno on storage failure.
+ * @return 0 when the boot counter was loaded/initialized and persisted, -EINVAL if
+ *         @p agent is NULL or has neither storage nor settings_prefix, -ENOTSUP when
+ *         only settings_prefix is set and CONFIG_SETTINGS is disabled, or negative
+ *         errno on storage failure.
  */
 int snmp_agent_load_engine_boots(struct snmp_agent *agent);
 #endif /* CONFIG_SNMP_VERSION_3 */

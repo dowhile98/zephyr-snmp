@@ -4,6 +4,8 @@
  */
 
 #include <zephyr/kernel.h>
+#include <zephyr/device.h>
+#include <zephyr/devicetree.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/net/net_if.h>
 #include <zephyr/net/net_mgmt.h>
@@ -66,6 +68,29 @@ static struct snmp_agent g_agent_lan;
 static struct snmp_agent g_agent_wan;
 #endif
 
+#if defined(CONFIG_SNMP_VERSION_3) && defined(CONFIG_SNMP_STORAGE_EEPROM) && DT_HAS_ALIAS(eeprom_0)
+static struct snmp_storage_eeprom_ctx s_lan_eeprom_ctx = {
+	.dev = DEVICE_DT_GET(DT_ALIAS(eeprom_0)),
+	.offset = 0,
+};
+static const struct snmp_storage s_lan_storage = {
+	.read = snmp_storage_eeprom_read,
+	.write = snmp_storage_eeprom_write,
+	.ctx = &s_lan_eeprom_ctx,
+};
+#if defined(CONFIG_SNMP_SAMPLE_SECOND_INSTANCE)
+static struct snmp_storage_eeprom_ctx s_wan_eeprom_ctx = {
+	.dev = DEVICE_DT_GET(DT_ALIAS(eeprom_0)),
+	.offset = SNMP_STORAGE_EEPROM_TOTAL_SIZE,
+};
+static const struct snmp_storage s_wan_storage = {
+	.read = snmp_storage_eeprom_read,
+	.write = snmp_storage_eeprom_write,
+	.ctx = &s_wan_eeprom_ctx,
+};
+#endif
+#endif
+
 static void print_banner(const char *ip_str)
 {
 	LOG_INF("================================================================");
@@ -84,8 +109,7 @@ static void print_banner(const char *ip_str)
 		CONFIG_SNMP_SAMPLE_V3_ADMIN_USER);
 	LOG_INF("  - v3 authNoPriv   : \"%s\" (SHA-1, read-only VACM group)",
 		CONFIG_SNMP_SAMPLE_V3_MONITOR_USER);
-	LOG_INF("  - engineBoots     : %u (persisted when CONFIG_SETTINGS is on)",
-		(unsigned int)CONFIG_SNMP_V3_ENGINE_BOOTS);
+	LOG_INF("  - engineBoots     : %u", (unsigned int)snmp_usm_get_engine_boots(&g_agent_lan));
 	LOG_INF("  -- All credentials above are public test values. Never ship them. --");
 #endif
 #if defined(CONFIG_SNMP_SAMPLE_SECOND_INSTANCE)
@@ -293,6 +317,9 @@ int main(void)
 		.sys_name = "NUCLEO-H743ZI-SNMP",
 		.sys_location = "Lab Bench 1",
 		.settings_prefix = "snmp/lan",
+#if defined(CONFIG_SNMP_VERSION_3) && defined(CONFIG_SNMP_STORAGE_EEPROM) && DT_HAS_ALIAS(eeprom_0)
+		.storage = &s_lan_storage,
+#endif
 	};
 	int ret = snmp_agent_init(&g_agent_lan, &cfg_lan);
 	if (ret < 0) {
@@ -374,6 +401,9 @@ int main(void)
 		.sys_name = "NUCLEO-H743ZI-WAN",
 		.sys_location = "Lab Bench 1",
 		.settings_prefix = "snmp/wan",
+#if defined(CONFIG_SNMP_VERSION_3) && defined(CONFIG_SNMP_STORAGE_EEPROM) && DT_HAS_ALIAS(eeprom_0)
+		.storage = &s_wan_storage,
+#endif
 	};
 	ret = snmp_agent_init(&g_agent_wan, &cfg_wan);
 	if (ret < 0) {

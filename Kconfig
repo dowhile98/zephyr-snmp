@@ -131,8 +131,18 @@ config SNMP_V3_ENGINE_BOOTS
 	  Initial value for the SNMPv3 authoritative engine boots counter
 	  (snmpEngineBoots). Must be strictly monotonically increasing
 	  across reboots to prevent replay attacks (RFC 3414 §5.1.3).
-	  Persist this value in EEPROM / backup SRAM and read it at boot
-	  via prj.conf or a runtime setter.
+	  Persist this value via struct snmp_agent_cfg::storage (e.g.
+	  snmp_storage_eeprom_read/write) or settings_prefix.
+
+config SNMP_STORAGE_EEPROM
+	bool "EEPROM backend for SNMPv3 engineBoots persistence"
+	depends on EEPROM
+	default y
+	help
+	  Compile the two-slot CRC-32 EEPROM storage backend for snmpEngineBoots
+	  (snmp_storage_eeprom_read / snmp_storage_eeprom_write). Uses two 16-byte
+	  page-aligned slots (32 bytes total per instance) so a torn write across
+	  power loss leaves the previous boot counter intact.
 
 config SNMP_V3_USER_NAME
 	string "SNMPv3 user name"

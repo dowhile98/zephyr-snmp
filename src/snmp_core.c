@@ -217,6 +217,7 @@ int snmp_agent_init(struct snmp_agent *agent, const struct snmp_agent_cfg *cfg)
 			agent->engine_boots = cfg->engine_boots;
 		}
 		agent->settings_prefix = cfg->settings_prefix;
+		agent->storage = cfg->storage;
 	}
 	ret = snmp_usm_init(agent);
 	if (ret != 0) {
@@ -232,7 +233,8 @@ int snmp_agent_init(struct snmp_agent *agent, const struct snmp_agent_cfg *cfg)
 	}
 
 	/* Contract 3.7 call order: defaults -> cfg.engine_boots -> persisted override. */
-	if (agent->settings_prefix != NULL) {
+	if (agent->storage != NULL ||
+	    (IS_ENABLED(CONFIG_SETTINGS) && agent->settings_prefix != NULL)) {
 		int b_ret = snmp_agent_load_engine_boots(agent);
 
 		if (b_ret < 0 && b_ret != -ENOENT) {
