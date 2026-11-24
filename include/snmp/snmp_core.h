@@ -14,9 +14,11 @@
 #include <snmp/snmp_trap.h>
 
 #if defined(__ZEPHYR__)
+#include <zephyr/net/net_ip.h>
 #include <zephyr/net/socket.h>
 #else
 #include <netinet/in.h>
+#define net_sockaddr_in sockaddr_in
 #endif
 
 #ifdef __cplusplus
@@ -222,7 +224,7 @@ struct snmp_agent {
 	struct k_mutex lock;
 
 	/* Trap engine */
-	struct sockaddr_in trap_dests[CONFIG_SNMP_TRAP_DEST_COUNT];
+	struct net_sockaddr_in trap_dests[CONFIG_SNMP_TRAP_DEST_COUNT];
 	uint8_t trap_dest_cnt;
 
 	/* Transport/Service */
@@ -253,8 +255,6 @@ struct snmp_agent {
 		struct {
 			/** Output varbinds collected during GETBULK. */
 			struct snmp_varbind res_vb[CONFIG_SNMP_MAX_VARBINDS];
-			/** Working OIDs during GETBULK repetition cycles. */
-			struct snmp_oid current_oids[CONFIG_SNMP_MAX_VARBINDS];
 		} bulk;
 #if defined(CONFIG_SNMP_VERSION_3)
 		/** Scratch buffers for USM decryption/plaintext build/signing. */

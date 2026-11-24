@@ -14,7 +14,7 @@
 #include <string.h>
 #include <errno.h>
 
-#if (defined(CONFIG_SNMP) || defined(CONFIG_SNMP_AGENT)) && defined(CONFIG_SNMP_VERSION_3)
+#if defined(CONFIG_SNMP) && defined(CONFIG_SNMP_VERSION_3)
 
 /* Host builds have no Kconfig: no compile-time default user unless defined. */
 #ifndef CONFIG_SNMP_V3_USER_NAME
@@ -634,4 +634,4 @@ int snmp_vacm_check_access(struct snmp_agent *inst, const struct snmp_v3_msg *ms
 	return 0;
 }
 
-#endif /* CONFIG_SNMP_AGENT && CONFIG_SNMP_VERSION_3 */
+#endif /* CONFIG_SNMP && CONFIG_SNMP_VERSION_3 */

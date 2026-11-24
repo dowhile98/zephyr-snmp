@@ -4,7 +4,7 @@ Welcome to the official documentation and wiki for the **Zephyr SNMP Agent** (`z
 
 - **Zero Dynamic Allocation (`malloc` = 0)**: Engineered for mission-critical microcontroller environments where heap fragmentation is unacceptable.
 - **Native Zephyr Integration**: Leverages `net_socket_service`, Devicetree, GPIO APIs, Workqueues, and the standard Zephyr Logging subsystem.
-- **Standard and Enterprise MIB Support**: Built-in MIB-II (System, SNMP, and Interfaces groups) and modular registration of private enterprise OIDs (scalars and tables).
+- **Standard and Enterprise MIB Support**: Built-in MIB-II (`system` and `snmp` groups, 37 nodes at `snmp_agent_init()`, plus opt-in `interfaces`, `ip`, `icmp`, `tcp`, and `udp` groups via `snmp_mib2_register_all()`) and modular registration of private enterprise OIDs (scalars and tables).
 - **Autonomous Notifications**: Dispatch of Traps and Informs (v1, v2c, and v3) triggered by physical hardware interrupts or software events.
 - **Instance-Explicit Concurrency**: Re-entrant multi-agent architecture with independent agent structures (`struct snmp_agent`), mutual-exclusion locks, and bounded scratch memory.
 - **Declarative Configuration**: Granular control via Zephyr's Kconfig system and `menuconfig`.
@@ -81,9 +81,10 @@ CONFIG_NET_UDP=y
 CONFIG_NET_SOCKETS=y
 CONFIG_NET_SOCKETS_SERVICE=y
 
-CONFIG_SNMP_AGENT=y
+CONFIG_SNMP=y
 CONFIG_SNMP_VERSION_1=y
 CONFIG_SNMP_VERSION_2C=y
+CONFIG_SNMP_SET_ENABLE=y
 CONFIG_SNMP_TRAP_ENABLED=y
 CONFIG_SNMP_AGENT_PORT=161
 CONFIG_SNMP_COMMUNITY_READ="public"
@@ -133,8 +134,8 @@ void app_snmp_init(void)
 
     static const struct snmp_agent_cfg cfg = {
         .port = 161,
-        .community_read = "public",
-        .community_write = "private",
+        .read_community = "public",
+        .write_community = "private",
     };
 
     snmp_agent_init(&g_agent, &cfg);

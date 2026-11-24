@@ -29,10 +29,10 @@ ZTEST(snmp_trap, test_trap_default_port)
 	ret = snmp_trap_add_destination(&s_agent, "192.168.1.100");
 	ASSERT_EQ(ret, 0);
 	ASSERT_EQ(s_agent.trap_dest_cnt, 1);
-	ASSERT_EQ(ntohs(s_agent.trap_dests[0].sin_port), CONFIG_SNMP_TRAP_PORT);
+	ASSERT_EQ(net_ntohs(s_agent.trap_dests[0].sin_port), CONFIG_SNMP_TRAP_PORT);
 
-	struct in_addr exp;
-	ret = zsock_inet_pton(AF_INET, "192.168.1.100", &exp);
+	struct net_in_addr exp;
+	ret = zsock_inet_pton(NET_AF_INET, "192.168.1.100", &exp);
 	ASSERT_EQ(ret, 1);
 	ASSERT_EQ(s_agent.trap_dests[0].sin_addr.s_addr, exp.s_addr);
 }
@@ -45,10 +45,10 @@ ZTEST(snmp_trap, test_trap_custom_port_arg)
 	ret = snmp_trap_add_destination_port(&s_agent, "192.168.1.101", 1162);
 	ASSERT_EQ(ret, 0);
 	ASSERT_EQ(s_agent.trap_dest_cnt, 1);
-	ASSERT_EQ(ntohs(s_agent.trap_dests[0].sin_port), 1162);
+	ASSERT_EQ(net_ntohs(s_agent.trap_dests[0].sin_port), 1162);
 
-	struct in_addr exp;
-	ret = zsock_inet_pton(AF_INET, "192.168.1.101", &exp);
+	struct net_in_addr exp;
+	ret = zsock_inet_pton(NET_AF_INET, "192.168.1.101", &exp);
 	ASSERT_EQ(ret, 1);
 	ASSERT_EQ(s_agent.trap_dests[0].sin_addr.s_addr, exp.s_addr);
 }
@@ -61,17 +61,17 @@ ZTEST(snmp_trap, test_trap_inline_port_syntax)
 	ret = snmp_trap_add_destination(&s_agent, "192.168.1.102:2162");
 	ASSERT_EQ(ret, 0);
 	ASSERT_EQ(s_agent.trap_dest_cnt, 1);
-	ASSERT_EQ(ntohs(s_agent.trap_dests[0].sin_port), 2162);
+	ASSERT_EQ(net_ntohs(s_agent.trap_dests[0].sin_port), 2162);
 
 	ret = snmp_trap_add_destination(&s_agent, "[192.168.1.103]:3162");
 	ASSERT_EQ(ret, 0);
 	ASSERT_EQ(s_agent.trap_dest_cnt, 2);
-	ASSERT_EQ(ntohs(s_agent.trap_dests[1].sin_port), 3162);
+	ASSERT_EQ(net_ntohs(s_agent.trap_dests[1].sin_port), 3162);
 
-	struct in_addr exp1;
-	struct in_addr exp2;
-	zsock_inet_pton(AF_INET, "192.168.1.102", &exp1);
-	zsock_inet_pton(AF_INET, "192.168.1.103", &exp2);
+	struct net_in_addr exp1;
+	struct net_in_addr exp2;
+	zsock_inet_pton(NET_AF_INET, "192.168.1.102", &exp1);
+	zsock_inet_pton(NET_AF_INET, "192.168.1.103", &exp2);
 	ASSERT_EQ(s_agent.trap_dests[0].sin_addr.s_addr, exp1.s_addr);
 	ASSERT_EQ(s_agent.trap_dests[1].sin_addr.s_addr, exp2.s_addr);
 }
@@ -98,10 +98,10 @@ ZTEST(snmp_trap, test_trap_four_independent_servers)
 	ASSERT_EQ(ret, 0);
 
 	ASSERT_EQ(s_agent.trap_dest_cnt, 4);
-	ASSERT_EQ(ntohs(s_agent.trap_dests[0].sin_port), 162);
-	ASSERT_EQ(ntohs(s_agent.trap_dests[1].sin_port), 1162);
-	ASSERT_EQ(ntohs(s_agent.trap_dests[2].sin_port), 2162);
-	ASSERT_EQ(ntohs(s_agent.trap_dests[3].sin_port), 3162);
+	ASSERT_EQ(net_ntohs(s_agent.trap_dests[0].sin_port), 162);
+	ASSERT_EQ(net_ntohs(s_agent.trap_dests[1].sin_port), 1162);
+	ASSERT_EQ(net_ntohs(s_agent.trap_dests[2].sin_port), 2162);
+	ASSERT_EQ(net_ntohs(s_agent.trap_dests[3].sin_port), 3162);
 
 	/* 5th server exceeds CONFIG_SNMP_TRAP_DEST_COUNT (4) */
 	ret = snmp_trap_add_destination(&s_agent, "10.0.0.5");

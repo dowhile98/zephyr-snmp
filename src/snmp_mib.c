@@ -15,7 +15,7 @@
 #include <stddef.h>
 #include <errno.h>
 
-#if defined(CONFIG_SNMP) || defined(CONFIG_SNMP_AGENT)
+#if defined(CONFIG_SNMP)
 
 #if defined(CONFIG_SNMP_SET_ENABLE)
 #define SNMP_SET_ENABLED 1
@@ -1145,7 +1145,6 @@ int snmp_mib_dispatch(struct snmp_agent *inst, struct snmp_pdu *pdu)
 
 		snmp_mib_lock(inst);
 		struct snmp_varbind *res_vb = inst->scratch.bulk.res_vb;
-		struct snmp_oid *current_oids = inst->scratch.bulk.current_oids;
 
 		for (int i = 0; i < non_rep && new_cnt < CONFIG_SNMP_MAX_VARBINDS; i++) {
 			res_vb[new_cnt] = pdu->varbinds[i];
@@ -1159,26 +1158,22 @@ int snmp_mib_dispatch(struct snmp_agent *inst, struct snmp_pdu *pdu)
 
 		uint8_t num_repeaters = orig_cnt - non_rep;
 		if (gret == 0 && num_repeaters > 0 && max_rep > 0) {
-
-			for (uint8_t r = 0; r < num_repeaters; r++) {
-				current_oids[r] = pdu->varbinds[non_rep + r].oid;
-			}
-
 			for (int rep = 0; rep < max_rep; rep++) {
 				bool all_end = true;
 				for (uint8_t r = 0;
-
 				     r < num_repeaters && new_cnt < CONFIG_SNMP_MAX_VARBINDS; r++) {
 					struct snmp_varbind *vb = &res_vb[new_cnt];
-					gret = snmp_mib_get_next_visible(inst, &current_oids[r],
-									 vb);
+					struct snmp_oid *cursor =
+						&pdu->varbinds[(uint8_t)non_rep + r].oid;
+
+					gret = snmp_mib_get_next_visible(inst, cursor, vb);
 
 					if (gret < 0) {
 						break;
 					}
 					if (vb->type != SNMP_TAG_EXCEPT_END_MIB_VIEW) {
 						all_end = false;
-						current_oids[r] = vb->oid;
+						*cursor = vb->oid;
 					}
 					new_cnt++;
 				}
@@ -1605,4 +1600,4 @@ void snmp_agent_zero_counters(struct snmp_agent *agent)
 	snmp_mib_unlock(agent);
 }
 
-#endif /* CONFIG_SNMP_AGENT */
+#endif /* CONFIG_SNMP */

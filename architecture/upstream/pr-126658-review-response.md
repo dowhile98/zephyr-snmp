@@ -28,18 +28,19 @@ because they are security and correctness fixes rather than structural choices.
 
 | # | Finding (weight) | Status in this tree | Where it lands |
 |---|---|---|---|
-| 1 | Default read-write v3 user and default write community (blocking) | Fixed | Current module and port |
+| 1 | Default read-write v3 user and default write community (blocking) | Fixed (including v3 SET gate) | Current module and port |
 | 2 | VACM view escape on GETNEXT/GETBULK (blocking) | Fixed | Current module; re-done inside `fetch_next()` on the port |
-| 3 | engineBoots not persisted (blocking) | Policy unchanged; opt-in through `cfg.settings_prefix` | Port: move into `struct snmp_storage` |
-| 4 | v3 path needs ~8 KiB stack frames (blocking) | Not changed (structural) | Port: parse in place with `snmp_ber_reader` |
+| 3 | engineBoots not persisted (blocking) | Fixed (`struct snmp_storage` + two-slot CRC-32 EEPROM backend, fallback to `settings_prefix`) | Current module and port |
+| 4 | v3 path needs ~8 KiB stack frames (blocking) | Fixed (`current_v3_msg` + `scratch.usm` in `struct snmp_agent`; max frame 352 B on `nucleo_h743zi`) | Current module; in-place BER reader on the port |
 | 5 | Rate limiter spins the service thread (blocking) | Fixed | Current module; port keeps the drain-first order |
 | 6 | Shared `"ZEPHYR1"` engine ID without HWINFO (blocking) | Fixed | Current module and port |
-| 7 | VACM table writes not under the agent lock (low) | Not changed | Port: VACM under the lock |
-| 8 | Pass phrases stay in RAM, Kconfig values in flash (low) | Defaults removed; parsing unchanged | Port: zeroize after localization |
+| 7 | VACM table writes not under the agent lock (low) | Fixed (`snmp_vacm_add_*` acquire `inst->lock`) | Current module and port |
+| 8 | Pass phrases stay in RAM, Kconfig values in flash (low) | Fixed (defaults removed; pass phrases zeroized after localization) | Current module and port |
 | 9 | No Report on a wrong digest (optional) | Fixed | Current module and port |
 | 10 | UBSAN left shift of a negative `int32_t` (nit) | Fixed | Current module and port |
 | 11 | Offloaded interface binding fails `start` (comparison note) | Fixed | Current module |
-| 12 | SET has no switch (blocking, part of 1) | Fixed | Current module and port |
+| 12 | SET has no switch (blocking, part of 1) | Fixed (v1/v2c and v3) | Current module and port |
+| 13 | POSIX socket names in public header + `CONFIG_SNMP_AGENT` leftovers | Fixed (`net_sockaddr_in`, `NET_*`/`ZSOCK_*` names, `CONFIG_SNMP` only) | Current module |
 
 ## What changed, with evidence
 
@@ -92,26 +93,25 @@ then `endOfMibView`, never the enterprise OID. With the filter inactive the same
 step returns the enterprise OID, which proves the test is measuring the filter
 and not a registry limit.
 
-### 3. engineBoots (deferred, documented)
+### 3. engineBoots (`struct snmp_storage` + EEPROM backend)
 
-This module can persist `snmpEngineBoots` through `cfg.settings_prefix` plus a
-Zephyr settings backend; the v3 sample sets `snmp/lan`, and
-`snmp_agent_load_engine_boots()` reads and advances it. Without a backend the
-call returns `-ENOTSUP` and the compile-time value is used, which is exactly what
-the review observed.
+`struct snmp_agent_cfg` now exposes the generic `struct snmp_storage` hook
+(`read`/`write`/`ctx`), matching the interface used in PR 125643. A built-in
+power-loss-safe two-slot CRC-32 EEPROM backend (`snmp_storage_eeprom_read` /
+`snmp_storage_eeprom_write`, `CONFIG_SNMP_STORAGE_EEPROM`) persists
+`snmpEngineBoots` across reboots on `zephyr,sim-eeprom` (`native_sim`),
+`zephyr,emu-eeprom`, and hardware EEPROM shields (`x_nucleo_eeprma2`), with
+`cfg.settings_prefix` retained as fallback.
 
-We are not moving that policy in this module. The review's own plan puts the
-counter in `struct snmp_storage` on 125643, and that is the right home: one
-storage hook for the whole subsystem instead of an SNMP-specific settings key.
-The port checklist requires it before the v3 layer leaves EXPERIMENTAL.
+### 4. v3 stack frames (`<= 352 B` per frame in `src/`)
 
-### 4. v3 stack frames (deferred, structural)
-
-The 8 KiB `struct snmp_v3_msg` copies are a consequence of the current receive
-path, which decodes a whole message into a struct. Fixing it means parsing
-`msgGlobalData`/`msgSecurityParameters` in place with a BER reader, which is a
-rewrite of the v3 front end, not a patch. It is the second item of the staged
-port and must not be lost.
+`current_pdu` and `current_v3_msg` now share a union inside `struct snmp_agent`,
+and USM plaintext/signing buffers use `scratch.usm` under `agent->lock`.
+Measured with `-fstack-usage` on `nucleo_h743zi`, the largest single frame across
+`src/*.c` is now **352 B** (`snmp_usm_build_outgoing`, `snmp_ber_decode_v3_msg`,
+`snmp_mib_get_next`), down from 8,224 B in `process_v3`. Parsing `msgGlobalData`
+and `msgSecurityParameters` in place with `snmp_ber_reader` remains the clean
+structural design for the port onto PR 125643.
 
 ### 5. Rate limiter drains before it drops
 
@@ -160,21 +160,31 @@ already tie the socket to that interface, so `cfg.iface` now works there.
 
 ## Not changed here, and why
 
-- Structural items (object model, one-instance model, RAM array registry,
-  POSIX-named public headers, MIB-II mocks under `CONFIG_ZTEST`, 8 KiB message
-  copies) are the port work itself. Patching them in this tree would be a
-  rewrite that competes with the base decision.
-- VACM writes under the lock: the tables are populated at init today. The port
-  moves table mutation behind the agent lock together with the rest of VACM.
-- Pass-phrase lifetime: defaults are gone, but a pass phrase supplied by the
-  application is still kept in `struct snmp_usm_user`. Zeroizing it after key
-  localization belongs with the port's user model.
+- Structural items (flash iterable-section object model, one-instance model,
+  in-place BER reader/writer, MIB-II mocks under `CONFIG_ZTEST`) are the port
+  work itself. Patching them in this tree would be a rewrite that competes with
+  the base decision.
 - Informs are still fire-and-forget. The review lists retransmission as a later
   feature, not a defect.
 - The `SET with read community` difference (this agent drops it and counts
   `snmpBadCommunityUses`; 125643 answers `authorizationError`/`noSuchName`) is
   left as a design question for the port, where communities map to security
   names and go through VACM like any other identity.
+
+## Additional hardening applied on top of `56d4bfc`
+
+- `SNMP_SET_ENABLED` is now also enforced in `process_v3()` and
+  `snmp_mib_dispatch()`.
+- `process_v3()` now bounds response encoding to `min(max_resp_len, msgMaxSize)`.
+- `snmp_vacm_add_*()` mutations acquire `inst->lock`.
+- `auth_pass` and `priv_pass` are zeroized from `struct snmp_usm_user` and stack
+  temporaries immediately after key localization.
+- `sizeof(struct snmp_agent)` on 32-bit `qemu_x86` dropped to **28,692 B**
+  (v1/v2c) and **35,152 B** (v3) by removing `scratch.bulk.current_oids` and
+  tuning VACM default table capacities (`4/8/8/16`).
+- Public header and transport code switched from POSIX socket types to Zephyr
+  native `net_sockaddr_in` / `NET_*` / `ZSOCK_*` symbols, and legacy
+  `CONFIG_SNMP_AGENT` guards were removed.
 
 ## Port plan onto PR 125643
 
@@ -208,9 +218,10 @@ proposed.
 | Gate | Result |
 |---|---|
 | Host unit tests (`tests/unit`) | 49 + 11 passed |
-| Twister `native_sim/native/64 --integration` | 70/70 test cases passed |
+| Twister `native_sim/native/64 --integration` | 74/74 test cases passed |
 | Samples, six matrix entries (`snmp_agent`, `snmp_agent_v3` x `native_sim/native/64`, `qemu_x86`, `nucleo_h743zi`) | all build |
-| `clang-format --dry-run --Werror` over `src include samples tests/src tests/unit` | clean (local 23.1.3; CI pins 23.1.1) |
+| `clang-format --dry-run --Werror` over `src include samples tests/src tests/unit` | clean |
+| Doxygen (`docs/Doxyfile`, `WARN_AS_ERROR = YES`) | 0 warnings |
 | HIL on NUCLEO-H743ZI | not run in this change set; hardware behavior is UNKNOWN here |
 
 The Twister run covers the `snmp_vacm` ztests, which now create the `admin`

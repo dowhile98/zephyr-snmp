@@ -14,8 +14,8 @@ This document details the internal architecture of the `zephyr-snmp` subsystem, 
    - Each agent encapsulates its own state, MIB tree, network buffers, scratch space, and mutex (`agent->lock`).
    - Internal state contains zero mutable globals (verified mechanically via symbol audits).
 3. **Scratch Space Memory Optimization**:
-   - Memory-intensive operations (such as Two-Phase Commit SET state tracking and GETBULK repeaters) share an instance-embedded `scratch` union (`inst->scratch`).
-   - This architectural decision reduces stack frame requirements from **9.8 KiB down to 52 bytes**, preventing stack overflow crashes in Zephyr cooperative or preemptive thread contexts.
+   - Memory-intensive operations (Two-Phase Commit SET tracking, GETBULK repeaters, and USM plaintext/signing buffers) share an instance-embedded `scratch` union (`inst->scratch`), while `current_pdu` and `current_v3_msg` share a processing union under `agent->lock`.
+   - This architectural decision keeps individual function stack frames at **<= 352 bytes** across `src/*.c` on ARM Cortex-M (`snmp_mib_dispatch()` is **96 bytes**), preventing stack overflow crashes in Zephyr thread contexts.
 4. **Native Zephyr Socket Service Integration**:
    - The transport layer binds to Zephyr's asynchronous `net_socket_service` infrastructure, eliminating dedicated thread overhead per open socket while supporting both IPv4 and IPv6 dual-stack polling.
 
@@ -60,7 +60,7 @@ sequenceDiagram
 
 ### A. Network Transport Layer (`src/snmp_service.c`)
 - Uses Zephyr's `NET_SOCKET_SERVICE_SYNC_DEFINE_STATIC` to register socket file descriptors in the OS poll set (`zsock_pollfd`).
-- Supports dual-stack **IPv4** (`AF_INET`) and **IPv6** (`AF_INET6`), binding each agent instance to its configured port (`cfg->port`, default 161).
+- Supports dual-stack **IPv4** (`NET_AF_INET`) and **IPv6** (`NET_AF_INET6`), binding each agent instance to its configured port (`cfg->port`, default 161).
 - **ZVFS Polling Budget Requirement**: When running multiple instances, Zephyr's Virtual File System poll descriptor limit must be configured to accommodate all sockets:
   $$\text{CONFIG\_ZVFS\_POLL\_MAX} \ge \text{CONFIG\_SNMP\_MAX\_INSTANCES} \times \text{SNMP\_SVC\_FDS} + 1$$
   *(where $\text{SNMP\_SVC\_FDS} = 2$ when IPv6 is enabled, and $1$ for IPv4-only).* A `BUILD_ASSERT` enforces this constraint at compile time.
@@ -81,14 +81,22 @@ The encoder and decoder operate directly over contiguous byte buffers with zero 
 - Supports dynamic multi-column tables (`struct snmp_mib_table`) with index chaining.
 
 ### D. Scratch Space Memory Union
-To eliminate massive stack frames during complex multi-varbind transactions, `struct snmp_agent` embeds a shared mutual-exclusion scratch union:
+To eliminate large stack frames during multi-varbind SET/GETBULK transactions and SNMPv3 USM encryption/signing, `struct snmp_agent` embeds a shared mutual-exclusion `scratch` union (`tx_items`, `bulk.res_vb`, and `usm.buf_a`/`buf_b`), while `current_pdu` and `current_v3_msg` share a processing union:
 ```c
-union snmp_agent_scratch {
+union {
     struct snmp_set_tx_item tx_items[CONFIG_SNMP_MAX_VARBINDS];
-    struct snmp_bulk_scratch bulk;
-};
+    struct {
+        struct snmp_varbind res_vb[CONFIG_SNMP_MAX_VARBINDS];
+    } bulk;
+#if defined(CONFIG_SNMP_VERSION_3)
+    struct {
+        uint8_t buf_a[CONFIG_SNMP_MAX_PDU_SIZE];
+        uint8_t buf_b[CONFIG_SNMP_MAX_PDU_SIZE];
+    } usm;
+#endif
+} scratch;
 ```
-Because SET transactions and GETBULK requests are mutually exclusive under `agent->lock`, sharing this memory cuts the execution stack frame from **9.8 KiB down to 52 bytes**.
+Because v1/v2c, v3, SET, and GETBULK paths are mutually exclusive under `agent->lock`, sharing this memory keeps the largest single stack frame across `src/*.c` at **352 bytes** on `nucleo_h743zi` (`snmp_mib_dispatch()` is **96 bytes**).
 
 ### E. Traps and Notifications (`src/snmp_trap.c`)
 - Manages an array of up to `CONFIG_SNMP_TRAP_DEST_COUNT` remote NMS endpoints (IPv4/IPv6 address and UDP port).
@@ -146,13 +154,13 @@ The agent instance structure encapsulates all state required for an independent 
 - Mutex lock (`struct k_mutex lock`)
 - Configuration copy (`struct snmp_agent_cfg cfg`)
 - Receive and transmit buffers (`uint8_t rx_buf[...]`, `uint8_t tx_buf[...]`)
-- Current parsed PDU (`struct snmp_pdu current_pdu`)
-- Scratch space union (`union snmp_agent_scratch scratch`)
+- Current parsed PDU union (`current_pdu` / `current_v3_msg`)
+- Scratch space union (`scratch`)
 - MIB scalar node array (`struct snmp_mib_node mib_nodes[...]`) and count
-- Table array (`struct snmp_mib_table tables[...]`) and count
-- MIB-II interface cache (`struct snmp_mib2_if_row if_rows[...]`)
-- Protocol statistics counters (`struct snmp_agent_counters counters`)
-- SNMPv3 cryptographic and access control tables (when `CONFIG_SNMP_VERSION_3=y`)
+- Table array (`struct snmp_mib_table *mib_tables[...]`) and count
+- MIB-II interface cache (`struct snmp_table_row if_rows[...]`)
+- Protocol statistics counters (`struct snmp_mib2_counters counters`)
+- SNMPv3 cryptographic, storage hook (`const struct snmp_storage *storage`), and access control tables (when `CONFIG_SNMP_VERSION_3=y`)
 
 ---
 
@@ -161,11 +169,11 @@ The agent instance structure encapsulates all state required for an independent 
 ### Instance RAM Footprint
 Measured on 32-bit `qemu_x86` with the default Kconfig (`CONFIG_SNMP_MAX_MIB_NODES=128`,
 `CONFIG_SNMP_MAX_IFACES=8`):
-- **SNMPv1 / SNMPv2c only**: `sizeof(struct snmp_agent)` = **30,220 bytes** (~29.5 KiB).
-- **SNMPv3 enabled (`CONFIG_SNMP_VERSION_3=y`)**: `sizeof(struct snmp_agent)` = **39,480 bytes** (~38.6 KiB), adding the USM user table, VACM tables, localized keys and replay state.
+- **SNMPv1 / SNMPv2c only**: `sizeof(struct snmp_agent)` = **28,692 bytes** (~28.0 KiB).
+- **SNMPv3 enabled (`CONFIG_SNMP_VERSION_3=y`)**: `sizeof(struct snmp_agent)` = **35,152 bytes** (~34.3 KiB), adding the USM user table, VACM tables, localized keys, and replay state.
 
-The largest members are `mib_nodes[128]` (11.0 KiB), the `scratch` union (8.5 KiB),
-`current_pdu` (6.5 KiB) and `rx_buf`+`tx_buf` (2 KiB).
+The largest members are `mib_nodes[128]` (11.0 KiB), the `scratch` union (7.0 KiB),
+`current_pdu`/`current_v3_msg` union (6.5 KiB v1/v2c, 7.8 KiB v3) and `rx_buf`+`tx_buf` (2 KiB).
 
 ### Kconfig Memory Tuning Reference
 

@@ -13,7 +13,7 @@
 #include <string.h>
 #include <errno.h>
 
-#if (defined(CONFIG_SNMP) || defined(CONFIG_SNMP_AGENT)) && defined(CONFIG_SNMP_TRAP_ENABLED)
+#if defined(CONFIG_SNMP) && defined(CONFIG_SNMP_TRAP_ENABLED)
 
 #ifdef CONFIG_SNMP_VERSION_3
 #include <snmp/snmp_usm.h>
@@ -70,7 +70,7 @@ int snmp_trap_add_destination_port(struct snmp_agent *inst, const char *addr, ui
 		return -EINVAL;
 	}
 
-	char ip_buf[INET_ADDRSTRLEN + 8];
+	char ip_buf[NET_INET_ADDRSTRLEN + 8];
 	const char *ip_start = addr;
 	size_t ip_len = 0;
 	const char *port_str = NULL;
@@ -131,13 +131,13 @@ int snmp_trap_add_destination_port(struct snmp_agent *inst, const char *addr, ui
 		return -EINVAL;
 	}
 
-	struct sockaddr_in dest;
+	struct net_sockaddr_in dest;
 
 	memset(&dest, 0, sizeof(dest));
-	dest.sin_family = AF_INET;
-	dest.sin_port = htons(target_port);
+	dest.sin_family = NET_AF_INET;
+	dest.sin_port = net_htons(target_port);
 
-	int ret = zsock_inet_pton(AF_INET, ip_buf, &dest.sin_addr);
+	int ret = zsock_inet_pton(NET_AF_INET, ip_buf, &dest.sin_addr);
 
 	if (ret <= 0) {
 		return -EINVAL;
@@ -332,7 +332,7 @@ static int snmp_trap_send_v3(struct snmp_agent *inst, const struct snmp_oid *tra
 		return ret;
 	}
 
-	sock = zsock_socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+	sock = zsock_socket(NET_AF_INET, NET_SOCK_DGRAM, NET_IPPROTO_UDP);
 	if (sock < 0) {
 		err = -errno;
 		k_mutex_unlock(&inst->lock);
@@ -349,7 +349,7 @@ static int snmp_trap_send_v3(struct snmp_agent *inst, const struct snmp_oid *tra
 
 	for (uint8_t d = 0; d < inst->trap_dest_cnt; d++) {
 		(void)zsock_sendto(sock, inst->tx_buf, tx_len, 0,
-				   (struct sockaddr *)&inst->trap_dests[d],
+				   (struct net_sockaddr *)&inst->trap_dests[d],
 				   sizeof(inst->trap_dests[d]));
 	}
 
@@ -421,7 +421,7 @@ int snmp_trap_send(struct snmp_agent *inst, const struct snmp_oid *trap_oid,
 		return -EDESTADDRREQ;
 	}
 
-	int sock = zsock_socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+	int sock = zsock_socket(NET_AF_INET, NET_SOCK_DGRAM, NET_IPPROTO_UDP);
 	if (sock < 0) {
 
 		k_mutex_unlock(&inst->lock);
@@ -508,7 +508,8 @@ int snmp_trap_send(struct snmp_agent *inst, const struct snmp_oid *trap_oid,
 
 	/* Send only to explicitly configured destinations (checked at entry). */
 	for (uint8_t d = 0; d < inst->trap_dest_cnt; d++) {
-		zsock_sendto(sock, inst->tx_buf, tx_len, 0, (struct sockaddr *)&inst->trap_dests[d],
+		zsock_sendto(sock, inst->tx_buf, tx_len, 0,
+			     (struct net_sockaddr *)&inst->trap_dests[d],
 			     sizeof(inst->trap_dests[d]));
 	}
 
@@ -540,4 +541,4 @@ int snmp_trap_send_auth_failure(struct snmp_agent *inst)
 	return snmp_trap_send(inst, &auth_fail_oid, NULL, 0, false);
 }
 
-#endif /* CONFIG_SNMP_AGENT && CONFIG_SNMP_TRAP_ENABLED */
+#endif /* CONFIG_SNMP && CONFIG_SNMP_TRAP_ENABLED */

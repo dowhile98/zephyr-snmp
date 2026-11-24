@@ -59,7 +59,7 @@ and has its own `main()`.
 ```bash
 cd tests/unit
 cmake -S . -B build && cmake --build build
-./build/snmp_unit_tests && ./build/vacm_unit_tests   # both: 49 + 10 = 59 tests
+./build/snmp_unit_tests && ./build/vacm_unit_tests   # both: 49 + 11 = 60 tests
 ```
 
 - The custom `ASSERT*` macros call `exit(1)`: the **first** failure aborts the whole
@@ -73,7 +73,7 @@ cmake -S . -B build && cmake --build build
 ### Ztest / Twister — `tests/`
 
 ```bash
-west twister -T tests/ -p native_sim/native/64 -v --inline-logs --integration  # CI, 62/62
+west twister -T tests/ -p native_sim/native/64 -v --inline-logs --integration  # CI, 74/74
 west twister -T tests/ -p native_sim -v --inline-logs                          # no --integration
 ```
 
@@ -109,14 +109,14 @@ find src include samples tests/src tests/unit \( -name '*.c' -o -name '*.h' \) \
 ## Memory, globals, layout
 
 - Measured `sizeof(struct snmp_agent)` on 32-bit `qemu_x86` with default Kconfig:
-  **30,220 B** for v1/v2c and **39,480 B** with `CONFIG_SNMP_VERSION_3=y`. The
-  README/Kconfig per-instance figures (~23.8/33.3 KiB, ~21 KiB v3-off) are stale;
-  size `CONFIG_SNMP_MAX_INSTANCES` (range 1..8) against ~30 KiB per v1/v2c instance.
-  Dominant members: `mib_nodes[128]` 11.0 KiB, `scratch` union 8.5 KiB,
-  `current_pdu` 6.5 KiB, `rx_buf`+`tx_buf` 2 KiB.
-- Kconfig asks for `CONFIG_NET_SOCKETS_SERVICE_STACK_SIZE >= 12 KiB` with v3 or GetBulk,
-  but `samples/snmp_agent/prj.conf` sets 4096. Raise the stack before enabling v3/GetBulk
-  in that sample.
+  **28,692 B** for v1/v2c and **35,152 B** with `CONFIG_SNMP_VERSION_3=y`. Size
+  `CONFIG_SNMP_MAX_INSTANCES` (range 1..8) against ~28 KiB per v1/v2c instance (~34.3 KiB
+  with v3). Dominant members: `mib_nodes[128]` 11.0 KiB, `scratch` union 7.0 KiB,
+  `current_pdu`/`current_v3_msg` union (6.5 KiB v1/v2c, 7.8 KiB v3), `rx_buf`+`tx_buf`
+  2 KiB.
+- Largest single stack frame across `src/*.c` on `nucleo_h743zi` v3 (`-fstack-usage`):
+  **352 B** (`snmp_usm_build_outgoing`, `snmp_ber_decode_v3_msg`, `snmp_mib_get_next`);
+  `samples/snmp_agent/prj.conf` uses `CONFIG_NET_SOCKETS_SERVICE_STACK_SIZE=4096`.
 - No mutable file-scope state in `src/`: audit firmware objects with
   `nm --defined-only <obj> | grep ' [DdBbWwVv] '`. Allowed exceptions are
   `snmp_service.o`'s `s_slot_owner`, `s_slot_lock`, Zephyr-generated

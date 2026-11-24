@@ -15,7 +15,7 @@
 #include <snmp/snmp_core.h>
 #include <string.h>
 
-#if defined(CONFIG_SNMP) || defined(CONFIG_SNMP_AGENT)
+#if defined(CONFIG_SNMP)
 
 /*
  * Bounded string length. C11 strnlen() is not declared by every libc configuration
@@ -202,6 +202,6 @@ bool snmp_vacm_oid_allowed(const struct snmp_agent *inst, const struct snmp_oid 
 int snmp_mib_get_next_visible(struct snmp_agent *inst, const struct snmp_oid *oid,
 			      struct snmp_varbind *vb);
 
-#endif /* CONFIG_SNMP_AGENT */
+#endif /* CONFIG_SNMP */
 
 #endif /* ZEPHYR_MODULES_SNMP_SRC_SNMP_INTERNAL_H_ */

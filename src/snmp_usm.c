@@ -21,7 +21,7 @@
 #include <psa/crypto.h>
 #endif
 
-#if (defined(CONFIG_SNMP) || defined(CONFIG_SNMP_AGENT)) && defined(CONFIG_SNMP_VERSION_3)
+#if defined(CONFIG_SNMP) && defined(CONFIG_SNMP_VERSION_3)
 
 #if defined(__ZEPHYR__)
 #include <zephyr/logging/log.h>
@@ -1959,4 +1959,4 @@ int snmp_usm_register_mibs(struct snmp_agent *inst)
 	return 0;
 }
 
-#endif /* CONFIG_SNMP_AGENT && CONFIG_SNMP_VERSION_3 */
+#endif /* CONFIG_SNMP && CONFIG_SNMP_VERSION_3 */

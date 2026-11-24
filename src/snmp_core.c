@@ -17,7 +17,7 @@
 #include <string.h>
 #include <errno.h>
 
-#if defined(CONFIG_SNMP) || defined(CONFIG_SNMP_AGENT)
+#if defined(CONFIG_SNMP)
 
 #if defined(__ZEPHYR__)
 #include <zephyr/logging/log.h>
@@ -875,4 +875,4 @@ int snmp_agent_process_pdu(struct snmp_agent *agent, const uint8_t *req_buf, siz
 	return ret;
 }
 
-#endif /* CONFIG_SNMP_AGENT */
+#endif /* CONFIG_SNMP */

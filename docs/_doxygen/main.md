@@ -44,7 +44,7 @@ There are no singleton references or implicit default agents. MIB node callbacks
 ### 2.3 Ultra-Low Call Stack & Scratch Memory Architecture
 Deep protocol execution on embedded systems often strains RTOS thread stacks when sizable structures are allocated as local variables. In `zephyr-snmp`:
 - Multi-variable Two-Phase Commit (2PC) SET transaction tracking items (`struct snmp_set_tx_item tx_items[CONFIG_SNMP_MAX_VARBINDS]`) and GETBULK sweep working buffers (`res_vb` and `current_oids`) are encapsulated inside the mutual-exclusion `inst->scratch` union within `struct snmp_agent`.
-- This architecture eliminates large frame allocations from the call chain, reducing the stack frame of `snmp_mib_dispatch()` from **~9.8 KiB down to only 52 bytes**.
+- This architecture eliminates large frame allocations from the call chain, reducing the stack frame of `snmp_mib_dispatch()` from **~9.8 KiB down to 96 bytes** and keeping all `src/` function frames at **<= 352 bytes** on ARM Cortex-M.
 - Thread stacks for network handlers (including Zephyr's `net_sockets_service` thread, configured with `CONFIG_NET_SOCKETS_SERVICE_STACK_SIZE=4096`) are thoroughly shielded from stack overflow risks, even under full multi-varbind SET and GETBULK workloads.
 
 ---

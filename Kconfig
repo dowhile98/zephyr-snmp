@@ -28,9 +28,10 @@ config SNMP_MAX_INSTANCES
 	default 1
 	help
 	  Compile-time bound on simultaneously RUNNING struct snmp_agent instances.
-	  Measured sizeof(struct snmp_agent) is approximately 30 KiB for v1/v2c-only
-	  builds and 40 KiB with SNMPv3 enabled on 32-bit targets. Size this against
-	  your RAM budget, not against the port count.
+	  Measured sizeof(struct snmp_agent) is approximately 28.0 KiB (28,692 B)
+	  for v1/v2c-only builds and 34.3 KiB (35,152 B) with SNMPv3 enabled on
+	  32-bit targets. Size this against your RAM budget, not against the port
+	  count.
 
 	  Transport side effects, all enforced by BUILD_ASSERT in
 	  src/snmp_service.c:
@@ -39,10 +40,10 @@ config SNMP_MAX_INSTANCES
 	      CONFIG_ZVFS_POLL_MAX (plus one for the service thread's eventfd).
 	  Raise CONFIG_ZVFS_POLL_MAX accordingly if other socket services are in use.
 
-	  Stack note: the service thread runs the whole recv/process/send section, and
-	  the GETBULK and SNMPv3 encode paths use several KiB of stack, so
-	  CONFIG_NET_SOCKETS_SERVICE_STACK_SIZE must be sized >= 12 KiB whenever
-	  SNMPv3 or GetBulk is enabled.
+	  Stack note: PDU and USM scratch buffers reside in struct snmp_agent, so
+	  individual SNMP module stack frames are <= 352 bytes on ARM Cortex-M;
+	  allow >= 4 KiB for CONFIG_NET_SOCKETS_SERVICE_STACK_SIZE when PSA/mbedTLS
+	  crypto is active.
 
 config SNMP_AGENT_PORT
 	int "Default UDP listening port"
@@ -114,7 +115,7 @@ config SNMP_VERSION_3
 	help
 	  SNMPv3 (RFC 3412/3414/3415) — User-based Security Model (USM)
 	  with HMAC-SHA1/SHA256 authentication and AES-128-CFB privacy.
-	  Requires PSA Crypto / mbedtls. Adds approximately 10 KiB of RAM per
+	  Requires PSA Crypto / mbedtls. Adds approximately 6.3 KiB of RAM per
 	  instance compared to a v1/v2c-only build.
 	  Supports engine discovery (Report-PDU), timeliness check (150 s
 	  window), and View-based Access Control (VACM) with admin/readonly
@@ -267,28 +268,28 @@ config SNMP_V3_MAX_USERS
 config SNMP_VACM_MAX_CONTEXTS
 	int "Maximum VACM contexts"
 	range 1 64
-	default 8
+	default 4
 	help
 	  Maximum number of contexts in vacmContextTable (RFC 3415).
 
 config SNMP_VACM_MAX_GROUPS
 	int "Maximum VACM group mappings"
 	range 1 64
-	default 16
+	default 8
 	help
 	  Maximum number of security-to-group mappings in vacmSecurityToGroupTable (RFC 3415).
 
 config SNMP_VACM_MAX_ACCESS_RULES
 	int "Maximum VACM access rules"
 	range 1 64
-	default 16
+	default 8
 	help
 	  Maximum number of access rules in vacmAccessTable (RFC 3415).
 
 config SNMP_VACM_MAX_VIEW_TREES
 	int "Maximum VACM view tree family entries"
 	range 1 128
-	default 32
+	default 16
 	help
 	  Maximum number of view tree family entries in vacmViewTreeFamilyTable (RFC 3415).
 

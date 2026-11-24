@@ -55,7 +55,7 @@ For comprehensive technical documentation, refer to the **[Project Wiki](docs/wi
 ### 1. Enable in `prj.conf`
 
 ```ini
-CONFIG_SNMP_AGENT=y
+CONFIG_SNMP=y
 CONFIG_SNMP_VERSION_1=y
 CONFIG_SNMP_VERSION_2C=y
 CONFIG_SNMP_TRAP_ENABLED=y
@@ -317,35 +317,35 @@ All 30 standard SNMP group counters plus `snmpEnableAuthenTraps` are implemented
 ### Ultra-Low Stack Frame Architecture
 In standard embedded SNMP implementations, multi-variable SET transactions (Two-Phase Commit tracking) and GETBULK sweep buffers require sizable local arrays on the execution stack. In `zephyr-snmp`, all temporary transaction buffers and GETBULK repetition states are consolidated into the instance-level `inst->scratch` mutual-exclusion union inside `struct snmp_agent`:
 
-- **Stack Frame Reduction**: Reduces the stack frame of `snmp_mib_dispatch()` from **~9.8 KiB down to only 52 bytes**.
-- **Thread Stack Safety**: Completely protects constrained RTOS service thread stacks (such as Zephyr's `net_sockets_service` thread, typically sized at 2–4 KiB with `CONFIG_NET_SOCKETS_SERVICE_STACK_SIZE=4096`).
-- **Zero Dynamic Allocation**: Allocates no heap memory while avoiding stack overflows during deep multi-varbind packet processing.
+- **Stack Frame Reduction**: Reduces the stack frame of `snmp_mib_dispatch()` from **~9.8 KiB down to 96 bytes** and keeps the largest individual function frame in `src/` at **352 bytes** on ARM Cortex-M.
+- **Thread Stack Safety**: Completely protects constrained RTOS service thread stacks (such as Zephyr's `net_sockets_service` thread).
+- **Zero Dynamic Allocation**: Allocates no heap memory while avoiding stack overflows during deep multi-varbind or SNMPv3 packet processing.
 
 ## Security Considerations
 
 - **Community strings**: v1/v2c transmit community strings in plaintext. Use v3 for production deployments requiring confidentiality. The comparison is length-exact over the raw octets, so a community that embeds NUL bytes cannot be used to smuggle a prefix match.
 - **Rate limiting**: Enable `CONFIG_SNMP_RATE_LIMIT` to protect against CPU exhaustion from SNMP floods. Silently dropped requests increment `snmpSilentDrops`.
-- **Engine ID**: `snmpEngineID` identifies the engine that owns the localized keys (RFC 3411 §5). When `cfg.engine_id` is NULL the module builds `0x80001F88 05 || <SoC device ID>` from `hwinfo_get_device_id()` (native Zephyr API, no heap); boards without a device-ID driver fall back to a fixed `0x80001F88 05 "ZEPHYR1"`. Set `cfg.engine_id` explicitly if you run more than one agent instance on one device, or if your NMS must pin the engine ID.
-- **Engine boots**: `snmpEngineBoots` must increase on every reboot. Set `cfg.settings_prefix` and enable a settings backend (`CONFIG_SETTINGS` plus e.g. `CONFIG_SETTINGS_NVS`) so `snmp_agent_init()` loads and advances `"<prefix>/boots"`; without a backend, raise `CONFIG_SNMP_V3_ENGINE_BOOTS` in the image or call `snmp_usm_set_engine_boots()` before `snmp_agent_start()` (RFC 3414 §5.1.3).
-- **VACM**: v3 access control restricts MIB access per user/group. A read/write denial is answered with a Response carrying `authorizationError` (RFC 3415 §5.5); the level used for the check is the one USM actually verified, not the flags the peer claims.
+- **Engine ID**: `snmpEngineID` identifies the engine that owns the localized keys (RFC 3411 §5). When `cfg.engine_id` is NULL the module builds `0x80001F88 05 || <SoC device ID>` from `hwinfo_get_device_id()` (native Zephyr API, no heap); boards without a device-ID driver draw 8 random bytes from `sys_csrand_get()` per boot instead of sharing a fixed identity. Set `cfg.engine_id` explicitly if you run more than one agent instance on one device, or if your NMS must pin the engine ID.
+- **Engine boots**: `snmpEngineBoots` must increase on every reboot (RFC 3414 §5.1.3). Wire `cfg.storage` (for example using the built-in power-loss-safe two-slot CRC-32 EEPROM backend `snmp_storage_eeprom_read` / `snmp_storage_eeprom_write` over `DT_ALIAS(eeprom_0)`) or set `cfg.settings_prefix` with a `CONFIG_SETTINGS` backend; without persistence, raise `CONFIG_SNMP_V3_ENGINE_BOOTS` in the image or call `snmp_usm_set_engine_boots()` before `snmp_agent_start()`.
+- **VACM**: v3 access control restricts MIB access per user/group and filters every OID returned by `GetNext`/`GetBulk`. A read/write denial is answered with a Response carrying `authorizationError` (RFC 3415 §5.5); the level used for the check is the one USM actually verified, not the flags the peer claims.
 - **Auth algorithms**: HMAC-SHA-256 (RFC 7860) is the strongest option, SHA-1 (RFC 3414) is the interoperable default, MD5 is off by default and should stay off.
-- **Privacy**: AES-128-CFB (RFC 3826) is the only implemented privacy protocol. DES-CBC is **not implemented**: `snmp_usm_add_user()` rejects `SNMP_USM_PRIV_DES` with `-ENOTSUP`. Wrong digests and undecryptable messages are dropped silently and counted (`usmStatsWrongDigests`, `usmStatsDecryptionErrors`); RFC 3414 Reports are only emitted when the request was reportable.
+- **Privacy**: AES-128-CFB (RFC 3826) is the only implemented privacy protocol. DES-CBC is **not implemented**: `snmp_usm_add_user()` rejects `SNMP_USM_PRIV_DES` with `-ENOTSUP`. Wrong digests and undecryptable messages are dropped silently and counted (`usmStatsWrongDigests`, `usmStatsDecryptionErrors`); RFC 3414 Reports (including `usmStatsWrongDigests`) are emitted when the request was reportable.
 
 ## Memory Footprint
 
-Measured with this tree (Zephyr v4.4.0, `arm-zephyr-eabi` + `native_sim`):
+Measured with this tree (Zephyr v4.4.0, `arm-zephyr-eabi` + `qemu_x86`):
 
 | Configuration | FLASH | RAM (incl. thread stacks) |
 |---------------|-------|---------------------------|
 | `samples/snmp_agent` on NUCLEO-H743ZI (v1/v2c) | 218,536 B | 84,444 B |
-| `samples/snmp_agent_v3` on NUCLEO-H743ZI (v3 + v2c, PSA/mbedTLS, 2 USM users) | 245,040 B | 144,540 B |
+| `samples/snmp_agent_v3` on NUCLEO-H743ZI (v3 + v2c, PSA/mbedTLS, 2 USM users) | 246,252 B | 140,380 B |
 
 The v3 sample's RAM includes its own thread stacks (`CONFIG_MAIN_STACK_SIZE=8192`,
 `CONFIG_SHELL_STACK_SIZE=16384`), not just agent state.
 
 - **Zero Dynamic Allocation / Zero Heap**: All agent state is statically allocated inside caller-owned `struct snmp_agent`. Never calls `malloc` or `k_malloc`.
-- **Per-instance cost**: `sizeof(struct snmp_agent)` measured on 32-bit `qemu_x86` with the default Kconfig is **30,220 B** for v1/v2c and **39,480 B** with `CONFIG_SNMP_VERSION_3=y`. Size `CONFIG_SNMP_MAX_INSTANCES` (range 1..8) against ~30 KiB per v1/v2c instance; the dominant members are `mib_nodes[128]` (11.0 KiB), the `scratch` union (8.5 KiB), `current_pdu` (6.5 KiB) and `rx_buf`+`tx_buf` (2 KiB).
-- **Thread stack**: the dispatcher itself keeps only a small frame, but both the v1/v2c and the v3 receive paths run in the socket-service thread. v3 additionally holds one `struct snmp_v3_msg` (~8.8 KiB at the default `CONFIG_SNMP_MAX_PDU_SIZE=1024`) plus AES plaintext/ciphertext scratch on that stack, which is why the Kconfig help asks for at least 12 KiB there when v3 (or GetBulk) is enabled. The v3 sample sets `CONFIG_NET_SOCKETS_SERVICE_STACK_SIZE=16384`.
+- **Per-instance cost**: `sizeof(struct snmp_agent)` measured on 32-bit `qemu_x86` with the default Kconfig is **28,692 B** for v1/v2c and **35,152 B** with `CONFIG_SNMP_VERSION_3=y`. Size `CONFIG_SNMP_MAX_INSTANCES` (range 1..8) against ~28 KiB per v1/v2c instance; the dominant members are `mib_nodes[128]` (11.0 KiB), the `scratch` union (7.0 KiB), `current_pdu`/`current_v3_msg` union (6.5 KiB v1/v2c, 7.8 KiB v3) and `rx_buf`+`tx_buf` (2 KiB).
+- **Thread stack**: both the v1/v2c and v3 receive paths keep their PDU and USM scratch buffers inside `struct snmp_agent` under `agent->lock`, so the largest single frame across `src/*.c` on `nucleo_h743zi` v3 (`-fstack-usage`) is **352 B** (plus PSA/mbedTLS call depth when v3 crypto runs).
 
 ## Testing
 
@@ -355,7 +355,7 @@ The v3 sample's RAM includes its own thread stacks (`CONFIG_MAIN_STACK_SIZE=8192
 cd tests/unit
 cmake -S . -B build && cmake --build build
 ./build/snmp_unit_tests    # 49 tests: BER, OID, MIB, 2PC, multi-instance, MIB-II
-./build/vacm_unit_tests    # 10 tests: VACM tables, wildcard masks, and access checks
+./build/vacm_unit_tests    # 11 tests: VACM tables, wildcard masks, view filters, access checks
 ```
 
 The `ASSERT*` helpers abort on the first failure, so a run that stops early is a
@@ -364,7 +364,7 @@ truncated run, not a clean one.
 ### Ztest / Twister (v3, USM, service layer)
 
 ```bash
-west twister -T tests/ -p native_sim/native/64 -v --inline-logs --integration   # CI platform, 62 cases
+west twister -T tests/ -p native_sim/native/64 -v --inline-logs --integration   # CI platform, 74 cases
 west twister -T tests/ -p native_sim -v --inline-logs                           # 32-bit, no --integration
 ```
 

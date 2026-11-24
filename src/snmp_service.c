@@ -25,7 +25,7 @@
 #include <string.h>
 #include <errno.h>
 
-#if defined(CONFIG_SNMP) || defined(CONFIG_SNMP_AGENT)
+#if defined(CONFIG_SNMP)
 
 LOG_MODULE_REGISTER(snmp_service, CONFIG_SNMP_LOG_LEVEL);
 
@@ -196,15 +196,15 @@ int snmp_sock_bind_to_iface(int sock, struct net_if *iface)
 		return -ENODEV;
 	}
 
-	return zsock_setsockopt(sock, SOL_SOCKET, SO_BINDTODEVICE, &ifr, sizeof(ifr));
+	return zsock_setsockopt(sock, ZSOCK_SOL_SOCKET, ZSOCK_SO_BINDTODEVICE, &ifr, sizeof(ifr));
 }
 
 #if defined(CONFIG_NET_IPV4)
-/* Fallback for configurations where SO_BINDTODEVICE is not supported: bind to the
- * interface's first assigned unicast address instead of INADDR_ANY.
+/* Fallback for configurations where ZSOCK_SO_BINDTODEVICE is not supported: bind to the
+ * interface's first assigned unicast address instead of NET_INADDR_ANY.
  * Returns true when an address was produced.
  */
-static bool snmp_bind_addr_from_iface(const struct snmp_agent *agent, struct sockaddr_in *addr)
+static bool snmp_bind_addr_from_iface(const struct snmp_agent *agent, struct net_sockaddr_in *addr)
 {
 	int i;
 
@@ -227,11 +227,11 @@ static bool snmp_bind_addr_from_iface(const struct snmp_agent *agent, struct soc
 
 static int snmp_open_bind_v4(struct snmp_agent *agent)
 {
-	struct sockaddr_in bind_addr;
+	struct net_sockaddr_in bind_addr;
 	int sock;
 	int err;
 
-	sock = zsock_socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+	sock = zsock_socket(NET_AF_INET, NET_SOCK_DGRAM, NET_IPPROTO_UDP);
 	if (sock < 0) {
 		return -errno;
 	}
@@ -248,18 +248,18 @@ static int snmp_open_bind_v4(struct snmp_agent *agent)
 	}
 
 	memset(&bind_addr, 0, sizeof(bind_addr));
-	bind_addr.sin_family = AF_INET;
-	bind_addr.sin_port = htons(agent->port); /* per-instance port, not Kconfig */
+	bind_addr.sin_family = NET_AF_INET;
+	bind_addr.sin_port = net_htons(agent->port); /* per-instance port, not Kconfig */
 
 	if (!agent->bound_iface) {
-		bind_addr.sin_addr.s_addr = INADDR_ANY;
+		bind_addr.sin_addr.s_addr = NET_INADDR_ANY;
 	} else if (!snmp_bind_addr_from_iface(agent, &bind_addr)) {
-		/* SO_BINDTODEVICE already constrains this socket. This is safe while
+		/* ZSOCK_SO_BINDTODEVICE already constrains this socket. This is safe while
 		 * waiting for DHCP to assign the selected interface an address. */
-		bind_addr.sin_addr.s_addr = INADDR_ANY;
+		bind_addr.sin_addr.s_addr = NET_INADDR_ANY;
 	}
 
-	if (zsock_bind(sock, (struct sockaddr *)&bind_addr, sizeof(bind_addr)) < 0) {
+	if (zsock_bind(sock, (struct net_sockaddr *)&bind_addr, sizeof(bind_addr)) < 0) {
 		err = -errno;
 		zsock_close(sock);
 		return err;
@@ -273,11 +273,11 @@ static int snmp_open_bind_v4(struct snmp_agent *agent)
 #ifdef CONFIG_NET_IPV6
 static int snmp_open_bind_v6(struct snmp_agent *agent)
 {
-	struct sockaddr_in6 bind_addr;
+	struct net_sockaddr_in6 bind_addr;
 	int sock;
 	int err;
 
-	sock = zsock_socket(AF_INET6, SOCK_DGRAM, IPPROTO_UDP);
+	sock = zsock_socket(NET_AF_INET6, NET_SOCK_DGRAM, NET_IPPROTO_UDP);
 	if (sock < 0) {
 		return -errno;
 	}
@@ -293,10 +293,10 @@ static int snmp_open_bind_v6(struct snmp_agent *agent)
 	}
 
 	memset(&bind_addr, 0, sizeof(bind_addr));
-	bind_addr.sin6_family = AF_INET6;
-	bind_addr.sin6_port = htons(agent->port);
+	bind_addr.sin6_family = NET_AF_INET6;
+	bind_addr.sin6_port = net_htons(agent->port);
 
-	if (zsock_bind(sock, (struct sockaddr *)&bind_addr, sizeof(bind_addr)) < 0) {
+	if (zsock_bind(sock, (struct net_sockaddr *)&bind_addr, sizeof(bind_addr)) < 0) {
 		err = -errno;
 		zsock_close(sock);
 		return err;
@@ -314,8 +314,8 @@ static int snmp_open_bind_v6(struct snmp_agent *agent)
 static void snmp_service_cb(struct net_socket_service_event *pev)
 {
 	struct snmp_agent *agent;
-	struct sockaddr_storage client_addr;
-	socklen_t addr_len = sizeof(client_addr);
+	struct net_sockaddr_storage client_addr;
+	net_socklen_t addr_len = sizeof(client_addr);
 	size_t resp_len = 0;
 	ssize_t len;
 
@@ -357,7 +357,7 @@ static void snmp_service_cb(struct net_socket_service_event *pev)
 	 * once and the socket-service thread spins, starving every other service.
 	 */
 	len = zsock_recvfrom(pev->event.fd, agent->rx_buf, sizeof(agent->rx_buf), 0,
-			     (struct sockaddr *)&client_addr, &addr_len);
+			     (struct net_sockaddr *)&client_addr, &addr_len);
 	if (len <= 0) {
 		k_mutex_unlock(&agent->lock);
 		return;
@@ -380,7 +380,7 @@ static void snmp_service_cb(struct net_socket_service_event *pev)
 		 * instance's rx_buf/tx_buf, and the service thread is serial anyway.
 		 */
 		ssize_t sent = zsock_sendto(pev->event.fd, agent->tx_buf, resp_len, 0,
-					    (const struct sockaddr *)&client_addr, addr_len);
+					    (const struct net_sockaddr *)&client_addr, addr_len);
 
 		if (sent < 0) {
 			LOG_WRN("sendto failed (%d)", -errno);
@@ -583,4 +583,4 @@ int snmp_service_detach(struct snmp_agent *agent)
 	return 0;
 }
 
-#endif /* CONFIG_SNMP_AGENT */
+#endif /* CONFIG_SNMP */

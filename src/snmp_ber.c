@@ -7,7 +7,7 @@
 #include <string.h>
 #include <errno.h>
 
-#if defined(CONFIG_SNMP) || defined(CONFIG_SNMP_AGENT)
+#if defined(CONFIG_SNMP)
 
 bool snmp_oid_equal(const struct snmp_oid *o1, const struct snmp_oid *o2)
 {
@@ -1498,4 +1498,4 @@ int snmp_ber_encode_v3_msg(uint8_t *buf, size_t buf_len, size_t *out_len,
 	return 0;
 }
 
-#endif /* CONFIG_SNMP_AGENT */
+#endif /* CONFIG_SNMP */
