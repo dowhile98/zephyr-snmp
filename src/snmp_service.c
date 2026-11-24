@@ -176,6 +176,17 @@ int snmp_sock_bind_to_iface(int sock, struct net_if *iface)
 		return 0;
 	}
 
+	/*
+	 * Offloaded interfaces (NSOS on native_sim, vendor socket offload drivers) keep
+	 * the socket inside the offload engine and reject SO_BINDTODEVICE with
+	 * EOPNOTSUPP. The socket is already tied to that interface, so there is nothing
+	 * to bind; treating this as a failure would make cfg.iface unusable there.
+	 */
+	if (net_if_is_offloaded(iface)) {
+		LOG_DBG("Interface %p is offloaded; SO_BINDTODEVICE skipped", (void *)iface);
+		return 0;
+	}
+
 	memset(&ifr, 0, sizeof(ifr));
 	/* net_if_get_device() can be NULL for virtual interfaces; the name accessor
 	 * is the portable one and also fixes the old IP-only code path. */
@@ -340,6 +351,18 @@ static void snmp_service_cb(struct net_socket_service_event *pev)
 			 "slot %p event routed to agent %p", (void *)pev->svc, (void *)agent);
 	}
 
+	/*
+	 * Rate limit only after the datagram has been consumed. Dropping before
+	 * zsock_recvfrom() leaves it queued, so the next poll reports POLLIN again at
+	 * once and the socket-service thread spins, starving every other service.
+	 */
+	len = zsock_recvfrom(pev->event.fd, agent->rx_buf, sizeof(agent->rx_buf), 0,
+			     (struct sockaddr *)&client_addr, &addr_len);
+	if (len <= 0) {
+		k_mutex_unlock(&agent->lock);
+		return;
+	}
+
 #ifdef CONFIG_SNMP_RATE_LIMIT
 	if (!snmp_rate_check(agent)) {
 		/* Exactly one increment, on the receiving agent (contract 6.2). */
@@ -349,21 +372,18 @@ static void snmp_service_cb(struct net_socket_service_event *pev)
 	}
 #endif
 
-	len = zsock_recvfrom(pev->event.fd, agent->rx_buf, sizeof(agent->rx_buf), 0,
-			     (struct sockaddr *)&client_addr, &addr_len);
-	if (len > 0) {
-		int ret = snmp_agent_process_pdu(agent, agent->rx_buf, (size_t)len, agent->tx_buf,
-						 sizeof(agent->tx_buf), &resp_len);
-		if (ret == 0 && resp_len > 0) {
-			/* Lock held across recv/process/send: required to protect this
-			 * instance's rx_buf/tx_buf, and the service thread is serial anyway.
-			 */
-			ssize_t sent =
-				zsock_sendto(pev->event.fd, agent->tx_buf, resp_len, 0,
-					     (const struct sockaddr *)&client_addr, addr_len);
-			if (sent < 0) {
-				LOG_WRN("sendto failed (%d)", -errno);
-			}
+	int ret = snmp_agent_process_pdu(agent, agent->rx_buf, (size_t)len, agent->tx_buf,
+					 sizeof(agent->tx_buf), &resp_len);
+
+	if (ret == 0 && resp_len > 0) {
+		/* Lock held across recv/process/send: required to protect this
+		 * instance's rx_buf/tx_buf, and the service thread is serial anyway.
+		 */
+		ssize_t sent = zsock_sendto(pev->event.fd, agent->tx_buf, resp_len, 0,
+					    (const struct sockaddr *)&client_addr, addr_len);
+
+		if (sent < 0) {
+			LOG_WRN("sendto failed (%d)", -errno);
 		}
 	}
 

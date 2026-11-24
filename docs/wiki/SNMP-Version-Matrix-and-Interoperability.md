@@ -92,7 +92,10 @@ snmpbulkget -v2c -c public -m ./NUCLEO-H743-MIB.txt -Cn0 -Cr9 <TARGET_IP> sensor
 snmptable -v2c -c public -m ./NUCLEO-H743-MIB.txt <TARGET_IP> sensorTable
 
 # --- SNMPv3 (Engine Discovery + authPriv) ---
-snmpget -v3 -u v3test -l authPriv -a SHA-256 -A "v3-auth-passphrase-test-only" -x AES -X "v3-priv-passphrase-test-only" \
+# The agent ships no default user: register one in the application first and
+# substitute its name and pass phrases here (the sample uses the
+# CONFIG_SNMP_SAMPLE_V3_ADMIN_* values, "v3admin" by default).
+snmpget -v3 -u <user> -l authPriv -a SHA-256 -A "<auth-pass>" -x AES -X "<priv-pass>" \
     <TARGET_IP> 1.3.6.1.4.1.54321.1.1.1.0
 ```
 

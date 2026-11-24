@@ -37,6 +37,7 @@ target_compile_definitions(snmp_unit_tests PRIVATE
     CONFIG_SNMP_MAX_PDU_SIZE=1024
     CONFIG_SNMP_MAX_MIB_NODES=128
     CONFIG_SNMP_MAX_IFACES=8
+    CONFIG_SNMP_SET_ENABLE=1
 )
 
 target_compile_options(snmp_unit_tests PRIVATE -Wall -Wextra -Werror)
@@ -58,7 +59,6 @@ target_compile_definitions(vacm_unit_tests PRIVATE
     CONFIG_SNMP=1
     CONFIG_SNMP_AGENT=1
     CONFIG_SNMP_VERSION_3=1
-    CONFIG_SNMP_V3_USER_NAME="admin"
     CONFIG_SNMP_MAX_OID_LEN=16
     CONFIG_SNMP_MAX_VARBINDS=32
     CONFIG_SNMP_MAX_PDU_SIZE=1024

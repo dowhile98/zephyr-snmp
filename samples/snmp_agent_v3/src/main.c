@@ -80,7 +80,8 @@ static void print_banner(const char *ip_str)
 	LOG_INF("  - Read Community  : \"%s\" (v1/v2c)", CONFIG_SNMP_COMMUNITY_READ);
 	LOG_INF("  - Write Community : \"%s\" (v1/v2c)", CONFIG_SNMP_COMMUNITY_WRITE);
 #if defined(CONFIG_SNMP_VERSION_3)
-	LOG_INF("  - v3 authPriv user: \"%s\" (SHA-256 / AES-128-CFB)", CONFIG_SNMP_V3_USER_NAME);
+	LOG_INF("  - v3 authPriv user: \"%s\" (SHA-256 / AES-128-CFB)",
+		CONFIG_SNMP_SAMPLE_V3_ADMIN_USER);
 	LOG_INF("  - v3 authNoPriv   : \"%s\" (SHA-1, read-only VACM group)",
 		CONFIG_SNMP_SAMPLE_V3_MONITOR_USER);
 	LOG_INF("  - engineBoots     : %u (persisted when CONFIG_SETTINGS is on)",
@@ -106,19 +107,19 @@ static void print_banner(const char *ip_str)
 	LOG_INF("  .1.2.1 buttonPressed     (Notification/Trap)");
 	LOG_INF("v3 validation commands (net-snmp):");
 	LOG_INF("  snmpget -v3 -u %s -l authPriv -a SHA-256 -A '%s' -x AES -X '%s' %s \\",
-		CONFIG_SNMP_V3_USER_NAME, CONFIG_SNMP_V3_AUTH_PASS, CONFIG_SNMP_V3_PRIV_PASS,
-		ip_str);
+		CONFIG_SNMP_SAMPLE_V3_ADMIN_USER, CONFIG_SNMP_SAMPLE_V3_ADMIN_AUTH_PASS,
+		CONFIG_SNMP_SAMPLE_V3_ADMIN_PRIV_PASS, ip_str);
 	LOG_INF("          1.3.6.1.4.1.%d.1.1.1.0", CONFIG_SNMP_SAMPLE_ENTERPRISE_ID);
 	LOG_INF("  snmpwalk -v3 -u %s -l authNoPriv -a SHA -A '%s' %s 1.3.6.1.2.1.1",
 		CONFIG_SNMP_SAMPLE_V3_MONITOR_USER, CONFIG_SNMP_SAMPLE_V3_MONITOR_AUTH_PASS,
 		ip_str);
 	LOG_INF("  snmpset -v3 -u %s -l authPriv -a SHA-256 -A '%s' -x AES -X '%s' %s \\",
-		CONFIG_SNMP_V3_USER_NAME, CONFIG_SNMP_V3_AUTH_PASS, CONFIG_SNMP_V3_PRIV_PASS,
-		ip_str);
+		CONFIG_SNMP_SAMPLE_V3_ADMIN_USER, CONFIG_SNMP_SAMPLE_V3_ADMIN_AUTH_PASS,
+		CONFIG_SNMP_SAMPLE_V3_ADMIN_PRIV_PASS, ip_str);
 	LOG_INF("          1.3.6.1.4.1.%d.1.1.2.0 i 1", CONFIG_SNMP_SAMPLE_ENTERPRISE_ID);
 	LOG_INF("  snmptrap -v3 -u %s -l authPriv -a SHA-256 -A '%s' -x AES -X '%s' %s '' \\",
-		CONFIG_SNMP_V3_USER_NAME, CONFIG_SNMP_V3_AUTH_PASS, CONFIG_SNMP_V3_PRIV_PASS,
-		ip_str);
+		CONFIG_SNMP_SAMPLE_V3_ADMIN_USER, CONFIG_SNMP_SAMPLE_V3_ADMIN_AUTH_PASS,
+		CONFIG_SNMP_SAMPLE_V3_ADMIN_PRIV_PASS, ip_str);
 	LOG_INF("          1.3.6.1.6.3.1.1.5.1 1.3.6.1.2.1.1.3.0 t 0");
 	LOG_INF("Expected v3 behaviour to verify:");
 	LOG_INF("  - unknown engineID / user / wrong digest answers with a Report PDU");
@@ -128,6 +129,37 @@ static void print_banner(const char *ip_str)
 }
 
 #if defined(CONFIG_SNMP_VERSION_3)
+/*
+ * Register the authPriv demo account. The module intentionally ships no default
+ * user, so the sample creates one at run time and maps it to the "admin" VACM group
+ * that snmp_vacm_init() already provides (fullView for Read/Write/Notify).
+ */
+static int register_admin_user(struct snmp_agent *agent)
+{
+	struct snmp_usm_user admin = {
+		.auth_protocol = SNMP_USM_AUTH_SHA256,
+		.priv_protocol = SNMP_USM_PRIV_AES,
+	};
+
+	if (strlen(CONFIG_SNMP_SAMPLE_V3_ADMIN_USER) >= sizeof(admin.user_name) ||
+	    strlen(CONFIG_SNMP_SAMPLE_V3_ADMIN_AUTH_PASS) >= sizeof(admin.auth_pass) ||
+	    strlen(CONFIG_SNMP_SAMPLE_V3_ADMIN_PRIV_PASS) >= sizeof(admin.priv_pass)) {
+		return -EINVAL;
+	}
+
+	strcpy(admin.user_name, CONFIG_SNMP_SAMPLE_V3_ADMIN_USER);
+	strcpy(admin.auth_pass, CONFIG_SNMP_SAMPLE_V3_ADMIN_AUTH_PASS);
+	strcpy(admin.priv_pass, CONFIG_SNMP_SAMPLE_V3_ADMIN_PRIV_PASS);
+
+	int ret = snmp_usm_add_user(agent, &admin);
+	if (ret < 0) {
+		return ret;
+	}
+
+	return snmp_vacm_add_group_mapping(agent, SNMP_SEC_MODEL_USM,
+					   CONFIG_SNMP_SAMPLE_V3_ADMIN_USER, "admin");
+}
+
 /*
  * Register the second demo user at run time. It is authNoPriv on purpose: the same
  * agent then serves an authPriv account (the compile-time default user) and an
@@ -270,7 +302,13 @@ int main(void)
 	}
 
 #if defined(CONFIG_SNMP_VERSION_3)
-	/* 3b. Add the authNoPriv demo account next to the compiled-in authPriv one. */
+	/* 3b. Add the demo accounts: authPriv admin (fullView) and authNoPriv monitor. */
+	ret = register_admin_user(&g_agent_lan);
+	if (ret < 0) {
+		LOG_ERR("Failed to register USM admin user \"%s\": %d",
+			CONFIG_SNMP_SAMPLE_V3_ADMIN_USER, ret);
+		return ret;
+	}
 	ret = register_monitor_user(&g_agent_lan);
 	if (ret < 0) {
 		LOG_ERR("Failed to register USM monitor user \"%s\": %d",
@@ -278,7 +316,7 @@ int main(void)
 		return ret;
 	}
 	LOG_INF("Registered USM users: \"%s\" (authPriv), \"%s\" (authNoPriv)",
-		CONFIG_SNMP_V3_USER_NAME, CONFIG_SNMP_SAMPLE_V3_MONITOR_USER);
+		CONFIG_SNMP_SAMPLE_V3_ADMIN_USER, CONFIG_SNMP_SAMPLE_V3_MONITOR_USER);
 
 	/*
 	 * The collector's createUser line needs this engine ID (RFC 3411 §5). Printing

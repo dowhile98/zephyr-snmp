@@ -243,12 +243,15 @@ ZTEST(snmp_usm, test_auth_priv_request_roundtrip)
 	zassert_true(resp.scoped.pdu.varbinds[0].val.octet_str.len > 0);
 }
 
-ZTEST(snmp_usm, test_wrong_digest_is_dropped_and_counted)
+ZTEST(snmp_usm, test_wrong_digest_reports_and_counts)
 {
 	struct snmp_v3_msg req;
+	struct snmp_v3_msg resp;
 	uint8_t raw[CONFIG_SNMP_MAX_PDU_SIZE];
 	uint8_t out[CONFIG_SNMP_MAX_PDU_SIZE];
 	size_t out_len;
+
+	static const uint32_t oid_wrong_digests[] = {1, 3, 6, 1, 6, 3, 15, 1, 1, 5, 0};
 
 	usm_setup();
 
@@ -262,8 +265,42 @@ ZTEST(snmp_usm, test_wrong_digest_is_dropped_and_counted)
 	req.usm.auth_params[0] ^= 0xFF;
 	size_t req_len = encode(&req, raw, sizeof(raw));
 
+	/* RFC 3414 §3.2 step 6 / RFC 3412 §7.2 step 6a: reportable request, so the
+	 * agent answers with usmStatsWrongDigests instead of timing the manager out.
+	 */
+	zassert_ok(process(raw, req_len, out, &out_len));
+	zassert_true(out_len > 0, "a reportable wrong digest must produce a Report");
+	zassert_equal(s_agent.usm_stats.wrong_digests, 1);
+
+	zassert_ok(snmp_ber_decode_v3_msg(out, out_len, &resp));
+	zassert_equal(resp.scoped.pdu.type, SNMP_PDU_REPORT);
+	zassert_equal(resp.scoped.pdu.varbind_cnt, 1);
+	zassert_equal(resp.scoped.pdu.varbinds[0].oid.len, ARRAY_SIZE(oid_wrong_digests));
+	zassert_mem_equal(resp.scoped.pdu.varbinds[0].oid.ids, oid_wrong_digests,
+			  sizeof(oid_wrong_digests));
+	zassert_equal(resp.scoped.pdu.varbinds[0].type, SNMP_TAG_COUNTER32);
+	zassert_equal(resp.scoped.pdu.varbinds[0].val.uint_val, 1);
+}
+
+ZTEST(snmp_usm, test_non_reportable_wrong_digest_is_dropped)
+{
+	struct snmp_v3_msg req;
+	uint8_t raw[CONFIG_SNMP_MAX_PDU_SIZE];
+	uint8_t out[CONFIG_SNMP_MAX_PDU_SIZE];
+	size_t out_len;
+
+	usm_setup();
+
+	make_get(&req, 0x78, s_oid_sysdescr, ARRAY_SIZE(s_oid_sysdescr));
+	set_user(&req, CONFIG_SNMP_V3_USER_NAME);
+	req.sec_level = SNMP_SEC_LEVEL_AUTH_NOPRIV;
+	zassert_ok(snmp_usm_build_outgoing(&s_agent, &req));
+	req.global.msg_flags &= ~(uint8_t)0x04; /* clear reportable after signing */
+	req.usm.auth_params[0] ^= 0xFF;
+	size_t req_len = encode(&req, raw, sizeof(raw));
+
 	zassert_equal(process(raw, req_len, out, &out_len), -EACCES);
-	zassert_equal(out_len, 0, "a wrong digest must be discarded, never answered");
+	zassert_equal(out_len, 0);
 	zassert_equal(s_agent.usm_stats.wrong_digests, 1);
 }
 
@@ -516,7 +553,8 @@ ZTEST(snmp_usm, test_v3_usm_stats_mib_queries)
 	zassert_ok(snmp_usm_build_outgoing(&s_agent, &req));
 	req.usm.auth_params[0] ^= 0x55;
 	size_t req_len = encode(&req, raw, sizeof(raw));
-	zassert_equal(process(raw, req_len, out, &out_len), -EACCES);
+	/* Reportable bad digest now yields a Report instead of a silent drop. */
+	zassert_ok(process(raw, req_len, out, &out_len));
 
 	zassert_equal(s_agent.usm_stats.wrong_digests, 1);
 

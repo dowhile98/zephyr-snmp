@@ -63,10 +63,23 @@ config SNMP_COMMUNITY_READ
 
 config SNMP_COMMUNITY_WRITE
 	string "Default write community string (SNMPv1/v2c)"
-	default "private"
+	default ""
 	depends on SNMP_VERSION_1 || SNMP_VERSION_2C
 	help
-	  Community string required for SET requests.
+	  Community string required for SET requests. Empty by default: with an
+	  empty string no SET request matches, so the agent is read-only until the
+	  application sets a write community (through this option or
+	  snmp_agent_set_write_community()).
+
+config SNMP_SET_ENABLE
+	bool "Allow SET requests"
+	depends on SNMP_VERSION_1 || SNMP_VERSION_2C || SNMP_VERSION_3
+	default n
+	help
+	  Compile SET support in. When disabled, SET requests are answered with
+	  notWritable (SNMPv2c/v3) or noSuchName (SNMPv1) and no MIB write
+	  callback is ever invoked. Leave off unless the device is meant to be
+	  writable: with v1/v2c the community string travels in clear text.
 
 config SNMP_VERSION_1
 	bool "SNMPv1 protocol support"
@@ -123,27 +136,30 @@ config SNMP_V3_ENGINE_BOOTS
 
 config SNMP_V3_USER_NAME
 	string "SNMPv3 user name"
-	default "admin"
+	default ""
 	help
-	  Security name (msgUserName) for the default SNMPv3 user.
-	  This name is matched against the incoming message's user field
-	  in the USM security parameters.
+	  Optional compile-time default user. Empty by default: no user is
+	  created, and the agent rejects every v3 request until the application
+	  adds one with snmp_usm_add_user() and maps it to a VACM group. Set a
+	  name here only for development images, together with the pass phrases
+	  below.
 
 config SNMP_V3_AUTH_PASS
 	string "SNMPv3 authentication password"
-	default "authpass123"
+	default ""
 	help
-	  Authentication password for HMAC-SHA1 or HMAC-MD5.
-	  Used to derive the localized auth key (RFC 3414 §A.2).
-	  Change this from the default before deploying.
+	  Authentication password for HMAC-SHA1, HMAC-SHA-256 or HMAC-MD5.
+	  Used to derive the localized auth key (RFC 3414 §A.2). Ignored when
+	  SNMP_V3_USER_NAME is empty. Never ship a password baked into Kconfig:
+	  it ends up in .config and in flash.
 
 config SNMP_V3_PRIV_PASS
 	string "SNMPv3 privacy password"
-	default "privpass123"
+	default ""
 	help
 	  Privacy (encryption) password for AES-128-CFB or DES-CBC.
-	  Used to derive the localized priv key (RFC 3414 §A.2).
-	  Change this from the default before deploying.
+	  Used to derive the localized priv key (RFC 3414 §A.2). Ignored when
+	  SNMP_V3_USER_NAME is empty.
 
 config SNMP_USM_AUTH_SHA
 	bool "HMAC-SHA-1 authentication"

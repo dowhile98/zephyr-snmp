@@ -86,6 +86,28 @@ config SNMP_SAMPLE_WAN_PORT
 	  Listen port of g_agent_wan. Must differ from CONFIG_SNMP_AGENT_PORT
 	  because both demo instances share one interface.
 
+config SNMP_SAMPLE_V3_ADMIN_USER
+	string "authPriv admin user name"
+	default "v3admin"
+	help
+	  Name of the authPriv demo user registered by main.c at runtime and
+	  mapped to VACM group "admin" (fullView). The module ships no default
+	  user: a v3 agent rejects every request until the application adds one.
+
+config SNMP_SAMPLE_V3_ADMIN_AUTH_PASS
+	string "authPriv admin authentication pass phrase"
+	default "v3-admin-auth-passphrase-test-only"
+	help
+	  Test-only pass phrase for SNMP_SAMPLE_V3_ADMIN_USER. RFC 3414
+	  section 11.2 requires at least 8 octets.
+
+config SNMP_SAMPLE_V3_ADMIN_PRIV_PASS
+	string "authPriv admin privacy pass phrase"
+	default "v3-admin-priv-passphrase-test-only"
+	help
+	  Test-only privacy pass phrase for SNMP_SAMPLE_V3_ADMIN_USER. Used to
+	  derive the AES-128-CFB key.
+
 config SNMP_SAMPLE_V3_MONITOR_USER
 	string "authNoPriv monitor user name"
 	default "v3monitor"

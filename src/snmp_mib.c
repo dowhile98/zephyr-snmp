@@ -5,6 +5,7 @@
 
 #include <snmp/snmp_mib.h>
 #include <snmp/snmp_core.h>
+#include "snmp_internal.h"
 #if defined(__ZEPHYR__)
 #include <zephyr/sys/util.h>
 #else
@@ -850,6 +851,49 @@ int snmp_mib_get_next(struct snmp_agent *inst, const struct snmp_oid *oid, struc
 }
 
 /*
+ * Upper bound on the number of candidates a single GetNext may skip while looking for
+ * one inside the view. Every iteration moves strictly forward in OID order, so the
+ * loop always terminates; the cap only protects against a pathological registry.
+ */
+#define SNMP_VIEW_SCAN_LIMIT 1024
+
+int snmp_mib_get_next_visible(struct snmp_agent *inst, const struct snmp_oid *oid,
+			      struct snmp_varbind *vb)
+{
+	int ret = snmp_mib_get_next(inst, oid, vb);
+
+	if (ret < 0 || vb->type == SNMP_TAG_EXCEPT_END_MIB_VIEW) {
+		return ret;
+	}
+
+#if defined(CONFIG_SNMP_VERSION_3)
+	if (!inst->view_filter.active || snmp_vacm_oid_allowed(inst, &vb->oid)) {
+		return ret;
+	}
+
+	struct snmp_oid cursor = vb->oid;
+
+	for (int i = 0; i < SNMP_VIEW_SCAN_LIMIT; i++) {
+		ret = snmp_mib_get_next(inst, &cursor, vb);
+		if (ret < 0 || vb->type == SNMP_TAG_EXCEPT_END_MIB_VIEW) {
+			return ret;
+		}
+		if (snmp_vacm_oid_allowed(inst, &vb->oid)) {
+			return 0;
+		}
+		cursor = vb->oid;
+	}
+
+	/* No visible object before the scan cap: report end of view, never leak. */
+	vb->oid = cursor;
+	vb->type = SNMP_TAG_EXCEPT_END_MIB_VIEW;
+	return 0;
+#else
+	return ret;
+#endif
+}
+
+/*
  * Every protocol event increments exactly one counter, on the agent that received the
  * message (design contract 6.2). No global mirror exists any more.
  */
@@ -1062,8 +1106,8 @@ int snmp_mib_dispatch(struct snmp_agent *inst, struct snmp_pdu *pdu)
 		MIB_COUNTER_INC(inst, snmpInGetNexts);
 		for (uint8_t i = 0; i < pdu->varbind_cnt; i++) {
 			MIB_COUNTER_INC(inst, snmpInTotalReqVars);
-			int gret =
-				snmp_mib_get_next(inst, &pdu->varbinds[i].oid, &pdu->varbinds[i]);
+			int gret = snmp_mib_get_next_visible(inst, &pdu->varbinds[i].oid,
+							     &pdu->varbinds[i]);
 			if (gret < 0) {
 				pdu->error_status = SNMP_ERR_GEN_ERR;
 				pdu->error_index = i + 1;
@@ -1099,7 +1143,8 @@ int snmp_mib_dispatch(struct snmp_agent *inst, struct snmp_pdu *pdu)
 
 		for (int i = 0; i < non_rep && new_cnt < CONFIG_SNMP_MAX_VARBINDS; i++) {
 			res_vb[new_cnt] = pdu->varbinds[i];
-			gret = snmp_mib_get_next(inst, &pdu->varbinds[i].oid, &res_vb[new_cnt]);
+			gret = snmp_mib_get_next_visible(inst, &pdu->varbinds[i].oid,
+							 &res_vb[new_cnt]);
 			new_cnt++;
 			if (gret < 0) {
 				break;
@@ -1119,7 +1164,8 @@ int snmp_mib_dispatch(struct snmp_agent *inst, struct snmp_pdu *pdu)
 
 				     r < num_repeaters && new_cnt < CONFIG_SNMP_MAX_VARBINDS; r++) {
 					struct snmp_varbind *vb = &res_vb[new_cnt];
-					gret = snmp_mib_get_next(inst, &current_oids[r], vb);
+					gret = snmp_mib_get_next_visible(inst, &current_oids[r],
+									 vb);
 
 					if (gret < 0) {
 						break;

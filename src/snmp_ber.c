@@ -150,12 +150,16 @@ int snmp_ber_decode_int(const uint8_t *buf, size_t buf_len, size_t *off, int32_t
 		return -EBADMSG;
 	}
 
-	int32_t res = (buf[*off] & 0x80) ? -1 : 0;
-	for (size_t i = 0; i < len; i++) {
+	/* Accumulate in uint32_t: shifting a negative int32_t left (sign bit set) is
+	 * undefined behaviour, which UBSAN reports while fuzzing. The two's-complement
+	 * bit pattern is what the cast at the end restores.
+	 */
+	uint32_t acc = (buf[*off] & 0x80) ? 0xFFFFFFFFu : 0u;
 
-		res = (res << 8) | buf[(*off)++];
+	for (size_t i = 0; i < len; i++) {
+		acc = (acc << 8) | buf[(*off)++];
 	}
-	*val = res;
+	*val = (int32_t)acc;
 	return 0;
 }
 

@@ -13,6 +13,10 @@
 #include <snmp/snmp_vacm.h>
 #include <snmp/snmp_usm.h>
 #include <snmp/snmp_core.h>
+#include <snmp/snmp_mib.h>
+
+/* Module-internal GetNext helper under test (src/, never installed). */
+#include "../../src/snmp_internal.h"
 
 /*
  * Two independent instances: the VACM tables under test live in s_vacm_test_agent and
@@ -20,6 +24,23 @@
  * agent any more (sub-phase 8c), so there is nothing else to stub.
  */
 static struct snmp_agent s_vacm_test_agent;
+
+/*
+ * The module maps no identity by default. Tests that use the "admin" user create
+ * that mapping explicitly, exactly as an application must; "monitor" is already
+ * mapped to "readonly" by snmp_vacm_init().
+ */
+static int vacm_init_with_test_users(void)
+{
+	int ret = snmp_vacm_init(&s_vacm_test_agent);
+
+	if (ret < 0) {
+		return ret;
+	}
+
+	return snmp_vacm_add_group_mapping(&s_vacm_test_agent, SNMP_SEC_MODEL_USM, "admin",
+					   "admin");
+}
 
 /* Assert macros defined in main.c */
 #define ASSERT(cond)                                                                               \
@@ -35,7 +56,7 @@ static struct snmp_agent s_vacm_test_agent;
 
 void test_vacm_group_mapping_resolution(void)
 {
-	int ret = snmp_vacm_init(&s_vacm_test_agent);
+	int ret = vacm_init_with_test_users();
 	ASSERT_EQ(ret, 0);
 
 	struct snmp_oid sys_oid = {.len = 8, .ids = {1, 3, 6, 1, 2, 1, 1, 1, 0}};
@@ -71,7 +92,7 @@ void test_vacm_group_mapping_resolution(void)
 
 void test_vacm_security_level_enforcement(void)
 {
-	int ret = snmp_vacm_init(&s_vacm_test_agent);
+	int ret = vacm_init_with_test_users();
 	ASSERT_EQ(ret, 0);
 
 	struct snmp_oid sys_oid = {.len = 8, .ids = {1, 3, 6, 1, 2, 1, 1, 1, 0}};
@@ -115,7 +136,7 @@ void test_vacm_security_level_enforcement(void)
 
 void test_vacm_oid_subtree_matching(void)
 {
-	int ret = snmp_vacm_init(&s_vacm_test_agent);
+	int ret = vacm_init_with_test_users();
 	ASSERT_EQ(ret, 0);
 
 	/* restrictedView includes 1.3.6.1.2.1.1 (system group) */
@@ -165,7 +186,7 @@ void test_vacm_oid_subtree_matching(void)
 
 void test_vacm_oid_subtree_excluded(void)
 {
-	int ret = snmp_vacm_init(&s_vacm_test_agent);
+	int ret = vacm_init_with_test_users();
 	ASSERT_EQ(ret, 0);
 
 	/* In fullView (1.3.6.1 included), add an EXCLUDED subtree: 1.3.6.1.4.1.99999 */
@@ -193,7 +214,7 @@ void test_vacm_oid_subtree_excluded(void)
 
 void test_vacm_wildcard_mask(void)
 {
-	int ret = snmp_vacm_init(&s_vacm_test_agent);
+	int ret = vacm_init_with_test_users();
 	ASSERT_EQ(ret, 0);
 
 	/* Create a custom view "wildView" with subtree 1.3.6.1.4.1.54321.0.1
@@ -268,7 +289,7 @@ void test_vacm_wildcard_mask(void)
 
 void test_vacm_unknown_context_rejected(void)
 {
-	int ret = snmp_vacm_init(&s_vacm_test_agent);
+	int ret = vacm_init_with_test_users();
 	ASSERT_EQ(ret, 0);
 
 	struct snmp_oid sys_oid = {.len = 8, .ids = {1, 3, 6, 1, 2, 1, 1, 1, 0}};
@@ -304,7 +325,7 @@ void test_vacm_unknown_context_rejected(void)
 
 void test_vacm_check_access_backward_compat(void)
 {
-	int ret = snmp_vacm_init(&s_vacm_test_agent);
+	int ret = vacm_init_with_test_users();
 	ASSERT_EQ(ret, 0);
 
 	struct snmp_v3_msg msg;
@@ -471,6 +492,108 @@ void test_continuous_uptime_wrap_guard(void)
 	ASSERT_EQ(test_agent.engine_boots, 2147483647U);
 }
 
+/*
+ * GetNext/GetBulk enforcement: a walk must filter every returned OID through the
+ * request's read view, not only the starting OID. Here "monitor" reads restrictedView
+ * (system group only), and a private enterprise scalar sits right after it in OID
+ * order: the walk must report endOfMibView rather than stepping outside the view.
+ */
+static int view_filter_get_cb(struct snmp_agent *agent, const struct snmp_mib_node *node,
+			      struct snmp_varbind *vb)
+{
+	(void)agent;
+	(void)node;
+	vb->type = ASN1_TAG_INTEGER;
+	vb->val.int_val = 7;
+	return 0;
+}
+
+void test_vacm_getnext_view_filter_skips_hidden_oids(void)
+{
+	int ret = snmp_mib_init(&s_vacm_test_agent);
+
+	ASSERT_EQ(ret, 0);
+	ret = snmp_vacm_init(&s_vacm_test_agent);
+	ASSERT_EQ(ret, 0);
+
+	/* Visible: sysDescr.0, inside restrictedView (1.3.6.1.2.1.1). */
+	struct snmp_mib_node visible = {0};
+
+	visible.oid.len = 9;
+	visible.oid.ids[0] = 1;
+	visible.oid.ids[1] = 3;
+	visible.oid.ids[2] = 6;
+	visible.oid.ids[3] = 1;
+	visible.oid.ids[4] = 2;
+	visible.oid.ids[5] = 1;
+	visible.oid.ids[6] = 1;
+	visible.oid.ids[7] = 1;
+	visible.oid.ids[8] = 0;
+	visible.type = ASN1_TAG_INTEGER;
+	visible.get_cb = view_filter_get_cb;
+	ASSERT_EQ(snmp_mib_register(&s_vacm_test_agent, &visible), 0);
+
+	/* Hidden: 1.3.6.1.4.1.54321.1.1.0, outside restrictedView. */
+	struct snmp_mib_node hidden = {0};
+
+	hidden.oid.len = 10;
+	hidden.oid.ids[0] = 1;
+	hidden.oid.ids[1] = 3;
+	hidden.oid.ids[2] = 6;
+	hidden.oid.ids[3] = 1;
+	hidden.oid.ids[4] = 4;
+	hidden.oid.ids[5] = 1;
+	hidden.oid.ids[6] = 54321;
+	hidden.oid.ids[7] = 1;
+	hidden.oid.ids[8] = 1;
+	hidden.oid.ids[9] = 0;
+	hidden.type = ASN1_TAG_INTEGER;
+	hidden.get_cb = view_filter_get_cb;
+	ASSERT_EQ(snmp_mib_register(&s_vacm_test_agent, &hidden), 0);
+
+	/* Arm exactly what snmp_core.c arms for a v3 GetNext from "monitor". */
+	memset(&s_vacm_test_agent.view_filter, 0, sizeof(s_vacm_test_agent.view_filter));
+	s_vacm_test_agent.view_filter.active = true;
+	s_vacm_test_agent.view_filter.security_model = SNMP_SEC_MODEL_USM;
+	s_vacm_test_agent.view_filter.sec_level = SNMP_SEC_LEVEL_AUTH_NOPRIV;
+	s_vacm_test_agent.view_filter.access_type = SNMP_VACM_ACCESS_READ;
+	strcpy(s_vacm_test_agent.view_filter.context, "");
+	strcpy(s_vacm_test_agent.view_filter.security_name, "monitor");
+
+	/* Walk from 1.3.6.1.2.1.1: the first visible object is sysDescr.0. */
+	struct snmp_oid start = {.len = 7, .ids = {1, 3, 6, 1, 2, 1, 1}};
+	struct snmp_varbind vb = {0};
+
+	ret = snmp_mib_get_next_visible(&s_vacm_test_agent, &start, &vb);
+	ASSERT_EQ(ret, 0);
+	ASSERT_EQ(vb.type, ASN1_TAG_INTEGER);
+	ASSERT_EQ(vb.oid.len, 9);
+	ASSERT_EQ(vb.oid.ids[8], 0);
+	ASSERT_EQ(snmp_oid_compare(&vb.oid, &hidden.oid) != 0, 1);
+
+	struct snmp_oid visible_oid = vb.oid;
+
+	/* Continuing must end the walk, never return a value for the hidden OID. The
+	 * endOfMibView marker may repeat the last scanned name; the type is what
+	 * guarantees no hidden data is disclosed.
+	 */
+	struct snmp_oid cursor = visible_oid;
+
+	ret = snmp_mib_get_next_visible(&s_vacm_test_agent, &cursor, &vb);
+	ASSERT_EQ(ret, 0);
+	ASSERT_EQ(vb.type, SNMP_TAG_EXCEPT_END_MIB_VIEW);
+	ASSERT_EQ(vb.type != ASN1_TAG_INTEGER, 1);
+
+	/* Control: without an active filter the same step does return the hidden OID. */
+	s_vacm_test_agent.view_filter.active = false;
+	memset(&vb, 0, sizeof(vb));
+	ret = snmp_mib_get_next_visible(&s_vacm_test_agent, &visible_oid, &vb);
+	ASSERT_EQ(ret, 0);
+	ASSERT_EQ(vb.type, ASN1_TAG_INTEGER);
+	ASSERT_EQ(vb.oid.len, hidden.oid.len);
+	ASSERT_EQ(snmp_oid_compare(&vb.oid, &hidden.oid), 0);
+}
+
 #define RUN_TEST(name)                                                                             \
 	do {                                                                                       \
 		printf("  %-50s ", #name);                                                         \
@@ -497,8 +620,9 @@ int main(void)
 	RUN_TEST(test_vacm_report_pdu_timeliness_structure);
 	RUN_TEST(test_usm_definitions_and_key_sizes);
 	RUN_TEST(test_continuous_uptime_wrap_guard);
+	RUN_TEST(test_vacm_getnext_view_filter_skips_hidden_oids);
 
 	printf("\n===============================\n");
-	printf("Results: %d passed, 0 failed, 10 total\n", tests_passed);
+	printf("Results: %d passed, 0 failed, %d total\n", tests_passed, tests_passed);
 	return 0;
 }

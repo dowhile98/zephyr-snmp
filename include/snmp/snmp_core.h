@@ -159,6 +159,21 @@ struct snmp_agent {
 	uint8_t view_cnt;
 
 	/**
+	 * @brief Read view applied to GetNext/GetBulk results while a v3 request is
+	 *        being dispatched. VACM is checked per returned OID, not only on the
+	 *        request OIDs, so a walk cannot step outside the user's view.
+	 *        Populated by the v3 path in snmp_core.c; inactive for v1/v2c.
+	 */
+	struct {
+		bool active;
+		uint8_t security_model;
+		uint8_t sec_level;
+		uint8_t access_type;
+		char context[SNMP_VACM_NAME_MAX_LEN];
+		char security_name[SNMP_VACM_NAME_MAX_LEN];
+	} view_filter;
+
+	/**
 	 * @brief Settings key prefix that holds this engine's snmpEngineBoots, or NULL
 	 *        when the instance does not persist it. Set from struct snmp_agent_cfg.
 	 */

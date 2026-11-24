@@ -827,13 +827,19 @@ int snmp_usm_add_user(struct snmp_agent *inst, const struct snmp_usm_user *user)
  * Default snmpEngineID when the application does not supply one (RFC 3411 §5).
  *
  * Layout: enterprise number with the high bit set (0x80001F88), then the format
- * octet 0x05 ("octets") and the engine identifier itself. Using the SoC unique
- * device ID keeps two boards running the same firmware from deriving identical
- * localized keys out of the same pass phrase, which is exactly what a single
- * hard-coded constant does. Boards without a device ID fall back to the historical
- * constant; applications can always override the value through cfg.engine_id.
+ * octet 0x05 ("octets") and the engine identifier itself. The SoC unique device ID
+ * keeps two boards running the same firmware from deriving identical localized keys
+ * out of the same pass phrase. When no device ID is available the identifier is
+ * random per boot instead of a hard-coded constant: a shared constant would let
+ * every such device derive the same keys from the same pass phrase, which is the
+ * exact failure RFC 3414 localization exists to prevent.
+ *
+ * A random engine ID changes across reboots, so applications that need stable
+ * localized keys (or more than one agent instance) must pin cfg.engine_id.
+ *
+ * Returns 0 on success, negative errno when no identifier could be produced.
  */
-static void usm_default_engine_id(struct snmp_agent *inst)
+static int usm_default_engine_id(struct snmp_agent *inst)
 {
 	static const uint8_t prefix[5] = {0x80, 0x00, 0x1F, 0x88, 0x05};
 	uint8_t dev_id[12]; /* STM32H7 exposes a 96-bit UID; drivers clamp to the buffer */
@@ -849,12 +855,21 @@ static void usm_default_engine_id(struct snmp_agent *inst)
 		memcpy(inst->engine_id, prefix, sizeof(prefix));
 		memcpy(&inst->engine_id[sizeof(prefix)], dev_id, (size_t)id_len);
 		inst->engine_id_len = (uint8_t)(sizeof(prefix) + (size_t)id_len);
-		return;
+		return 0;
 	}
 
+	uint8_t random_id[8];
+
+	if (sys_csrand_get(random_id, sizeof(random_id)) != 0) {
+		return -EIO;
+	}
+
+	LOG_WRN("No hardware device ID: using a random engine ID; set cfg.engine_id to pin it");
+
 	memcpy(inst->engine_id, prefix, sizeof(prefix));
-	memcpy(&inst->engine_id[sizeof(prefix)], "ZEPHYR1", 7);
-	inst->engine_id_len = (uint8_t)(sizeof(prefix) + 7);
+	memcpy(&inst->engine_id[sizeof(prefix)], random_id, sizeof(random_id));
+	inst->engine_id_len = (uint8_t)(sizeof(prefix) + sizeof(random_id));
+	return 0;
 }
 
 int snmp_usm_init(struct snmp_agent *inst)
@@ -875,7 +890,10 @@ int snmp_usm_init(struct snmp_agent *inst)
 	k_mutex_lock(&inst->lock, K_FOREVER);
 
 	if (inst->engine_id_len == 0) {
-		usm_default_engine_id(inst);
+		ret = usm_default_engine_id(inst);
+		if (ret < 0) {
+			goto unlock;
+		}
 	}
 
 	/*
@@ -903,7 +921,13 @@ int snmp_usm_init(struct snmp_agent *inst)
 		goto unlock;
 	}
 
-	if (inst->user_cnt == 0) {
+	/*
+	 * No shipped credentials: a default user is created only when the application
+	 * asked for one at build time. With an empty name, v3 stays closed until
+	 * snmp_usm_add_user() is called, which is the secure default (RFC 3414 §11.2
+	 * is about password length; shipping a known user is the actual risk).
+	 */
+	if (inst->user_cnt == 0 && CONFIG_SNMP_V3_USER_NAME[0] != '\0') {
 		struct snmp_usm_user default_user = {
 			.auth_protocol = CONFIG_SNMP_V3_AUTH_PROTOCOL,
 			.priv_protocol = CONFIG_SNMP_V3_PRIV_PROTOCOL,
@@ -960,6 +984,7 @@ static const uint32_t s_oid_unsupported_sec_levels[] = {1, 3, 6, 1, 6, 3, 15, 1,
 static const uint32_t s_oid_not_in_time_windows[] = {1, 3, 6, 1, 6, 3, 15, 1, 1, 2, 0};
 static const uint32_t s_oid_unknown_user_names[] = {1, 3, 6, 1, 6, 3, 15, 1, 1, 3, 0};
 static const uint32_t s_oid_unknown_engine_ids[] = {1, 3, 6, 1, 6, 3, 15, 1, 1, 4, 0};
+static const uint32_t s_oid_wrong_digests[] = {1, 3, 6, 1, 6, 3, 15, 1, 1, 5, 0};
 
 #define USM_REPORT_OID_LEN 11
 
@@ -1073,9 +1098,16 @@ int snmp_usm_verify_incoming(struct snmp_agent *inst, struct snmp_v3_msg *msg,
 	if (req_auth) {
 		ret = usm_verify_auth(msg, user, raw_buf, raw_len);
 		if (ret < 0) {
-			/* RFC 3414 §3.2 step 6: wrong digest is discarded, never reported. */
+			/*
+			 * RFC 3414 §3.2 step 6 hands usmStatsWrongDigests back to the
+			 * message processing model and RFC 3412 §7.2 step 6a attempts a
+			 * Report. The digest did not verify, so the Report goes out at
+			 * noAuthNoPriv; a manager with a stale key then learns why it is
+			 * being ignored instead of timing out.
+			 */
 			snmp_counter_inc(&inst->usm_stats.wrong_digests);
-			return -EACCES;
+			return usm_build_report(inst, msg, s_oid_wrong_digests,
+						inst->usm_stats.wrong_digests, false);
 		}
 	}
 

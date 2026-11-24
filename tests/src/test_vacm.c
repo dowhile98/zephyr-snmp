@@ -22,6 +22,23 @@
  */
 static struct snmp_agent s_vacm_test_agent;
 
+/*
+ * The module maps no identity by default. Tests that use the "admin" user create
+ * that mapping explicitly, exactly as an application must; "monitor" is already
+ * mapped to "readonly" by snmp_vacm_init().
+ */
+static int vacm_init_with_test_users(void)
+{
+	int ret = snmp_vacm_init(&s_vacm_test_agent);
+
+	if (ret < 0) {
+		return ret;
+	}
+
+	return snmp_vacm_add_group_mapping(&s_vacm_test_agent, SNMP_SEC_MODEL_USM, "admin",
+					   "admin");
+}
+
 #define ASSERT(c)          zassert_true(c, #c)
 #define ASSERT_EQ(a, b)    zassert_equal(a, b, NULL)
 #define ASSERT_NE(a, b)    zassert_not_equal(a, b, NULL)
@@ -31,7 +48,7 @@ static struct snmp_agent s_vacm_test_agent;
 
 ZTEST(snmp_vacm, test_vacm_group_mapping_resolution)
 {
-	int ret = snmp_vacm_init(&s_vacm_test_agent);
+	int ret = vacm_init_with_test_users();
 	ASSERT_EQ(ret, 0);
 
 	struct snmp_oid sys_oid = {.len = 8, .ids = {1, 3, 6, 1, 2, 1, 1, 1, 0}};
@@ -67,7 +84,7 @@ ZTEST(snmp_vacm, test_vacm_group_mapping_resolution)
 
 ZTEST(snmp_vacm, test_vacm_security_level_enforcement)
 {
-	int ret = snmp_vacm_init(&s_vacm_test_agent);
+	int ret = vacm_init_with_test_users();
 	ASSERT_EQ(ret, 0);
 
 	struct snmp_oid sys_oid = {.len = 8, .ids = {1, 3, 6, 1, 2, 1, 1, 1, 0}};
@@ -111,7 +128,7 @@ ZTEST(snmp_vacm, test_vacm_security_level_enforcement)
 
 ZTEST(snmp_vacm, test_vacm_oid_subtree_matching)
 {
-	int ret = snmp_vacm_init(&s_vacm_test_agent);
+	int ret = vacm_init_with_test_users();
 	ASSERT_EQ(ret, 0);
 
 	/* restrictedView includes 1.3.6.1.2.1.1 (system group) */
@@ -161,7 +178,7 @@ ZTEST(snmp_vacm, test_vacm_oid_subtree_matching)
 
 ZTEST(snmp_vacm, test_vacm_oid_subtree_excluded)
 {
-	int ret = snmp_vacm_init(&s_vacm_test_agent);
+	int ret = vacm_init_with_test_users();
 	ASSERT_EQ(ret, 0);
 
 	/* In fullView (1.3.6.1 included), add an EXCLUDED subtree: 1.3.6.1.4.1.99999 */
@@ -189,7 +206,7 @@ ZTEST(snmp_vacm, test_vacm_oid_subtree_excluded)
 
 ZTEST(snmp_vacm, test_vacm_wildcard_mask)
 {
-	int ret = snmp_vacm_init(&s_vacm_test_agent);
+	int ret = vacm_init_with_test_users();
 	ASSERT_EQ(ret, 0);
 
 	/* Create a custom view "wildView" with subtree 1.3.6.1.4.1.0.1
@@ -234,7 +251,7 @@ ZTEST(snmp_vacm, test_vacm_wildcard_mask)
 
 ZTEST(snmp_vacm, test_vacm_unknown_context_rejected)
 {
-	int ret = snmp_vacm_init(&s_vacm_test_agent);
+	int ret = vacm_init_with_test_users();
 	ASSERT_EQ(ret, 0);
 
 	struct snmp_oid sys_oid = {.len = 8, .ids = {1, 3, 6, 1, 2, 1, 1, 1, 0}};
@@ -270,7 +287,7 @@ ZTEST(snmp_vacm, test_vacm_unknown_context_rejected)
 
 ZTEST(snmp_vacm, test_vacm_check_access_backward_compat)
 {
-	int ret = snmp_vacm_init(&s_vacm_test_agent);
+	int ret = vacm_init_with_test_users();
 	ASSERT_EQ(ret, 0);
 
 	struct snmp_v3_msg msg;

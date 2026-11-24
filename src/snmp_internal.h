@@ -173,6 +173,35 @@ int snmp_service_detach(struct snmp_agent *agent);
  */
 int snmp_sock_bind_to_iface(int sock, struct net_if *iface);
 
+#if defined(CONFIG_SNMP_VERSION_3)
+/**
+ * @brief Is @p oid inside the read view of the request being dispatched?
+ *
+ * Evaluates the VACM view stored in @c agent->view_filter. When no v3 request is in
+ * flight (v1/v2c, or before the filter is armed) every OID is allowed: the community
+ * check has already authorised the request.
+ *
+ * @param inst Agent whose view_filter is consulted.
+ * @param oid  OID to test.
+ * @return true when the OID is visible, false when VACM denies it.
+ */
+bool snmp_vacm_oid_allowed(const struct snmp_agent *inst, const struct snmp_oid *oid);
+#endif
+
+/**
+ * @brief snmp_mib_get_next() that skips OIDs outside the active VACM read view.
+ *
+ * Used for GetNext and GetBulk only. The plain snmp_mib_get_next() is still correct
+ * for v1/v2c and for internal callers.
+ *
+ * @param inst Agent to query.
+ * @param oid  Starting OID (exclusive).
+ * @param vb   Receives the next visible varbind, or endOfMibView.
+ * @return 0 on success (including endOfMibView), negative errno on error.
+ */
+int snmp_mib_get_next_visible(struct snmp_agent *inst, const struct snmp_oid *oid,
+			      struct snmp_varbind *vb);
+
 #endif /* CONFIG_SNMP_AGENT */
 
 #endif /* ZEPHYR_MODULES_SNMP_SRC_SNMP_INTERNAL_H_ */

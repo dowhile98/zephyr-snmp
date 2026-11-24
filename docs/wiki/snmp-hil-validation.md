@@ -7,6 +7,14 @@
 **Reference:** `docs/wiki/snmp-hil-validation.md`
 **Final Verdict:** **PASS** (100% of functional tests, security models, tree walks, bulk transfers, notifications, and negative cases validated on physical STM32H7 hardware across SNMPv1, SNMPv2c, and SNMPv3 authNoPriv / authPriv)
 
+> **Note (2026-11-23):** this report records a HIL run of commit `f3cda2e`. Since then
+> the module ships no default USM user and no default write community, and SET is
+> gated behind `CONFIG_SNMP_SET_ENABLE`. The `v3test` identity below was the
+> compile-time default at the time of the run; the current sample registers
+> `CONFIG_SNMP_SAMPLE_V3_ADMIN_USER` and `CONFIG_SNMP_SAMPLE_V3_MONITOR_USER` at
+> run time instead. The measurements and verdicts are unchanged; only the
+> credential setup differs.
+
 ---
 
 ## 1. Validation Environment and Tested Hardware

@@ -60,23 +60,31 @@ required in `prj.conf`.
 
 ### Test-only USM users
 
+The module ships **no** default USM user and no default identity-to-group
+mapping: a v3 agent rejects every request until the application adds a user.
+This sample does it at run time in `main.c`, using its own Kconfig options:
+
 | Symbol | Value |
 | --- | --- |
-| `CONFIG_SNMP_V3_USER_NAME` | `v3test` |
-| `CONFIG_SNMP_V3_AUTH_PROTOCOL_SHA256` | `y` (HMAC-SHA-256) |
-| `CONFIG_SNMP_V3_AUTH_PASS` | `v3-auth-passphrase-test-only` |
-| `CONFIG_SNMP_V3_PRIV_PROTOCOL` | `1` (AES-128-CFB) |
-| `CONFIG_SNMP_V3_PRIV_PASS` | `v3-priv-passphrase-test-only` |
+| `CONFIG_SNMP_SAMPLE_V3_ADMIN_USER` | `v3admin` |
+| `CONFIG_SNMP_SAMPLE_V3_ADMIN_AUTH_PASS` | `v3-admin-auth-passphrase-test-only` |
+| `CONFIG_SNMP_SAMPLE_V3_ADMIN_PRIV_PASS` | `v3-admin-priv-passphrase-test-only` |
 | `CONFIG_SNMP_SAMPLE_V3_MONITOR_USER` | `v3monitor` |
 | `CONFIG_SNMP_SAMPLE_V3_MONITOR_AUTH_PASS` | `v3-monitor-auth-passphrase-test-only` |
 
-- `v3test` is created by `snmp_usm_init()` from the Kconfig values and is the
-  authPriv account used for SET and notifications. `snmp_vacm_init()` maps it to
-  group `admin` with view `fullView` (subtree `1.3.6.1`).
-- `v3monitor` is added at runtime by `main.c` with SHA-1 authentication and no
-  privacy. It is the account that `snmp_vacm_init()` already maps to group
-  `readonly` (view `restrictedView`, subtree `1.3.6.1.2.1.1`), which is why a
-  walk of the private MIB with this user must be refused rather than returned.
+- `v3admin` is registered by `main.c` with HMAC-SHA-256 authentication and
+  AES-128-CFB privacy, then mapped to VACM group `admin` (view `fullView`,
+  subtree `1.3.6.1`). It is also the account that signs and encrypts
+  notifications (`CONFIG_SNMP_TRAP_V3_USER`).
+- `v3monitor` is registered at runtime with SHA-1 authentication and no
+  privacy, then mapped to group `readonly` (view `restrictedView`, subtree
+  `1.3.6.1.2.1.1`). A walk of the private MIB with this user stops at the end of
+  the view instead of returning the OID.
+
+`CONFIG_SNMP_V3_USER_NAME` / `CONFIG_SNMP_V3_AUTH_PASS` /
+`CONFIG_SNMP_V3_PRIV_PASS` still exist as an optional compile-time default user
+for products that provision credentials in the image; this sample leaves them
+empty on purpose.
 
 Pass phrases shorter than 8 octets, `priv` without `auth`, and DES privacy are
 rejected by `snmp_usm_add_user()` (`-EINVAL` / `-ENOTSUP`), so misconfiguration
@@ -85,7 +93,7 @@ surfaces at init instead of as an unexplained authentication failure.
 ### Notifications
 
 `CONFIG_SNMP_TRAP_FORMAT_V3=y` selects SNMPv3 traps, and
-`CONFIG_SNMP_TRAP_V3_USER="v3test"` names the USM account that signs and
+`CONFIG_SNMP_TRAP_V3_USER="v3admin"` names the USM account that signs and
 encrypts them. The security level is derived from that user's capabilities
 (authPriv here). Set `CONFIG_SNMP_SAMPLE_TRAP_DEST` to the collector address.
 
@@ -108,9 +116,13 @@ The NUCLEO-H743ZI enables `CONFIG_HWINFO`, so the module derives the engine ID
 as `0x80001F88 05 || <96-bit device ID>` (RFC 3411 §5 format 5). Two boards
 flashed with this same sample therefore derive **different** localized keys
 from the same pass phrases, which is the point. The resulting ID is printed in
-the boot banner; use that value with `snmptrapd createUser`. Boards without a
-device-ID driver fall back to the fixed `0x80001F88 05 "ZEPHYR1"` value, in
-which case set `cfg.engine_id` yourself if you deploy more than one node.
+the boot banner; use that value with `snmptrapd createUser`.
+
+Boards without a device-ID driver fall back to a **random** engine ID drawn from
+the platform CSPRNG at every boot, not a fixed constant, so nodes do not share
+localized keys by accident. A random ID changes across reboots, which forces
+managers to redo discovery; for a stable deployed identity set `cfg.engine_id`
+explicitly.
 
 ---
 
@@ -149,7 +161,7 @@ Flashing the NUCLEO board goes through the bench tooling (`agentic-hil`), not
 <inf> main:   - Agent IP / Port : 192.168.68.102 : 161
 <inf> main:   - Read Community  : "public" (v1/v2c)
 <inf> main:   - Write Community : "private" (v1/v2c)
-<inf> main:   - v3 authPriv user: "v3test" (SHA-256 / AES-128-CFB)
+<inf> main:   - v3 authPriv user: "v3admin" (SHA-256 / AES-128-CFB)
 <inf> main:   - v3 authNoPriv   : "v3monitor" (SHA-1, read-only VACM group)
 <inf> main:   - engineBoots     : 1 (persisted when CONFIG_SETTINGS is on)
 <inf> main:   -- All credentials above are public test values. Never ship them. --
@@ -167,9 +179,9 @@ Replace `192.168.68.102` with the board's address.
 ### 1. Discovery and authPriv Get
 
 ```bash
-snmpget -v3 -u v3test -l authPriv -a SHA-256 \
-        -A 'v3-auth-passphrase-test-only' \
-        -x AES -X 'v3-priv-passphrase-test-only' \
+snmpget -v3 -u v3admin -l authPriv -a SHA-256 \
+        -A 'v3-admin-auth-passphrase-test-only' \
+        -x AES -X 'v3-admin-priv-passphrase-test-only' \
         192.168.68.102 1.3.6.1.4.1.54321.1.1.1.0
 ```
 
@@ -195,12 +207,12 @@ snmpget -v3 -u v3monitor -l authNoPriv -a SHA \
 ### 3. authPriv Set and GetBulk
 
 ```bash
-snmpset -v3 -u v3test -l authPriv -a SHA-256 \
-        -A 'v3-auth-passphrase-test-only' -x AES -X 'v3-priv-passphrase-test-only' \
+snmpset -v3 -u v3admin -l authPriv -a SHA-256 \
+        -A 'v3-admin-auth-passphrase-test-only' -x AES -X 'v3-admin-priv-passphrase-test-only' \
         192.168.68.102 1.3.6.1.4.1.54321.1.1.2.0 i 1
 
-snmpbulkwalk -v3 -u v3test -l authPriv -a SHA-256 \
-        -A 'v3-auth-passphrase-test-only' -x AES -X 'v3-priv-passphrase-test-only' \
+snmpbulkwalk -v3 -u v3admin -l authPriv -a SHA-256 \
+        -A 'v3-admin-auth-passphrase-test-only' -x AES -X 'v3-admin-priv-passphrase-test-only' \
         192.168.68.102 1.3.6.1.4.1.54321.1
 ```
 
@@ -209,7 +221,7 @@ snmpbulkwalk -v3 -u v3test -l authPriv -a SHA-256 \
 | Probe | Expected |
 | --- | --- |
 | Unknown user name, `-l authNoPriv`, `-u nosuchuser` | `Report` with `usmStatsUnknownUserNames.0` |
-| Wrong `-A` pass phrase | silent drop / timeout (`usmStatsWrongDigests` increments) |
+| Wrong `-A` pass phrase | `Report` with `usmStatsWrongDigests.0` when reportable (RFC 3414 §3.2); a non-reportable bad digest is dropped silently and the counter still increments |
 | `-u v3monitor -l authPriv` (user has no privacy) | `Report` with `usmStatsUnsupportedSecLevels.0` |
 | Replay of an old authenticated frame | `Report` with `usmStatsNotInTimeWindows.0` (after the 150 s window) |
 | v2c `-c public` against the same instance | still answers (v2c is enabled on purpose) |
@@ -221,9 +233,9 @@ snmpbulkwalk -v3 -u v3test -l authPriv -a SHA-256 \
 sudo snmptrapd -f -Lo -C -c /etc/snmp/snmptrapd.conf
 
 # In /etc/snmp/snmptrapd.conf (createUser must match the sample's pass phrases)
-#   createUser -e 0x80001F88805A455048595231 v3test SHA-256 \
-#       v3-auth-passphrase-test-only AES v3-priv-passphrase-test-only
-#   authUser log,execute,net v3test
+#   createUser -e 0x80001F88805A455048595231 v3admin SHA-256 \
+#       v3-admin-auth-passphrase-test-only AES v3-admin-priv-passphrase-test-only
+#   authUser log,execute,net v3admin
 ```
 
 The engine ID in `createUser` must be the one the agent reports in its
@@ -247,9 +259,11 @@ sample.
 2. Persist `snmpEngineBoots` (enable a settings backend, or call
    `snmp_usm_set_engine_boots()` with a value read from secure storage before
    `snmp_agent_start()`).
-3. Review the default VACM tables in `src/snmp_vacm.c`: `v3test`/`admin` gets
-   all of `1.3.6.1`, `v3monitor`/`readonly` only the system group. Add
-   `snmp_vacm_add_access_rule()` calls for the accounts your product needs.
+3. Register your own USM users with `snmp_usm_add_user()` and map them with
+   `snmp_vacm_add_group_mapping()` / `snmp_vacm_add_access_rule()`. The module
+   ships no default user and no default identity mapping; the `admin` and
+   `readonly` groups that `snmp_vacm_init()` creates are only reachable once an
+   application maps a user to them.
 4. Replace the simulated telemetry in `src/app_sensor.c` with real drivers and
    the enterprise ID with your IANA-assigned number.
 5. DES-CBC privacy is not implemented (RFC 3414's DES is deprecated); use AES.

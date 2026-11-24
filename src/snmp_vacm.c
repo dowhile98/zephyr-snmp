@@ -16,6 +16,11 @@
 
 #if (defined(CONFIG_SNMP) || defined(CONFIG_SNMP_AGENT)) && defined(CONFIG_SNMP_VERSION_3)
 
+/* Host builds have no Kconfig: no compile-time default user unless defined. */
+#ifndef CONFIG_SNMP_V3_USER_NAME
+#define CONFIG_SNMP_V3_USER_NAME ""
+#endif
+
 /* ---- Internal Helpers ---- */
 
 static void safe_strncpy(char *dst, const char *src, size_t dst_sz)
@@ -228,11 +233,18 @@ int snmp_vacm_init(struct snmp_agent *inst)
 		return ret;
 	}
 
-	/* Group "admin": mapped from USM user CONFIG_SNMP_V3_USER_NAME */
-	ret = snmp_vacm_add_group_mapping(inst, SNMP_SEC_MODEL_USM, CONFIG_SNMP_V3_USER_NAME,
-					  "admin");
-	if (ret < 0) {
-		return ret;
+	/*
+	 * No default identity is mapped. The "admin" policy below still exists as a
+	 * convenience, but nothing reaches it until an application adds a user and
+	 * maps it here. With CONFIG_SNMP_V3_USER_NAME empty (the default) every v3
+	 * request is rejected until the application does exactly that.
+	 */
+	if (CONFIG_SNMP_V3_USER_NAME[0] != '\0') {
+		ret = snmp_vacm_add_group_mapping(inst, SNMP_SEC_MODEL_USM,
+						  CONFIG_SNMP_V3_USER_NAME, "admin");
+		if (ret < 0) {
+			return ret;
+		}
 	}
 
 	/* Access rule: "admin" gets "fullView" for Read, Write, Notify with authNoPriv+ */
@@ -519,6 +531,24 @@ int snmp_vacm_check_access_ex(struct snmp_agent *inst, const char *context_name,
 
 	/* 5. View Tree Family OID matching per RFC 3415 §4 */
 	return vacm_evaluate_view(inst, view, target_oid);
+}
+
+bool snmp_vacm_oid_allowed(const struct snmp_agent *inst, const struct snmp_oid *oid)
+{
+	if (!inst || !oid) {
+		return false;
+	}
+
+	if (!inst->view_filter.active) {
+		/* No v3 view in flight (v1/v2c or internal caller): already authorised. */
+		return true;
+	}
+
+	/* snmp_vacm_check_access_ex() only reads the tables; the cast drops const. */
+	return snmp_vacm_check_access_ex(
+		       (struct snmp_agent *)inst, inst->view_filter.context,
+		       inst->view_filter.security_model, inst->view_filter.security_name,
+		       inst->view_filter.sec_level, inst->view_filter.access_type, oid) == 0;
 }
 
 int snmp_vacm_check_access(struct snmp_agent *inst, const struct snmp_v3_msg *msg, bool is_write)

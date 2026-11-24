@@ -106,9 +106,10 @@ snmpget   -v2c -c public  <IP> sysDescr.0
 snmpwalk  -v2c -c public  <IP> 1.3.6.1.2.1
 snmpbulkwalk -v2c -c public <IP> 1.3.6.1
 
-# v3 authPriv
-snmpwalk -v3 -u admin -l authPriv \
-  -a SHA -A authpass123 -x AES -X privpass123 <IP> 1.3.6.1
+# v3 authPriv (the agent ships no default user: register one first, e.g. with
+# snmp_usm_add_user(), then use its name and pass phrases here)
+snmpwalk -v3 -u <user> -l authPriv \
+  -a SHA -A <auth-pass> -x AES -X <priv-pass> <IP> 1.3.6.1
 
 # Listen for traps
 snmptrapd -f -Lo
@@ -136,9 +137,9 @@ snmptrapd -f -Lo
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `CONFIG_SNMP_V3_ENGINE_BOOTS` | int | 1 | Initial engine boots counter (monotonic) |
-| `CONFIG_SNMP_V3_USER_NAME` | string | "admin" | Default SNMPv3 username |
-| `CONFIG_SNMP_V3_AUTH_PASS` | string | "authpass123" | Authentication password |
-| `CONFIG_SNMP_V3_PRIV_PASS` | string | "privpass123" | Privacy (encryption) password |
+| `CONFIG_SNMP_V3_USER_NAME` | string | "" | Optional compile-time default user; empty means no user is created |
+| `CONFIG_SNMP_V3_AUTH_PASS` | string | "" | Authentication pass phrase for that optional user |
+| `CONFIG_SNMP_V3_PRIV_PASS` | string | "" | Privacy pass phrase for that optional user |
 | `CONFIG_SNMP_USM_AUTH_SHA` | bool | y | Enable HMAC-SHA1 authentication |
 | `CONFIG_SNMP_USM_AUTH_MD5` | bool | n | Enable HMAC-MD5 authentication |
 | `CONFIG_SNMP_USM_PRIV_AES` | bool | y | Enable AES-128-CFB privacy |
@@ -399,15 +400,18 @@ snmpset -v2c -c private <IP> sysContact.0 s "new@corp.com"
 ### v3 Tests
 
 ```bash
+# No user exists until the application registers one (snmp_usm_add_user()) and
+# maps it in VACM (snmp_vacm_add_group_mapping()); substitute that identity here.
+#
 # noAuthNoPriv
-snmpwalk -v3 -u admin -l noAuthNoPriv <IP> 1.3.6.1.2.1
+snmpwalk -v3 -u <user> -l noAuthNoPriv <IP> 1.3.6.1.2.1
 
 # authNoPriv
-snmpwalk -v3 -u admin -l authNoPriv -a SHA -A authpass123 <IP> 1.3.6.1.2.1
+snmpwalk -v3 -u <user> -l authNoPriv -a SHA -A <auth-pass> <IP> 1.3.6.1.2.1
 
 # authPriv
-snmpwalk -v3 -u admin -l authPriv \
-  -a SHA -A authpass123 -x AES -X privpass123 <IP> 1.3.6.1.2.1
+snmpwalk -v3 -u <user> -l authPriv \
+  -a SHA -A <auth-pass> -x AES -X <priv-pass> <IP> 1.3.6.1.2.1
 ```
 
 ### Rate Limit Test

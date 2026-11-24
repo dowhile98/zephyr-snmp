@@ -37,11 +37,18 @@ LOG_MODULE_REGISTER(snmp, CONFIG_SNMP_LOG_LEVEL);
 #endif
 
 #ifndef CONFIG_SNMP_COMMUNITY_WRITE
-#define CONFIG_SNMP_COMMUNITY_WRITE "private"
+#define CONFIG_SNMP_COMMUNITY_WRITE ""
 #endif
 
 #ifndef CONFIG_SNMP_AGENT_PORT
 #define CONFIG_SNMP_AGENT_PORT 161
+#endif
+
+/* Host builds and CONFIG-less builds: SET stays off unless Kconfig enables it. */
+#if defined(CONFIG_SNMP_SET_ENABLE)
+#define SNMP_SET_ENABLED 1
+#else
+#define SNMP_SET_ENABLED 0
 #endif
 
 #ifndef CONFIG_SNMP_V3_ENGINE_BOOTS
@@ -79,6 +86,14 @@ static bool community_matches(const struct snmp_pdu *pdu, const char *configured
 	}
 
 	len = strlen(configured);
+
+	/* An unset community must match nothing. Without this, a zero-length
+	 * community on the wire would match an empty configured string.
+	 */
+	if (len == 0) {
+		return false;
+	}
+
 	return pdu->community_len == len && memcmp(pdu->community, configured, len) == 0;
 }
 
@@ -476,6 +491,27 @@ static int process_v1v2c(struct snmp_agent *agent, const uint8_t *req_buf, size_
 
 	/* Community / Security validation */
 	bool is_write = (agent->current_pdu.type == SNMP_PDU_SET_REQ);
+	uint8_t req_type = agent->current_pdu.type;
+	int32_t non_rep =
+		agent->current_pdu.non_repeaters < 0 ? 0 : agent->current_pdu.non_repeaters;
+
+	if (non_rep > (int32_t)agent->current_pdu.varbind_cnt) {
+		non_rep = agent->current_pdu.varbind_cnt;
+	}
+
+	if (is_write && !SNMP_SET_ENABLED) {
+		/*
+		 * SET is compiled out. Answer as if the object were not writable rather
+		 * than dropping the request: a manager then sees a deterministic answer
+		 * and no MIB write callback is reachable.
+		 */
+		agent->current_pdu.type = SNMP_PDU_GET_RESP;
+		agent->current_pdu.error_status = (agent->current_pdu.version == 0)
+							  ? 2 /* noSuchName, RFC 1157 */
+							  : SNMP_ERR_NOT_WRITABLE;
+		agent->current_pdu.error_index = 0;
+		goto encode_response;
+	}
 
 	if (is_write) {
 		if (!community_matches(&agent->current_pdu, agent->write_community)) {
@@ -501,13 +537,6 @@ static int process_v1v2c(struct snmp_agent *agent, const uint8_t *req_buf, size_
 		}
 	}
 
-	uint8_t req_type = agent->current_pdu.type;
-	int32_t non_rep =
-		agent->current_pdu.non_repeaters < 0 ? 0 : agent->current_pdu.non_repeaters;
-	if (non_rep > (int32_t)agent->current_pdu.varbind_cnt) {
-		non_rep = agent->current_pdu.varbind_cnt;
-	}
-
 	if (req_type == SNMP_PDU_INFORM_REQ) {
 		/*
 		 * An Inform is a notification this agent receives as a notification
@@ -526,6 +555,7 @@ static int process_v1v2c(struct snmp_agent *agent, const uint8_t *req_buf, size_
 		}
 	}
 
+encode_response:
 	/* Encode response PDU */
 	size_t encoded_len = 0;
 	ret = snmp_ber_encode_pdu(resp_buf, max_resp_len, &encoded_len, &agent->current_pdu);
@@ -638,8 +668,32 @@ static int process_v3(struct snmp_agent *agent, const uint8_t *req_buf, size_t r
 	user_name[name_len] = '\0';
 
 	bool authorized = true;
+	bool is_walk = (msg.scoped.pdu.type == SNMP_PDU_GET_NEXT_REQ ||
+			msg.scoped.pdu.type == SNMP_PDU_GET_BULK_REQ);
 
-	if (msg.scoped.pdu.varbind_cnt == 0) {
+	if (is_walk) {
+		/*
+		 * GetNext/GetBulk are authorised as a class, not per request OID: the
+		 * walk starts wherever the manager says, and the view is enforced on
+		 * every OID actually returned (snmp_mib_get_next_visible()). Rejecting
+		 * the request OID here is what made a walk from 1.3.6.1.2.1 fail even
+		 * when the whole subtree was in the view.
+		 */
+		authorized = snmp_vacm_check_access_ex(agent, (const char *)msg.scoped.context_name,
+						       msg.global.msg_security_model, user_name,
+						       sec_level, access_type, NULL) == 0;
+		if (authorized) {
+			memset(&agent->view_filter, 0, sizeof(agent->view_filter));
+			agent->view_filter.active = true;
+			agent->view_filter.security_model = (uint8_t)msg.global.msg_security_model;
+			agent->view_filter.sec_level = (uint8_t)sec_level;
+			agent->view_filter.access_type = SNMP_VACM_ACCESS_READ;
+			copy_str(agent->view_filter.context, sizeof(agent->view_filter.context),
+				 (const char *)msg.scoped.context_name);
+			copy_str(agent->view_filter.security_name,
+				 sizeof(agent->view_filter.security_name), user_name);
+		}
+	} else if (msg.scoped.pdu.varbind_cnt == 0) {
 		authorized = snmp_vacm_check_access_ex(agent, (const char *)msg.scoped.context_name,
 						       msg.global.msg_security_model, user_name,
 						       sec_level, access_type, NULL) == 0;
@@ -680,10 +734,13 @@ static int process_v3(struct snmp_agent *agent, const uint8_t *req_buf, size_t r
 		INST_COUNTER_INC(agent, snmpInTraps);
 	} else {
 		ret = snmp_mib_dispatch(agent, &msg.scoped.pdu);
+		agent->view_filter.active = false;
 		if (ret < 0) {
 			return ret;
 		}
 	}
+
+	agent->view_filter.active = false;
 
 	/* Set response metadata (RFC 3412 §7.1: echo request's contextEngineID and contextName) */
 	msg.global.msg_max_size = CONFIG_SNMP_MAX_PDU_SIZE;
